@@ -463,33 +463,36 @@ CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfo
         const headers = { Authorization: `Bearer ${key}` };
 
         if (electronApi?.callLlmApi) {
-          const res = await electronApi.callLlmApi({ endpoint, headers, method: 'GET' });
-          if (res.success && res.data?.data) {
-            const info = res.data.data;
-            const statusTag = info.is_free_tier ? 'Free Tier' : 'Active Account';
-            return {
-              valid: true,
-              message: `OpenRouter key verified (${statusTag})!`,
-              model: 'OpenRouter Unified API',
-            };
-          } else {
-            return { valid: false, message: res.error || 'Invalid OpenRouter API Key' };
+          try {
+            const res = await electronApi.callLlmApi({ endpoint, headers, method: 'GET' });
+            if (res.success && res.data?.data) {
+              const info = res.data.data;
+              const statusTag = info.is_free_tier ? 'Free Tier' : 'Active Account';
+              return {
+                valid: true,
+                message: `OpenRouter key verified (${statusTag})!`,
+                model: 'OpenRouter Unified API',
+              };
+            }
+          } catch {
+            // Fall through to direct fetch
           }
+        }
+
+        // Direct Browser/Node fetch fallback
+        const res = await fetch(endpoint, { method: 'GET', headers });
+        if (res.ok) {
+          const data = await res.json();
+          const info = data?.data;
+          const statusTag = info?.is_free_tier ? 'Free Tier' : 'Active Account';
+          return {
+            valid: true,
+            message: `OpenRouter key verified (${statusTag})!`,
+            model: 'OpenRouter Unified API',
+          };
         } else {
-          const res = await fetch(endpoint, { method: 'GET', headers });
-          if (res.ok) {
-            const data = await res.json();
-            const info = data?.data;
-            const statusTag = info?.is_free_tier ? 'Free Tier' : 'Active Account';
-            return {
-              valid: true,
-              message: `OpenRouter key verified (${statusTag})!`,
-              model: 'OpenRouter Unified API',
-            };
-          } else {
-            const errData = await res.json().catch(() => ({}));
-            return { valid: false, message: errData?.error?.message || `HTTP ${res.status}: Invalid key` };
-          }
+          const errData = await res.json().catch(() => ({}));
+          return { valid: false, message: errData?.error?.message || `HTTP ${res.status}: Invalid key` };
         }
       } catch (err: any) {
         return { valid: false, message: err.message };
