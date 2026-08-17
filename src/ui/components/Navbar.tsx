@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Radar, LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, CloudCheck, RefreshCw } from 'lucide-react';
+import { Radar, LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw } from 'lucide-react';
 import { s3Cloud, S3SyncStatus } from '../../app-core/s3Client';
 
 interface NavbarProps {
