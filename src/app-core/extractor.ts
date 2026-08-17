@@ -28,6 +28,12 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
     .replace(/&gt;/gi, '>')
     .trim();
 
+  // Validate input contains actual readable alphanumeric text
+  const alphanumericOnly = text.replace(/[^a-zA-Z0-9]/g, '');
+  if (!text || alphanumericOnly.length < 12) {
+    throw new Error('Unable to extract job details: Input is empty, contains only emojis/symbols, or lacks substantive job posting content.');
+  }
+
   let companyName = '';
   let jobTitle = '';
   let location: string | null = null;

@@ -9,23 +9,23 @@ async function runEdgeCases() {
 
   // 1. Empty string test
   console.log('--- 1. EMPTY INPUT TEST ---');
-  const emptyExt = extractJobDetails('');
-  console.log('Empty text output:', {
-    company: emptyExt.companyName,
-    role: emptyExt.jobTitle,
-    location: emptyExt.location,
-    dedupHash: emptyExt.dedupHash,
-  });
+  try {
+    extractJobDetails('');
+    console.error('❌ Failed: Expected extractor to throw on empty input');
+  } catch (err: any) {
+    console.log('✓ Handled Correctly (Threw error, prevented ghost job creation):');
+    console.log(`  "${err.message}"`);
+  }
 
   // 2. Emoji-only string test
   console.log('\n--- 2. EMOJI-ONLY INPUT TEST ---');
-  const emojiExt = extractJobDetails('🔥🔥🔥🚀🚀🚀💼💼💼📍📍📍💰💰💰');
-  console.log('Emoji text output:', {
-    company: emojiExt.companyName,
-    role: emojiExt.jobTitle,
-    location: emojiExt.location,
-    dedupHash: emojiExt.dedupHash,
-  });
+  try {
+    extractJobDetails('🔥🔥🔥🚀🚀🚀💼💼💼📍📍📍💰💰💰');
+    console.error('❌ Failed: Expected extractor to throw on emoji-only input');
+  } catch (err: any) {
+    console.log('✓ Handled Correctly (Threw error, prevented ghost job creation):');
+    console.log(`  "${err.message}"`);
+  }
 
   // 3. 10,000 words massive text test
   console.log('\n--- 3. 10,000 WORDS MASSIVE INPUT TEST ---');
