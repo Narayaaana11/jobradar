@@ -9,13 +9,18 @@ export interface ILlmResponse<T> {
   modelUsed?: string;
 }
 
-const OPENROUTER_FALLBACK_MODELS = [
-  'anthropic/claude-3.5-sonnet',
+const OPENROUTER_FREE_MODELS = [
   'meta-llama/llama-3.3-70b-instruct:free',
   'google/gemini-2.0-flash-lite:free',
-  'deepseek/deepseek-chat',
+  'google/gemini-2.0-flash:free',
+  'deepseek/deepseek-r1:free',
+  'qwen/qwen-2.5-coder-32b-instruct:free',
+];
+
+const OPENROUTER_PAID_MODELS = [
+  'anthropic/claude-3.5-sonnet',
   'openai/gpt-4o-mini',
-  'openrouter/auto',
+  'deepseek/deepseek-chat',
 ];
 
 export class LlmClientService {
@@ -44,9 +49,13 @@ export class LlmClientService {
         Authorization: `Bearer ${key}`,
       };
 
-      const modelsToTry = preferredModel
-        ? [preferredModel, ...OPENROUTER_FALLBACK_MODELS.filter((m) => m !== preferredModel)]
-        : OPENROUTER_FALLBACK_MODELS;
+      // Build model trial sequence: preferred model -> paid models -> free tier fallback models
+      const baseList = preferredModel
+        ? [preferredModel, ...OPENROUTER_PAID_MODELS.filter((m) => m !== preferredModel), ...OPENROUTER_FREE_MODELS]
+        : [...OPENROUTER_PAID_MODELS, ...OPENROUTER_FREE_MODELS];
+
+      // Remove duplicates while preserving order
+      const modelsToTry = Array.from(new Set(baseList));
 
       let lastError = '';
 
@@ -95,7 +104,7 @@ export class LlmClientService {
         }
       }
 
-      throw new Error(lastError || 'OpenRouter model request failed on all fallback endpoints.');
+      throw new Error(lastError || 'OpenRouter request failed across all model endpoints.');
     } else {
       // Anthropic Direct Messages API
       const endpoint = 'https://api.anthropic.com/v1/messages';
@@ -441,8 +450,8 @@ CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfo
    */
   public async testApiKey(apiKey: string): Promise<{ valid: boolean; message: string; model?: string }> {
     try {
-      // Test with openrouter/auto or llama-3.3-70b-instruct:free so free accounts with $0 balance connect instantly!
-      const { model } = await this.callLlm('Reply with "OK"', 'You are a test ping bot.', apiKey, 'openrouter/auto');
+      // Test directly with meta-llama/llama-3.3-70b-instruct:free so free accounts with $0 balance connect instantly!
+      const { model } = await this.callLlm('Reply with "OK"', 'You are a test ping bot.', apiKey, 'meta-llama/llama-3.3-70b-instruct:free');
       return { valid: true, message: 'API Key is valid and connected!', model };
     } catch (err: any) {
       return { valid: false, message: err.message };
