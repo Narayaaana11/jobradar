@@ -9,12 +9,12 @@ export interface ILlmResponse<T> {
   modelUsed?: string;
 }
 
-const OPENROUTER_FREE_MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',
+const OPENROUTER_ACTIVE_FREE_MODELS = [
   'google/gemini-2.0-flash-lite:free',
   'google/gemini-2.0-flash:free',
+  'meta-llama/llama-3.2-3b-instruct:free',
   'deepseek/deepseek-r1:free',
-  'qwen/qwen-2.5-coder-32b-instruct:free',
+  'mistralai/mistral-7b-instruct:free',
 ];
 
 const OPENROUTER_PAID_MODELS = [
@@ -49,12 +49,11 @@ export class LlmClientService {
         Authorization: `Bearer ${key}`,
       };
 
-      // Build model trial sequence: preferred model -> paid models -> free tier fallback models
+      // Model trial sequence: preferred model -> free active models -> paid models
       const baseList = preferredModel
-        ? [preferredModel, ...OPENROUTER_PAID_MODELS.filter((m) => m !== preferredModel), ...OPENROUTER_FREE_MODELS]
-        : [...OPENROUTER_PAID_MODELS, ...OPENROUTER_FREE_MODELS];
+        ? [preferredModel, ...OPENROUTER_ACTIVE_FREE_MODELS.filter((m) => m !== preferredModel), ...OPENROUTER_PAID_MODELS]
+        : [...OPENROUTER_ACTIVE_FREE_MODELS, ...OPENROUTER_PAID_MODELS];
 
-      // Remove duplicates while preserving order
       const modelsToTry = Array.from(new Set(baseList));
 
       let lastError = '';
@@ -72,7 +71,7 @@ export class LlmClientService {
 
           if (electronApi?.callLlmApi) {
             // Native Electron IPC Request
-            const res = await electronApi.callLlmApi({ endpoint, headers, body });
+            const res = await electronApi.callLlmApi({ endpoint, headers, body, method: 'POST' });
             if (res.success && res.data?.choices?.[0]?.message?.content) {
               return {
                 text: res.data.choices[0].message.content,
@@ -123,7 +122,7 @@ export class LlmClientService {
       };
 
       if (electronApi?.callLlmApi) {
-        const res = await electronApi.callLlmApi({ endpoint, headers, body });
+        const res = await electronApi.callLlmApi({ endpoint, headers, body, method: 'POST' });
         if (!res.success) {
           throw new Error(res.error || `Anthropic request failed (Status: ${res.status || 'unknown'})`);
         }
@@ -446,15 +445,63 @@ CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfo
   }
 
   /**
-   * Validates if an API Key is active
+   * Validates if an API Key is active using OpenRouter's official Auth Check API
+   * or direct message probe for Anthropic.
    */
   public async testApiKey(apiKey: string): Promise<{ valid: boolean; message: string; model?: string }> {
-    try {
-      // Test directly with meta-llama/llama-3.3-70b-instruct:free so free accounts with $0 balance connect instantly!
-      const { model } = await this.callLlm('Reply with "OK"', 'You are a test ping bot.', apiKey, 'meta-llama/llama-3.3-70b-instruct:free');
-      return { valid: true, message: 'API Key is valid and connected!', model };
-    } catch (err: any) {
-      return { valid: false, message: err.message };
+    if (!apiKey || !apiKey.trim()) {
+      return { valid: false, message: 'Please provide an API key.' };
+    }
+
+    const key = apiKey.trim();
+    const isOpenRouter = key.startsWith('sk-or-') || !key.startsWith('sk-ant-');
+    const electronApi = (window as any)?.electronAPI;
+
+    if (isOpenRouter) {
+      try {
+        const endpoint = 'https://openrouter.ai/api/v1/auth/key';
+        const headers = { Authorization: `Bearer ${key}` };
+
+        if (electronApi?.callLlmApi) {
+          const res = await electronApi.callLlmApi({ endpoint, headers, method: 'GET' });
+          if (res.success && res.data?.data) {
+            const info = res.data.data;
+            const statusTag = info.is_free_tier ? 'Free Tier' : 'Active Account';
+            return {
+              valid: true,
+              message: `OpenRouter key verified (${statusTag})!`,
+              model: 'OpenRouter Unified API',
+            };
+          } else {
+            return { valid: false, message: res.error || 'Invalid OpenRouter API Key' };
+          }
+        } else {
+          const res = await fetch(endpoint, { method: 'GET', headers });
+          if (res.ok) {
+            const data = await res.json();
+            const info = data?.data;
+            const statusTag = info?.is_free_tier ? 'Free Tier' : 'Active Account';
+            return {
+              valid: true,
+              message: `OpenRouter key verified (${statusTag})!`,
+              model: 'OpenRouter Unified API',
+            };
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            return { valid: false, message: errData?.error?.message || `HTTP ${res.status}: Invalid key` };
+          }
+        }
+      } catch (err: any) {
+        return { valid: false, message: err.message };
+      }
+    } else {
+      // Anthropic direct test
+      try {
+        const { model } = await this.callLlm('Reply with "OK"', 'You are a test ping bot.', key);
+        return { valid: true, message: 'Anthropic Claude API connected!', model };
+      } catch (err: any) {
+        return { valid: false, message: err.message };
+      }
     }
   }
 }

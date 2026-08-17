@@ -97,13 +97,17 @@ ipcMain.handle('save-pdf-file', async (_event, { filename, base64Data }) => {
 });
 
 // IPC Handler: Native Zero-CORS LLM API Execution
-ipcMain.handle('call-llm-api', async (_event, { endpoint, headers, body }) => {
+ipcMain.handle('call-llm-api', async (_event, { endpoint, headers, body, method = 'POST' }) => {
   try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
+    const fetchOptions = {
+      method,
       headers: headers || { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    };
+    if (method !== 'GET' && body) {
+      fetchOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
+    }
+
+    const res = await fetch(endpoint, fetchOptions);
 
     const status = res.status;
     const text = await res.text();
