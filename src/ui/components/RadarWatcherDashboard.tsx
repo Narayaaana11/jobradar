@@ -58,6 +58,33 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
   // Filter
   const [activeFilter, setActiveFilter] = useState<'all' | 'approved' | 'extracted' | 'noise'>('all');
 
+  // Autonomous Chat Interception State
+  const [isIntercepting, setIsIntercepting] = useState(false);
+  const [interceptDays, setInterceptDays] = useState<number>(7);
+  const [interceptStats, setInterceptStats] = useState<{
+    totalScanned: number;
+    noiseDropped: number;
+    jobsIngested: number;
+    councilApproved: number;
+    windowStart: string;
+    windowEnd: string;
+  } | null>(null);
+
+  const activeDateWindow = channelManager.getActiveDateWindow();
+
+  const handleRunFullIntercept = async (daysBack?: number) => {
+    setIsIntercepting(true);
+    try {
+      const stats = await channelManager.runAutonomousChannelIntercept(daysBack || interceptDays);
+      setInterceptStats(stats);
+      refreshState();
+    } catch (err) {
+      console.error('Intercept error:', err);
+    } finally {
+      setIsIntercepting(false);
+    }
+  };
+
   useEffect(() => {
     // Request notification permission if not granted
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
@@ -307,6 +334,84 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
             <span>Custom</span>
           </button>
         </div>
+      </div>
+
+      {/* ── Autonomous Chat Interceptor & Date-Window Ingestion Action Banner ── */}
+      <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#141418] to-[#18181b] border border-purple-900/60 rounded-[24px] shadow-2xl space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-purple-950/80 border border-purple-800 text-purple-400">
+                <Zap className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-extrabold text-white">Autonomous Chat Interceptor & Ingestion Engine</h2>
+              <span className="px-2.5 py-0.5 rounded-full bg-purple-950 border border-purple-800 text-purple-300 font-mono text-[10px] font-bold">
+                {activeDateWindow.isBackfill
+                  ? `📅 Catch-Up Window: ${activeDateWindow.days} Days`
+                  : `📅 Date Window: Past ${activeDateWindow.days} Days (${activeDateWindow.start.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – Today)`}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400 max-w-2xl">
+              Extracts messages from active WhatsApp & Telegram companion windows within your target date range, sequences them chronologically (descending), filters out non-job noise with AI, deduplicates postings, and auto-syncs to AWS S3.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <select
+              value={interceptDays}
+              onChange={(e) => setInterceptDays(parseInt(e.target.value, 10))}
+              className="px-3 py-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs rounded-xl font-mono focus:outline-none"
+            >
+              <option value={7}>Past 7 Days</option>
+              <option value={14}>Past 14 Days</option>
+              <option value={3}>Past 3 Days</option>
+              <option value={1}>Today Only</option>
+            </select>
+
+            <button
+              onClick={() => handleRunFullIntercept()}
+              disabled={isIntercepting}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:brightness-110 text-white font-extrabold text-xs transition shadow-lg flex items-center gap-2 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isIntercepting ? 'animate-spin' : ''}`} />
+              <span>{isIntercepting ? 'Scraping & Evaluating...' : '🚀 Intercept & Evaluate Chats'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Live Interception Result Feedback */}
+        {interceptStats && (
+          <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-center gap-2 text-zinc-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>
+                  Date Range: <strong>{interceptStats.windowStart} – {interceptStats.windowEnd}</strong>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-[11px]">
+                <span className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-300">
+                  Scanned: {interceptStats.totalScanned}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-900">
+                  Noise Dropped: {interceptStats.noiseDropped}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-900">
+                  Ingested: {interceptStats.jobsIngested}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-900 font-bold">
+                  Council Approved: {interceptStats.councilApproved}
+                </span>
+              </div>
+            </div>
+
+            {interceptStats.totalScanned === 0 && (
+              <p className="text-[11px] text-amber-400/90 font-mono bg-amber-950/30 border border-amber-900/40 p-2 rounded-lg">
+                💡 <strong>Companion Windows Tip:</strong> Open your WhatsApp / Telegram window via <strong>"Link WhatsApp"</strong> or <strong>"Login Telegram"</strong>. Click into a job channel or community (or view the Channels tab), then click <strong>"Intercept & Evaluate"</strong> so Electron can capture the latest posts.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Active Listener Summary Cards ── */}

@@ -176,89 +176,8 @@ export class ChannelManagerService {
         }
       } catch (e) {}
     }
-
-    return [
-      // Real Telegram Channels from User's Account
-      {
-        platform: 'telegram',
-        type: 'channel',
-        name: 'Freshershunt - Off Campus Drive Updates',
-        memberCount: 28400,
-        enabled: true,
-      },
-      {
-        platform: 'telegram',
-        type: 'channel',
-        name: 'Mohan Careers',
-        memberCount: 15600,
-        enabled: true,
-      },
-      {
-        platform: 'telegram',
-        type: 'channel',
-        name: 'Krishan Kumar - Jobs & Internships Updates',
-        memberCount: 42000,
-        enabled: true,
-      },
-      {
-        platform: 'telegram',
-        type: 'channel',
-        name: 'Freshersvoice Off Campus, Walk-in, Govt Job Updates',
-        memberCount: 51200,
-        enabled: true,
-      },
-      {
-        platform: 'telegram',
-        type: 'channel',
-        name: 'job4freshers.co.in',
-        memberCount: 19800,
-        enabled: true,
-      },
-      {
-        platform: 'telegram',
-        type: 'group',
-        name: 'Infosys Exam Updates',
-        memberCount: 8400,
-        enabled: true,
-      },
-      {
-        platform: 'telegram',
-        type: 'group',
-        name: 'Data Science & Full-Stack Hub',
-        memberCount: 12500,
-        enabled: true,
-      },
-
-      // Real WhatsApp Groups & Communities from User's Account
-      {
-        platform: 'whatsapp',
-        type: 'group',
-        name: 'namaste - Campus Community',
-        memberCount: 1240,
-        enabled: true,
-      },
-      {
-        platform: 'whatsapp',
-        type: 'group',
-        name: 'General - MCA Placement Drives',
-        memberCount: 680,
-        enabled: true,
-      },
-      {
-        platform: 'whatsapp',
-        type: 'group',
-        name: 'Aditya Placement Cell 2026 (MCA)',
-        memberCount: 940,
-        enabled: true,
-      },
-      {
-        platform: 'whatsapp',
-        type: 'channel',
-        name: 'Off-Campus Tech Drives - Pan India',
-        memberCount: 16800,
-        enabled: true,
-      },
-    ];
+    // No cached data — user must scan their open Telegram/WhatsApp windows
+    return [];
   }
 
   public bulkAddChannels(channels: Array<Omit<IChannelSource, 'id' | 'totalCaptured'>>) {
@@ -300,8 +219,166 @@ export class ChannelManagerService {
     this.saveToStorage();
   }
 
+  public getLastScrapedTimestamp(): number | null {
+    if (typeof window === 'undefined') return null;
+    const stored = localStorage.getItem('jobradar_last_scraped_ts_v1');
+    return stored ? parseInt(stored, 10) : null;
+  }
+
+  public setLastScrapedTimestamp(ts: number) {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('jobradar_last_scraped_ts_v1', ts.toString());
+  }
+
+  public getActiveDateWindow(): { start: Date; end: Date; days: number; isBackfill: boolean } {
+    const now = new Date();
+    const lastTs = this.getLastScrapedTimestamp();
+
+    if (!lastTs) {
+      // First run: Past 7 days
+      const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return { start, end: now, days: 7, isBackfill: false };
+    }
+
+    const elapsedDays = Math.max(1, Math.ceil((now.getTime() - lastTs) / (24 * 60 * 60 * 1000)));
+    const start = new Date(lastTs);
+    return { start, end: now, days: elapsedDays, isBackfill: elapsedDays > 1 };
+  }
+
   /**
-   * Main Autonomous Ingestion Entry Point for WhatsApp & Telegram message streams
+   * Autonomous Chat Interceptor & Date-Window Pipeline:
+   * 1. Calculates date window (e.g. past 7 days on initial run, or catch-up days since last scrape).
+   * 2. Extracts recent messages from active WhatsApp / Telegram companion sessions.
+   * 3. Sorts all captured chat texts in descending chronological order (newest first).
+   * 4. AI Agent evaluates noise vs job, drops noise, deduplicates similar/dummy postings.
+   * 5. Feeds approved job postings into the ingestion pipeline, generates tailored resumes, and auto-syncs to S3.
+   */
+  public async runAutonomousChannelIntercept(forcedDaysBack?: number): Promise<{
+    totalScanned: number;
+    noiseDropped: number;
+    jobsIngested: number;
+    councilApproved: number;
+    windowStart: string;
+    windowEnd: string;
+    message?: string;
+  }> {
+    const dateWindow = this.getActiveDateWindow();
+    const daysToScan = Math.max(1, forcedDaysBack || dateWindow.days);
+    const startMs = Date.now() - (daysToScan * 24 * 60 * 60 * 1000);
+    const windowStartStr = new Date(startMs).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+    const windowEndStr = new Date().toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+
+    let rawMessages: Array<{ platform: 'whatsapp' | 'telegram'; channelName: string; text: string; timestamp: string; timestampMs: number }> = [];
+
+    // 1. Call Electron IPC Interceptor if running in Desktop App
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.interceptChannelMessages) {
+      try {
+        const liveMessages = await (window as any).electronAPI.interceptChannelMessages({ daysBack: daysToScan });
+        if (Array.isArray(liveMessages) && liveMessages.length > 0) {
+          rawMessages = liveMessages;
+        }
+      } catch (err) {
+        console.error('Error invoking electronAPI.interceptChannelMessages:', err);
+      }
+    }
+
+    // 2. Sort all messages chronologically in DESCENDING order (newest first)
+    rawMessages.sort((a, b) => b.timestampMs - a.timestampMs);
+
+    let noiseDropped = 0;
+    let jobsIngested = 0;
+    let councilApproved = 0;
+
+    const seenDedupHashes = new Set<string>();
+
+    // 3. Sequential AI Evaluation & Ingestion Pipeline
+    for (const item of rawMessages) {
+      const feedId = `feed-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+      // Step A: AI Noise Filter Agent
+      const triage = evaluateNoiseTriage(item.text, item.channelName);
+      if (!triage.isJobPosting) {
+        noiseDropped++;
+        const noiseItem: IRadarFeedItem = {
+          id: feedId,
+          platform: item.platform,
+          channelName: item.channelName,
+          rawText: item.text,
+          status: 'noise_dropped',
+          timestamp: item.timestamp,
+        };
+        this.feedItems = [noiseItem, ...this.feedItems].slice(0, 100);
+        continue;
+      }
+
+      // Step B: Deduplicate similar/duplicate messages in current batch
+      const textHash = item.text.substring(0, 80).toLowerCase().replace(/\s+/g, '');
+      if (seenDedupHashes.has(textHash)) {
+        continue;
+      }
+      seenDedupHashes.add(textHash);
+
+      // Step C: Feed into Autonomous Ingestion Pipeline
+      try {
+        const ingRes = await processIngestion(item.text, item.channelName, item.platform);
+        const primaryJob = ingRes.jobs[0];
+
+        if (primaryJob) {
+          jobsIngested++;
+          const isApproved = primaryJob.matchScore >= (this.config.minMatchScoreForToast || 80);
+          if (isApproved) councilApproved++;
+
+          const feedItem: IRadarFeedItem = {
+            id: feedId,
+            platform: item.platform,
+            channelName: item.channelName,
+            rawText: item.text,
+            status: isApproved ? 'council_approved' : 'extracted',
+            extractedCompany: primaryJob.companyName,
+            extractedRole: primaryJob.jobTitle,
+            matchScore: primaryJob.matchScore,
+            jobId: primaryJob.id,
+            timestamp: item.timestamp,
+          };
+
+          this.feedItems = [feedItem, ...this.feedItems].slice(0, 100);
+
+          // Update channel active count
+          this.config.monitoredChannels = this.config.monitoredChannels.map((c) =>
+            c.name.toLowerCase() === item.channelName.toLowerCase()
+              ? { ...c, totalCaptured: c.totalCaptured + 1, lastActiveAt: new Date().toISOString() }
+              : c
+          );
+        }
+      } catch (ingErr) {
+        console.error('Ingestion error on message:', ingErr);
+      }
+    }
+
+    // 4. Update last scraped timestamp and persist
+    this.setLastScrapedTimestamp(Date.now());
+    this.saveToStorage();
+
+    return {
+      totalScanned: rawMessages.length,
+      noiseDropped,
+      jobsIngested,
+      councilApproved,
+      windowStart: windowStartStr,
+      windowEnd: windowEndStr,
+    };
+  }
+
+  /**
+   * Main Autonomous Ingestion Entry Point for WhatsApp & Telegram single message streams
    */
   public async ingestIncomingMessage(
     platform: 'whatsapp' | 'telegram' | 'clipboard',
@@ -389,3 +466,4 @@ export class ChannelManagerService {
 }
 
 export const channelManager = new ChannelManagerService();
+

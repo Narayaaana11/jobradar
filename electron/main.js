@@ -160,7 +160,10 @@ ipcMain.handle('scrape-social-chats', async () => {
             '.user-caption .dialog-title',
             '.chat-title',
             '.ListItem-button .title',
-            'a.chatlist-chat'
+            'a.chatlist-chat',
+            '.dialog-title .peer-title',
+            '.sidebar-header .chat-info .title',
+            '.chat-list .chat-title'
           ];
 
           document.querySelectorAll(selectors.join(', ')).forEach((el) => {
@@ -173,7 +176,8 @@ ipcMain.handle('scrape-social-chats', async () => {
                 name.toLowerCase().includes('jobs') ||
                 name.toLowerCase().includes('campus') ||
                 name.toLowerCase().includes('hunt') ||
-                name.toLowerCase().includes('careers');
+                name.toLowerCase().includes('careers') ||
+                name.toLowerCase().includes('freshers');
 
               chats.push({
                 platform: 'telegram',
@@ -204,22 +208,43 @@ ipcMain.handle('scrape-social-chats', async () => {
           const chats = [];
           const seen = new Set();
 
-          // WhatsApp Web chat list selectors
+          // WhatsApp Web chat list, channel (newsletter), and communities selectors
           const selectors = [
             'span[data-testid="cell-frame-title"]',
             'span[data-testid="chat-title"]',
             'div[data-testid="cell-frame-container"] span[title]',
-            '#pane-side span[title]'
+            '#pane-side span[title]',
+            'div[data-testid="newsletter-list"] span[title]',
+            'div[data-testid="newsletter-list"] span[dir="auto"]',
+            'div[role="listitem"] span[title]',
+            'div[role="listitem"] span[dir="auto"]',
+            'div[tabindex="-1"] span[title]',
+            'div._ak8q span',
+            'div._ak72 span',
+            'span._ao3e'
           ];
 
           document.querySelectorAll(selectors.join(', ')).forEach((el) => {
             const name = (el.getAttribute('title') || el.textContent || '').trim();
-            if (name && name.length > 1 && !seen.has(name.toLowerCase())) {
+            // Filter out timestamps, single numbers, unread counters, UI labels
+            if (
+              name &&
+              name.length > 2 &&
+              !seen.has(name.toLowerCase()) &&
+              !/^[0-9]+(:[0-9]+)?\\s*(am|pm)?$/i.test(name) &&
+              !/^(yesterday|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|[0-9]{1,2}\\/[0-9]{1,2}\\/[0-9]{2,4})$/i.test(name) &&
+              !['chats', 'channels', 'communities', 'status', 'discover channels', 'new community', 'view all', 'announcements'].includes(name.toLowerCase())
+            ) {
               seen.add(name.toLowerCase());
               const isChannel =
                 name.toLowerCase().includes('channel') ||
                 name.toLowerCase().includes('drive') ||
-                name.toLowerCase().includes('alerts');
+                name.toLowerCase().includes('alert') ||
+                name.toLowerCase().includes('jobs') ||
+                name.toLowerCase().includes('tech') ||
+                name.toLowerCase().includes('hiring') ||
+                name.toLowerCase().includes('freshers') ||
+                name.toLowerCase().includes('campus');
 
               chats.push({
                 platform: 'whatsapp',
@@ -245,6 +270,189 @@ ipcMain.handle('scrape-social-chats', async () => {
   return discovered;
 });
 
+// IPC Handler: Intercept recent message texts from active WhatsApp & Telegram sessions with date tracking
+ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) => {
+  const intercepted = [];
+  const cutoffTime = Date.now() - (daysBack * 24 * 60 * 60 * 1000);
+  const now = Date.now();
+
+  // 1. Scrape message text elements & list previews from active WhatsApp Web window
+  if (whatsappWindow && !whatsappWindow.isDestroyed()) {
+    try {
+      const waMessages = await whatsappWindow.webContents.executeJavaScript(`
+        (() => {
+          const results = [];
+          const seen = new Set();
+          const now = Date.now();
+
+          // Helper to parse WhatsApp timestamp strings (e.g. "10:24 pm", "Yesterday", "8/15/2026", "Saturday")
+          function parseWaTime(timeStr, index) {
+            if (!timeStr) return now - (index * 20 * 60 * 1000);
+            const lower = timeStr.toLowerCase().trim();
+            if (lower === 'yesterday') return now - (24 * 60 * 60 * 1000);
+            if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(lower)) {
+              return now - (3 * 24 * 60 * 60 * 1000);
+            }
+            if (/\\d{1,2}:\\d{2}\\s*(am|pm)?/i.test(lower)) {
+              return now - (index * 15 * 60 * 1000);
+            }
+            const dateParsed = Date.parse(timeStr);
+            if (!isNaN(dateParsed)) return dateParsed;
+            return now - (index * 25 * 60 * 1000);
+          }
+
+          // A. Scrape all Channel & Chat Preview Snippets from WhatsApp list items
+          const listItems = document.querySelectorAll(
+            'div[role="listitem"], div[data-testid="cell-frame-container"], div[data-testid="newsletter-list"] > div, #pane-side > div > div > div > div'
+          );
+
+          listItems.forEach((item, index) => {
+            // Find title / channel name
+            const titleEl = item.querySelector('span[data-testid="cell-frame-title"], span[data-testid="chat-title"], span[dir="auto"], span[title]');
+            const channelName = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent || '').trim() : '';
+
+            // Find last message preview snippet
+            const snippetEl = item.querySelector('span[title]:not([data-testid="cell-frame-title"]), span.x1rg5ohu, span[data-testid="last-msg-status"] + span, div._ak8k span, div._ak8l span');
+            const previewText = snippetEl ? snippetEl.innerText.trim() : '';
+
+            // Find time element
+            const timeEl = item.querySelector('div[data-testid="cell-frame-meta"] span, div._ak8i, span[dir="auto"]');
+            const timeStr = timeEl ? timeEl.textContent.trim() : '';
+            const msgTime = parseWaTime(timeStr, index);
+
+            // Filter valid text
+            const fullText = previewText || (item.innerText ? item.innerText.replace(channelName, '').trim() : '');
+            if (
+              channelName &&
+              channelName.length > 2 &&
+              fullText &&
+              fullText.length > 20 &&
+              !seen.has(fullText.substring(0, 60).toLowerCase())
+            ) {
+              seen.add(fullText.substring(0, 60).toLowerCase());
+              results.push({
+                platform: 'whatsapp',
+                channelName,
+                text: fullText,
+                timestamp: new Date(msgTime).toISOString(),
+                timestampMs: msgTime
+              });
+            }
+          });
+
+          // B. Scrape deep messages from the currently active opened conversation (if any)
+          const msgEls = document.querySelectorAll('div.message-in, div.message-out, div[data-testid="msg-container"], div._amk4');
+          const headerEl = document.querySelector('header span[data-testid="conversation-info-header-chat-title"], header span[title]');
+          const currentChatName = headerEl ? (headerEl.getAttribute('title') || headerEl.textContent || 'WhatsApp Chat').trim() : 'WhatsApp Group';
+
+          msgEls.forEach((el, index) => {
+            const textEl = el.querySelector('.selectable-text, span._ao3e, div.copyable-text');
+            const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+
+            if (text && text.length > 25 && !seen.has(text.substring(0, 60).toLowerCase())) {
+              seen.add(text.substring(0, 60).toLowerCase());
+              const timeEl = el.querySelector('span[data-testid="msg-meta"], div[data-pre-plain-text]');
+              let msgTime = now - (index * 15 * 60 * 1000);
+
+              if (timeEl && timeEl.getAttribute('data-pre-plain-text')) {
+                const rawMeta = timeEl.getAttribute('data-pre-plain-text');
+                const timeMatch = rawMeta.match(/\\[([^\\]]+)\\]/);
+                if (timeMatch) {
+                  const parsed = Date.parse(timeMatch[1]);
+                  if (!isNaN(parsed)) msgTime = parsed;
+                }
+              }
+
+              results.push({
+                platform: 'whatsapp',
+                channelName: currentChatName,
+                text,
+                timestamp: new Date(msgTime).toISOString(),
+                timestampMs: msgTime
+              });
+            }
+          });
+
+          return results;
+        })()
+      `);
+
+      if (Array.isArray(waMessages)) {
+        intercepted.push(...waMessages.filter(m => m.timestampMs >= cutoffTime));
+      }
+    } catch (e) {
+      console.error('Error intercepting WhatsApp messages:', e);
+    }
+  }
+
+  // 2. Scrape message text elements & list previews from active Telegram Web window
+  if (telegramWindow && !telegramWindow.isDestroyed()) {
+    try {
+      const tgMessages = await telegramWindow.webContents.executeJavaScript(`
+        (() => {
+          const results = [];
+          const seen = new Set();
+          const now = Date.now();
+
+          // A. Scrape chat list previews
+          const chatItems = document.querySelectorAll('.chatlist-chat, .ListItem, .chat-item');
+          chatItems.forEach((item, index) => {
+            const titleEl = item.querySelector('.peer-title, .title, .ListItem-title, .chat-title');
+            const channelName = titleEl ? titleEl.textContent.trim() : '';
+
+            const subEl = item.querySelector('.subtitle, .dialog-subtitle, .ListItem-subtitle, .last-message, .message');
+            const previewText = subEl ? subEl.innerText.trim() : '';
+
+            if (channelName && previewText && previewText.length > 20 && !seen.has(previewText.substring(0, 60).toLowerCase())) {
+              seen.add(previewText.substring(0, 60).toLowerCase());
+              const msgTime = now - (index * 25 * 60 * 1000);
+              results.push({
+                platform: 'telegram',
+                channelName,
+                text: previewText,
+                timestamp: new Date(msgTime).toISOString(),
+                timestampMs: msgTime
+              });
+            }
+          });
+
+          // B. Scrape open conversation bubbles
+          const headerEl = document.querySelector('.chat-info .title, .topbar .peer-title, .user-caption .dialog-title');
+          const currentChatName = headerEl ? headerEl.textContent.trim() : 'Telegram Channel';
+
+          const msgEls = document.querySelectorAll('.message, .Message, .bubble, .im_message_body');
+          msgEls.forEach((el, index) => {
+            const textEl = el.querySelector('.text-content, .message-content, .copyable-area, .im_message_text');
+            const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+
+            if (text && text.length > 25 && !seen.has(text.substring(0, 60).toLowerCase())) {
+              seen.add(text.substring(0, 60).toLowerCase());
+              const msgTime = now - (index * 15 * 60 * 1000);
+              results.push({
+                platform: 'telegram',
+                channelName: currentChatName,
+                text,
+                timestamp: new Date(msgTime).toISOString(),
+                timestampMs: msgTime
+              });
+            }
+          });
+
+          return results;
+        })()
+      `);
+
+      if (Array.isArray(tgMessages)) {
+        intercepted.push(...tgMessages.filter(m => m.timestampMs >= cutoffTime));
+      }
+    } catch (e) {
+      console.error('Error intercepting Telegram messages:', e);
+    }
+  }
+
+  return intercepted;
+});
+
 // IPC Handler: Open External URL safely
 ipcMain.handle('open-external-url', async (_event, url) => {
   if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:'))) {
@@ -252,6 +460,28 @@ ipcMain.handle('open-external-url', async (_event, url) => {
     return true;
   }
   return false;
+});
+
+// IPC Handler: Save Text/LaTeX File with Native Windows Dialog
+ipcMain.handle('save-text-file', async (_event, { filename, content, extension = 'tex', filterName = 'LaTeX Document' }) => {
+  if (!mainWindow) return { success: false, error: 'No active window' };
+
+  const { filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: `Save ${filterName}`,
+    defaultPath: filename,
+    filters: [{ name: filterName, extensions: [extension, 'txt'] }],
+  });
+
+  if (filePath) {
+    try {
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return { success: true, filePath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  return { success: false, canceled: true };
 });
 
 // IPC Handler: Save PDF to disk with Native Windows Dialog

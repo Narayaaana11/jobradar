@@ -1,4 +1,5 @@
 import { IJob, IRawQueueItem, IProfile, IStats } from './types';
+import { s3Cloud } from './s3Client';
 
 const JOBS_KEY = 'jobradar_jobs_v1';
 const QUEUE_KEY = 'jobradar_queue_v1';
@@ -473,9 +474,10 @@ class AppStore {
   private syncWithS3Debounced() {
     if (typeof window !== 'undefined') {
       try {
-        const { s3Cloud } = require('./s3Client');
         if (s3Cloud.getConfig().autoSync) {
-          s3Cloud.syncAllToS3(this.jobs, this.queue, this.profile, this.masterResume).catch(() => {});
+          s3Cloud.syncAllToS3(this.jobs, this.queue, this.profile, this.masterResume).catch((err) => {
+            console.warn('[Store] S3 background auto-sync warning:', err);
+          });
         }
       } catch (e) {}
     }

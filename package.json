@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "app:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "app:build": "vite build",
-    "app:dist": "vite build && electron-builder --win -c.win.sign=null -c.cscLink=null",
+    "app:dist": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win",
     "start": "electron ."
   },
   "dependencies": {
@@ -46,6 +46,7 @@
   "build": {
     "appId": "com.jobradar.app",
     "productName": "JobRadar",
+    "forceCodeSigning": false,
     "directories": {
       "output": "release"
     },
@@ -55,7 +56,7 @@
     ],
     "win": {
       "icon": "electron/icon.ico",
-      "sign": null,
+      "signtoolOptions": null,
       "target": [
         {
           "target": "nsis",
