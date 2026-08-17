@@ -170,7 +170,30 @@ class S3CloudService {
         return true;
       }
 
-      // Browser Fallback with standard AWS SDK
+      // 2. Dev Server Proxy Fallback (Vite Node.js Proxy)
+      try {
+        const proxyRes = await fetch('/api/s3-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: this.config, jobs, queue, profile, masterResume }),
+        });
+        if (proxyRes.ok) {
+          const proxyData = await proxyRes.json();
+          if (proxyData.success) {
+            this.setStatus('synced');
+            console.log(`[S3Sync] Successfully synced all data (${jobs.length} jobs) via Dev Server Proxy to S3 bucket '${this.config.bucket}'.`);
+            return true;
+          } else {
+            throw new Error(proxyData.error || 'Dev server proxy S3 sync failed');
+          }
+        }
+      } catch (proxyErr: any) {
+        if (!proxyErr.message.includes('404') && !proxyErr.message.includes('Failed to fetch')) {
+          throw proxyErr;
+        }
+      }
+
+      // 3. Direct Browser AWS SDK Fallback
       await this.putObject('data/jobs.json', JSON.stringify(jobs, null, 2), 'application/json');
       await this.putObject('data/queue.json', JSON.stringify(queue, null, 2), 'application/json');
       await this.putObject('data/profile.json', JSON.stringify(profile, null, 2), 'application/json');
@@ -225,6 +248,23 @@ class S3CloudService {
         return res.data;
       }
       return null;
+    }
+
+    // Dev Server Proxy Fallback
+    try {
+      const proxyRes = await fetch('/api/s3-pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: this.config }),
+      });
+      if (proxyRes.ok) {
+        const proxyData = await proxyRes.json();
+        if (proxyData.success && proxyData.data) {
+          return proxyData.data;
+        }
+      }
+    } catch {
+      // Fall through to direct SDK
     }
 
     if (!this.client) return null;
