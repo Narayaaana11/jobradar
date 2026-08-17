@@ -211,6 +211,38 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     }
   };
 
+  // 5. AI Referral Personalizer Agent (Claude / OpenRouter)
+  const handleAiPersonalizeReferral = async (idx: number, personaRole: string) => {
+    const key = profile.apiKey;
+    if (!key) {
+      setAiError('Please configure your OpenRouter / Anthropic API Key in Settings to run real LLM reasoning.');
+      setTimeout(() => setAiError(null), 5000);
+      return;
+    }
+
+    setIsLlmRunning(true);
+    setAiActionLabel(`Personalizing outreach for ${personaRole} with LLM...`);
+    setAiError(null);
+    try {
+      const res = await llmClient.generateAiReferralMessage(job, profile, personaRole, key);
+      if (res.success && res.data) {
+        if (job.referralContacts && job.referralContacts[idx]) {
+          job.referralContacts[idx].outreachDraft = res.data;
+          store.updateJob(job.id, { referralContacts: [...job.referralContacts] });
+          setSaveSuccessMsg(`Outreach draft customized by ${res.modelUsed || 'Claude 3.5 Sonnet'}!`);
+          setTimeout(() => setSaveSuccessMsg(''), 4000);
+        }
+      } else {
+        setAiError(res.error || 'Failed to personalize outreach with LLM');
+      }
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
   const applyLink = job.applicationLink;
   const cleanCompany = cleanFilenameSlug(job.companyName || 'Company');
   const cleanRole = cleanFilenameSlug(job.jobTitle || 'Role');
@@ -640,12 +672,24 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         <span className="text-[11px] font-mono font-bold text-zinc-400 uppercase truncate max-w-xs">
                           Subject: {contact.subject}
                         </span>
-                        <button
-                          onClick={() => copyToClipboard(`Subject: ${contact.subject}\n\n${contact.outreachDraft}`, idx)}
-                          className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow shrink-0"
-                        >
-                          <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx ? 'Copied!' : 'Copy Outreach Draft'}
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleAiPersonalizeReferral(idx, contact.role)}
+                            disabled={isLlmRunning}
+                            className="text-xs font-bold px-3 py-1 rounded-full bg-purple-950 text-purple-300 border border-purple-800 hover:bg-purple-900 flex items-center gap-1 transition shadow shrink-0 disabled:opacity-50"
+                          >
+                            <Wand2 className="w-3 h-3" />
+                            <span>AI Personalize</span>
+                          </button>
+
+                          <button
+                            onClick={() => copyToClipboard(`Subject: ${contact.subject}\n\n${contact.outreachDraft}`, idx)}
+                            className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow shrink-0"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx ? 'Copied!' : 'Copy Outreach Draft'}
+                          </button>
+                        </div>
                       </div>
 
                       <textarea
