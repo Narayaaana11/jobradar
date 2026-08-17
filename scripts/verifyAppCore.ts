@@ -51,9 +51,11 @@ for (let i = 0; i < chunks.length; i++) {
   const score = scoreJobAgainstProfile(extracted, defaultProfile);
   console.log(`[Agent 3: Scorer] Match: ${score.matchScore}% | Overall Rubric: ${score.rubricScores.overallRubricRating}/5.0 | Flag: ${score.scoreFlag}`);
 
-  // 4. ATS Matcher Agent
+  // 4. ATS Matcher Agent (Resume-Matcher & OpenResume Engine)
   const ats = analyzeAtsCompliance(extracted, defaultProfile);
-  console.log(`[Agent 4: ATS Matcher] Keyword Density: ${ats.keywordDensityScore}% | ATS Format: ${ats.atsFormatScore}% | Impact: ${ats.bulletImpactScore}%`);
+  console.log(`[Agent 4: Resume-Matcher ATS] Overall ATS: ${ats.overallAtsScore}% | TF-IDF Cosine Match: ${ats.keywordDensityScore}% | Hard Skills Found: [${ats.hardSkillsFound.join(', ')}] | Missing: [${ats.hardSkillsMissing.join(', ')}] | Bullet Impact: ${ats.bulletImpactScore}%`);
+  if (!ats.overallAtsScore || ats.overallAtsScore < 60) throw new Error('Invalid ATS Overall Score');
+  if (!Array.isArray(ats.recommendations) || ats.recommendations.length === 0) throw new Error('Missing ATS recommendations');
 
   // 5. Referral Outreach Agent
   const referrals = generateReferralContacts(extracted, defaultProfile);

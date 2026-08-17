@@ -16,16 +16,26 @@ export interface IRubricScores {
 }
 
 export interface IAtsAnalysis {
-  keywordDensityScore: number; // e.g. 88%
-  atsFormatScore: number; // e.g. 95%
-  bulletImpactScore: number; // e.g. 85%
+  overallAtsScore?: number; // 0 - 100% composite score
+  keywordDensityScore: number; // 0 - 100% TF-IDF Cosine Match
+  atsFormatScore: number; // 0 - 100% Layout & Parsing Score
+  bulletImpactScore: number; // 0 - 100% Action Verbs & Metrics Score
+  actionVerbScore?: number; // 0 - 100%
+  metricQuantificationScore?: number; // 0 - 100%
   foundKeywords: string[];
   missingKeywords: string[];
+  hardSkillsFound?: string[];
+  hardSkillsMissing?: string[];
+  softSkillsFound?: string[];
+  softSkillsMissing?: string[];
+  recommendations?: string[];
   atsChecklist: {
     cleanHeaders: boolean;
     standardFonts: boolean;
     noTablesOrColumns: boolean;
     quantifiableMetrics: boolean;
+    contactInfoComplete?: boolean;
+    singlePageLayout?: boolean;
   };
 }
 

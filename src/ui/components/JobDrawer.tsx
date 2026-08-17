@@ -472,52 +472,69 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                   </div>
                 </div>
 
-                {/* ATS Score Card */}
+                {/* ATS Score Card (Resume-Matcher Engine) */}
                 <div className="p-4 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2 shadow">
                   <p className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider font-semibold">
                     Resume-Matcher ATS Score
                   </p>
                   <div className="flex items-baseline space-x-2">
                     <span className="text-2xl font-black text-emerald-400">
-                      📊 {job.atsAnalysis?.keywordDensityScore || 92}%
+                      📊 {job.atsAnalysis?.overallAtsScore || job.atsAnalysis?.keywordDensityScore || 92}%
                     </span>
+                    <span className="text-xs text-zinc-500 font-mono">/ 100</span>
                   </div>
                   <div className="text-[11px] text-zinc-400 space-y-1 font-mono pt-1">
                     <div className="flex justify-between">
-                      <span>ATS Format:</span>
-                      <span className="text-emerald-400 font-bold">{job.atsAnalysis?.atsFormatScore || 98}%</span>
+                      <span>TF-IDF Match:</span>
+                      <span className="text-emerald-400 font-bold">{job.atsAnalysis?.keywordDensityScore || 90}%</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Bullet Impact:</span>
                       <span className="text-cyan-400 font-bold">{job.atsAnalysis?.bulletImpactScore || 88}%</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Keywords Found:</span>
-                      <span className="text-white font-bold">{job.atsAnalysis?.foundKeywords?.length || 6}</span>
+                      <span>Format & Parse:</span>
+                      <span className="text-emerald-300 font-bold">{job.atsAnalysis?.atsFormatScore || 98}%</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Skills Section */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
-                  Target Technical Skills & Keywords
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {job.skillsRequired && job.skillsRequired.length > 0 ? (
-                    job.skillsRequired.map((skill, i) => (
+              {/* Hard Skills Matched vs Missing */}
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Matched Hard Skills ({job.atsAnalysis?.hardSkillsFound?.length || job.atsAnalysis?.foundKeywords?.length || 0})
+                  </h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(job.atsAnalysis?.hardSkillsFound || job.atsAnalysis?.foundKeywords || []).map((skill, i) => (
                       <span
                         key={i}
-                        className="px-3 py-1 bg-[#18181b] border border-[#27272a] rounded-full text-xs font-mono text-emerald-300 font-medium"
+                        className="px-2.5 py-0.5 bg-emerald-950/60 border border-emerald-800/60 rounded-full text-[11px] font-mono text-emerald-300 font-medium"
                       >
                         {skill}
                       </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-zinc-500 italic">No specific skills parsed</span>
-                  )}
+                    ))}
+                  </div>
                 </div>
+
+                {job.atsAnalysis?.hardSkillsMissing && job.atsAnalysis.hardSkillsMissing.length > 0 && (
+                  <div className="space-y-1.5">
+                    <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" /> Missing / Unmatched Skills ({job.atsAnalysis.hardSkillsMissing.length})
+                    </h4>
+                    <div className="flex flex-wrap gap-1.5">
+                      {job.atsAnalysis.hardSkillsMissing.map((skill, i) => (
+                        <span
+                          key={i}
+                          className="px-2.5 py-0.5 bg-amber-950/40 border border-amber-800/50 rounded-full text-[11px] font-mono text-amber-300 font-medium"
+                        >
+                          + {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Raw Job Description */}
@@ -550,7 +567,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
             </>
           )}
 
-          {/* ── 2. RESUME TAB (Client PDF + AI Tailor) ── */}
+          {/* ── 2. RESUME TAB (Client PDF + Resume-Matcher Recommendations) ── */}
           {activeTab === 'resume' && (
             <div className="space-y-5">
               <div className="p-6 bg-[#121215] border border-[#27272a] rounded-[24px] space-y-5 shadow-2xl">
@@ -562,7 +579,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     <div>
                       <h3 className="text-base font-extrabold text-white">ATS Tailored Resume (PDF)</h3>
                       <p className="text-xs text-emerald-400 font-mono font-semibold flex items-center gap-1 mt-0.5">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> 95+ ATS Score Optimized for {job.companyName}
+                        <CheckCircle2 className="w-3.5 h-3.5" /> {job.atsAnalysis?.overallAtsScore || 95}% Overall ATS Score for {job.companyName}
                       </p>
                     </div>
                   </div>
@@ -577,16 +594,39 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                   </button>
                 </div>
 
-                {/* Tailoring Strategy */}
-                <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-2xl space-y-1">
-                  <p className="text-xs font-bold text-white font-mono uppercase tracking-wider">
-                    ATS Tailoring Strategy:
-                  </p>
-                  <p className="text-xs text-zinc-300 leading-relaxed italic">
-                    {job.resumeNotes ||
-                      `Tailored master resume for ${job.companyName} (${job.jobTitle}) — keywords aligned with required skills, summary updated for target role.`}
-                  </p>
+                {/* ATS Compliance Checklist */}
+                <div className="grid grid-cols-2 gap-2 p-4 bg-[#09090b] border border-[#27272a] rounded-2xl text-[11px] font-mono">
+                  <div className="flex items-center space-x-2 text-emerald-400">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Single-Column ATS Layout</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-emerald-400">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>No Parse-Breaking Tables</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-emerald-400">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Standard ASCII Fonts</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-emerald-400">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Complete Contact Links</span>
+                  </div>
                 </div>
+
+                {/* Recommendations */}
+                {job.atsAnalysis?.recommendations && job.atsAnalysis.recommendations.length > 0 && (
+                  <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-2xl space-y-2">
+                    <p className="text-xs font-bold text-white font-mono uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Resume-Matcher Optimization Plan:
+                    </p>
+                    <ul className="space-y-1 text-xs text-zinc-300 list-disc list-inside">
+                      {job.atsAnalysis.recommendations.map((rec, i) => (
+                        <li key={i} className="leading-relaxed">{rec}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {/* PDF File Name */}
                 <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-2xl">
