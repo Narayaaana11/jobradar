@@ -171,6 +171,7 @@ export interface IRadarFeedItem {
   extractedCompany?: string;
   extractedRole?: string;
   matchScore?: number;
+  jobId?: string;
   timestamp: string;
 }
 

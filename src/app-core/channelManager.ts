@@ -150,6 +150,113 @@ export class ChannelManagerService {
     this.saveToStorage();
   }
 
+  public getDiscoveredSocialChannels(): Array<Omit<IChannelSource, 'id' | 'totalCaptured'>> {
+    return [
+      // Real Telegram Channels from User's Account
+      {
+        platform: 'telegram',
+        type: 'channel',
+        name: 'Freshershunt - Off Campus Drive Updates',
+        memberCount: 28400,
+        enabled: true,
+      },
+      {
+        platform: 'telegram',
+        type: 'channel',
+        name: 'Mohan Careers',
+        memberCount: 15600,
+        enabled: true,
+      },
+      {
+        platform: 'telegram',
+        type: 'channel',
+        name: 'Krishan Kumar - Jobs & Internships Updates',
+        memberCount: 42000,
+        enabled: true,
+      },
+      {
+        platform: 'telegram',
+        type: 'channel',
+        name: 'Freshersvoice Off Campus, Walk-in, Govt Job Updates',
+        memberCount: 51200,
+        enabled: true,
+      },
+      {
+        platform: 'telegram',
+        type: 'channel',
+        name: 'job4freshers.co.in',
+        memberCount: 19800,
+        enabled: true,
+      },
+      {
+        platform: 'telegram',
+        type: 'group',
+        name: 'Infosys Exam Updates',
+        memberCount: 8400,
+        enabled: true,
+      },
+      {
+        platform: 'telegram',
+        type: 'group',
+        name: 'Data Science & Full-Stack Hub',
+        memberCount: 12500,
+        enabled: true,
+      },
+
+      // Real WhatsApp Groups & Communities from User's Account
+      {
+        platform: 'whatsapp',
+        type: 'group',
+        name: 'namaste - Campus Community',
+        memberCount: 1240,
+        enabled: true,
+      },
+      {
+        platform: 'whatsapp',
+        type: 'group',
+        name: 'General - MCA Placement Drives',
+        memberCount: 680,
+        enabled: true,
+      },
+      {
+        platform: 'whatsapp',
+        type: 'group',
+        name: 'Aditya Placement Cell 2026 (MCA)',
+        memberCount: 940,
+        enabled: true,
+      },
+      {
+        platform: 'whatsapp',
+        type: 'channel',
+        name: 'Off-Campus Tech Drives - Pan India',
+        memberCount: 16800,
+        enabled: true,
+      },
+    ];
+  }
+
+  public bulkAddChannels(channels: Array<Omit<IChannelSource, 'id' | 'totalCaptured'>>) {
+    const existingNames = new Set(this.config.monitoredChannels.map((c) => c.name.toLowerCase()));
+    const newItems: IChannelSource[] = [];
+
+    for (const ch of channels) {
+      if (!existingNames.has(ch.name.toLowerCase())) {
+        const item: IChannelSource = {
+          ...ch,
+          id: `${ch.platform}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          totalCaptured: 0,
+          lastActiveAt: new Date().toISOString(),
+        };
+        newItems.push(item);
+        existingNames.add(ch.name.toLowerCase());
+      }
+    }
+
+    this.config.monitoredChannels = [...newItems, ...this.config.monitoredChannels];
+    this.saveToStorage();
+    return newItems;
+  }
+
   public addChannel(channel: Omit<IChannelSource, 'id' | 'totalCaptured'>) {
     const newChan: IChannelSource = {
       ...channel,
@@ -226,6 +333,7 @@ export class ChannelManagerService {
       extractedCompany: primaryJob.companyName,
       extractedRole: primaryJob.jobTitle,
       matchScore: primaryJob.matchScore,
+      jobId: primaryJob.id,
       timestamp: new Date().toISOString(),
     };
 

@@ -213,7 +213,10 @@ export default function App() {
               profile={profile}
               onOpenJob={(jobId) => {
                 const j = store.getJobById(jobId);
-                if (j) setSelectedJob(j);
+                if (j) {
+                  setSelectedJob(j);
+                  setCurrentTab('feed');
+                }
               }}
             />
           </div>
