@@ -1,6 +1,7 @@
 const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 
 let mainWindow = null;
 
@@ -139,4 +140,129 @@ ipcMain.handle('call-llm-api', async (_event, { endpoint, headers, body, method 
     };
   }
 });
+
+// IPC Handler: Native Zero-CORS S3 PutObject
+ipcMain.handle('s3-put-object', async (_event, { config, key, body, contentType }) => {
+  try {
+    const client = new S3Client({
+      region: config.region || 'us-east-1',
+      credentials: {
+        accessKeyId: config.accessKeyId,
+        secretAccessKey: config.secretAccessKey,
+      },
+    });
+
+    const bytes = typeof body === 'string' ? Buffer.from(body, 'utf-8') : Buffer.from(body);
+
+    const command = new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      Body: bytes,
+      ContentType: contentType || 'application/json',
+    });
+
+    await client.send(command);
+    return {
+      success: true,
+      url: `https://${config.bucket}.s3.${config.region}.amazonaws.com/${key}`,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message || 'S3 PutObject failed',
+    };
+  }
+});
+
+// IPC Handler: Native Zero-CORS S3 Sync All
+ipcMain.handle('s3-sync-all', async (_event, { config, jobs, queue, profile, masterResume }) => {
+  try {
+    const client = new S3Client({
+      region: config.region || 'us-east-1',
+      credentials: {
+        accessKeyId: config.accessKeyId,
+        secretAccessKey: config.secretAccessKey,
+      },
+    });
+
+    // 1. data/jobs.json
+    await client.send(new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: 'data/jobs.json',
+      Body: Buffer.from(JSON.stringify(jobs, null, 2), 'utf-8'),
+      ContentType: 'application/json',
+    }));
+
+    // 2. data/queue.json
+    await client.send(new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: 'data/queue.json',
+      Body: Buffer.from(JSON.stringify(queue, null, 2), 'utf-8'),
+      ContentType: 'application/json',
+    }));
+
+    // 3. data/profile.json & data/master_resume.md
+    await client.send(new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: 'data/profile.json',
+      Body: Buffer.from(JSON.stringify(profile, null, 2), 'utf-8'),
+      ContentType: 'application/json',
+    }));
+
+    await client.send(new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: 'data/master_resume.md',
+      Body: Buffer.from(masterResume || '', 'utf-8'),
+      ContentType: 'text/markdown',
+    }));
+
+    // 4. data/backup_latest.json
+    const backupPayload = {
+      jobs,
+      queue,
+      profile,
+      masterResume,
+      syncedAt: new Date().toISOString(),
+    };
+    await client.send(new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: 'data/backup_latest.json',
+      Body: Buffer.from(JSON.stringify(backupPayload, null, 2), 'utf-8'),
+      ContentType: 'application/json',
+    }));
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message || 'S3 Sync All failed',
+    };
+  }
+});
+
+// IPC Handler: Native Zero-CORS S3 Pull All
+ipcMain.handle('s3-pull-all', async (_event, { config }) => {
+  try {
+    const client = new S3Client({
+      region: config.region || 'us-east-1',
+      credentials: {
+        accessKeyId: config.accessKeyId,
+        secretAccessKey: config.secretAccessKey,
+      },
+    });
+
+    const command = new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: 'data/backup_latest.json',
+    });
+
+    const res = await client.send(command);
+    const text = await res.Body.transformToString();
+    const data = JSON.parse(text);
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message || 'S3 Pull All failed' };
+  }
+});
+
 

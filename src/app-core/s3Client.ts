@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { IJob, IRawQueueItem, IProfile } from './types';
 
 const S3_CONFIG_KEY = 'jobradar_s3_config_v1';
@@ -105,9 +105,26 @@ class S3CloudService {
   }
 
   /**
-   * Uploads any arbitrary text or binary data directly to AWS S3 bucket.
+   * Uploads arbitrary text or binary data directly to AWS S3 bucket.
+   * Uses Native Electron IPC bridge (Zero CORS) when running on Desktop.
    */
   public async putObject(key: string, body: Uint8Array | string, contentType: string = 'application/json'): Promise<string> {
+    const electronApi = (window as any)?.electronAPI;
+
+    if (electronApi?.s3PutObject) {
+      const res = await electronApi.s3PutObject({
+        config: this.config,
+        key,
+        body: typeof body === 'string' ? body : Array.from(body),
+        contentType,
+      });
+
+      if (!res.success) {
+        throw new Error(res.error || 'S3 PutObject failed');
+      }
+      return res.url || `https://${this.config.bucket}.s3.${this.config.region}.amazonaws.com/${key}`;
+    }
+
     if (!this.client) {
       this.initClient();
       if (!this.client) throw new Error('AWS S3 Client credentials not configured.');
@@ -128,21 +145,37 @@ class S3CloudService {
 
   /**
    * Syncs all JobRadar data (jobs, queue, profile, master resume, and full archive) to S3.
+   * Utilizes Electron native bridge for Zero-CORS reliability.
    */
   public async syncAllToS3(jobs: IJob[], queue: IRawQueueItem[], profile: IProfile, masterResume: string): Promise<boolean> {
     this.setStatus('syncing');
     try {
-      // 1. Upload jobs.json
+      const electronApi = (window as any)?.electronAPI;
+
+      if (electronApi?.s3SyncAll) {
+        const res = await electronApi.s3SyncAll({
+          config: this.config,
+          jobs,
+          queue,
+          profile,
+          masterResume,
+        });
+
+        if (!res.success) {
+          throw new Error(res.error || 'S3 native sync failed');
+        }
+
+        this.setStatus('synced');
+        console.log(`[S3Sync] Successfully synced all data (${jobs.length} jobs) via Native Desktop Bridge to S3 bucket '${this.config.bucket}'.`);
+        return true;
+      }
+
+      // Browser Fallback with standard AWS SDK
       await this.putObject('data/jobs.json', JSON.stringify(jobs, null, 2), 'application/json');
-
-      // 2. Upload queue.json
       await this.putObject('data/queue.json', JSON.stringify(queue, null, 2), 'application/json');
-
-      // 3. Upload profile.json & master_resume.md
       await this.putObject('data/profile.json', JSON.stringify(profile, null, 2), 'application/json');
       await this.putObject('data/master_resume.md', masterResume, 'text/markdown');
 
-      // 4. Upload full backup snapshot
       const backupPayload = {
         jobs,
         queue,
@@ -156,8 +189,11 @@ class S3CloudService {
       console.log(`[S3Sync] Successfully synced all jobs (${jobs.length}) and assets to S3 bucket '${this.config.bucket}'.`);
       return true;
     } catch (err: any) {
-      console.error('[S3Sync] Error syncing data to S3:', err.message);
-      this.setStatus('error', err.message);
+      const errMsg = err.message === 'Failed to fetch'
+        ? 'Direct browser CORS blocked by AWS S3. Run via JobRadar Desktop App or configure S3 bucket CORS.'
+        : err.message;
+      console.error('[S3Sync] Error syncing data to S3:', errMsg);
+      this.setStatus('error', errMsg);
       return false;
     }
   }
@@ -181,6 +217,16 @@ class S3CloudService {
    * Pulls the latest jobs and profile data from S3 if present.
    */
   public async pullFromS3(): Promise<{ jobs?: IJob[]; queue?: IRawQueueItem[]; profile?: IProfile; masterResume?: string } | null> {
+    const electronApi = (window as any)?.electronAPI;
+
+    if (electronApi?.s3PullAll) {
+      const res = await electronApi.s3PullAll({ config: this.config });
+      if (res.success && res.data) {
+        return res.data;
+      }
+      return null;
+    }
+
     if (!this.client) return null;
     try {
       const command = new GetObjectCommand({
@@ -190,13 +236,13 @@ class S3CloudService {
       const response = await this.client.send(command);
       if (response.Body) {
         const text = await response.Body.transformToString();
-        const data = JSON.parse(text);
-        return data;
+        return JSON.parse(text);
       }
+      return null;
     } catch (err: any) {
-      console.warn('[S3Sync] No previous S3 backup found or fetch failed:', err.message);
+      console.warn(`[S3Sync] Could not pull from S3: ${err.message}`);
+      return null;
     }
-    return null;
   }
 }
 
