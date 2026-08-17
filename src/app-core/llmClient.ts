@@ -9,16 +9,25 @@ export interface ILlmResponse<T> {
   modelUsed?: string;
 }
 
+const OPENROUTER_FALLBACK_MODELS = [
+  'anthropic/claude-3.5-sonnet',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'google/gemini-2.0-flash-lite:free',
+  'deepseek/deepseek-chat',
+  'openai/gpt-4o-mini',
+  'openrouter/auto',
+];
+
 export class LlmClientService {
   /**
    * Universal fetch caller supporting Electron Native IPC Bridge (Zero CORS)
-   * and clean browser fetch fallback (without forbidden headers).
+   * and clean browser fetch fallback with automatic multi-model failover.
    */
   public async callLlm(
     prompt: string,
     systemPrompt: string,
     apiKey: string,
-    modelName: string = 'anthropic/claude-3.5-sonnet'
+    preferredModel?: string
   ): Promise<{ text: string; model: string }> {
     if (!apiKey || !apiKey.trim()) {
       throw new Error('No API key provided. Please configure your OpenRouter or Anthropic API key in Settings.');
@@ -26,8 +35,6 @@ export class LlmClientService {
 
     const key = apiKey.trim();
     const isOpenRouter = key.startsWith('sk-or-') || !key.startsWith('sk-ant-');
-
-    // Check if Electron native IPC is available (eliminates browser CORS & header restrictions)
     const electronApi = (window as any)?.electronAPI;
 
     if (isOpenRouter) {
@@ -36,40 +43,59 @@ export class LlmClientService {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
       };
-      const body = {
-        model: modelName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.2,
-      };
 
-      if (electronApi?.callLlmApi) {
-        // Native Electron IPC Request (Zero CORS, 100% Reliable)
-        const res = await electronApi.callLlmApi({ endpoint, headers, body });
-        if (!res.success) {
-          throw new Error(res.error || `OpenRouter request failed (Status: ${res.status || 'unknown'})`);
+      const modelsToTry = preferredModel
+        ? [preferredModel, ...OPENROUTER_FALLBACK_MODELS.filter((m) => m !== preferredModel)]
+        : OPENROUTER_FALLBACK_MODELS;
+
+      let lastError = '';
+
+      for (const model of modelsToTry) {
+        try {
+          const body = {
+            model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.2,
+          };
+
+          if (electronApi?.callLlmApi) {
+            // Native Electron IPC Request
+            const res = await electronApi.callLlmApi({ endpoint, headers, body });
+            if (res.success && res.data?.choices?.[0]?.message?.content) {
+              return {
+                text: res.data.choices[0].message.content,
+                model: res.data.model || model,
+              };
+            }
+            lastError = res.error || `HTTP ${res.status || 'unknown'}`;
+          } else {
+            // Clean Browser Fetch Fallback
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(body),
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              const content = data.choices?.[0]?.message?.content;
+              if (content) {
+                return { text: content, model: data.model || model };
+              }
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              lastError = errData?.error?.message || `HTTP ${res.status}`;
+            }
+          }
+        } catch (err: any) {
+          lastError = err.message;
         }
-        const content = res.data?.choices?.[0]?.message?.content || '';
-        return { text: content, model: res.data?.model || modelName };
-      } else {
-        // Browser Fetch Fallback (Clean headers)
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `OpenRouter request failed with HTTP ${res.status}`);
-        }
-
-        const data = await res.json();
-        const content = data.choices?.[0]?.message?.content || '';
-        return { text: content, model: data.model || modelName };
       }
+
+      throw new Error(lastError || 'OpenRouter model request failed on all fallback endpoints.');
     } else {
       // Anthropic Direct Messages API
       const endpoint = 'https://api.anthropic.com/v1/messages';
@@ -88,7 +114,6 @@ export class LlmClientService {
       };
 
       if (electronApi?.callLlmApi) {
-        // Native Electron IPC Request
         const res = await electronApi.callLlmApi({ endpoint, headers, body });
         if (!res.success) {
           throw new Error(res.error || `Anthropic request failed (Status: ${res.status || 'unknown'})`);
@@ -96,7 +121,6 @@ export class LlmClientService {
         const content = res.data?.content?.[0]?.text || '';
         return { text: content, model: res.data?.model || 'claude-3-5-sonnet-20241022' };
       } else {
-        // Browser Fetch Fallback
         const res = await fetch(endpoint, {
           method: 'POST',
           headers,
@@ -417,7 +441,8 @@ CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfo
    */
   public async testApiKey(apiKey: string): Promise<{ valid: boolean; message: string; model?: string }> {
     try {
-      const { model } = await this.callLlm('Reply with "OK"', 'You are a test ping bot.', apiKey);
+      // Test with openrouter/auto or llama-3.3-70b-instruct:free so free accounts with $0 balance connect instantly!
+      const { model } = await this.callLlm('Reply with "OK"', 'You are a test ping bot.', apiKey, 'openrouter/auto');
       return { valid: true, message: 'API Key is valid and connected!', model };
     } catch (err: any) {
       return { valid: false, message: err.message };
