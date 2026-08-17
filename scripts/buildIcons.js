@@ -18,18 +18,22 @@ async function generateIcons() {
   fs.writeFileSync(path.join(publicDir, 'icon.png'), png512);
   fs.writeFileSync(path.join(electronDir, 'icon.png'), png512);
 
-  console.log('Rendering 256x256, 128x128, 64x64, 32x32...');
+  console.log('Rendering 256x256, 128x128, 64x64, 48x48, 32x32, 24x24, 16x16...');
   const png256 = await sharp(svgBuffer).resize(256, 256).png().toBuffer();
   const png128 = await sharp(svgBuffer).resize(128, 128).png().toBuffer();
   const png64 = await sharp(svgBuffer).resize(64, 64).png().toBuffer();
+  const png48 = await sharp(svgBuffer).resize(48, 48).png().toBuffer();
   const png32 = await sharp(svgBuffer).resize(32, 32).png().toBuffer();
+  const png24 = await sharp(svgBuffer).resize(24, 24).png().toBuffer();
   const png16 = await sharp(svgBuffer).resize(16, 16).png().toBuffer();
 
   // Create standard multi-resolution ICO file for Windows desktop & electron-builder
   // ICO file format contains header, directory entries, and PNG images
   const images = [
     { width: 16, height: 16, buffer: png16 },
+    { width: 24, height: 24, buffer: png24 },
     { width: 32, height: 32, buffer: png32 },
+    { width: 48, height: 48, buffer: png48 },
     { width: 64, height: 64, buffer: png64 },
     { width: 128, height: 128, buffer: png128 },
     { width: 256, height: 256, buffer: png256 },

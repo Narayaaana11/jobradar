@@ -55,6 +55,7 @@
     ],
     "win": {
       "icon": "electron/icon.ico",
+      "sign": null,
       "target": [
         {
           "target": "nsis",
@@ -74,15 +75,17 @@
             "x64"
           ]
         }
-      ],
-      "signAndEditExecutable": false
+      ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "JobRadar"
+      "shortcutName": "JobRadar",
+      "installerIcon": "electron/icon.ico",
+      "uninstallerIcon": "electron/icon.ico",
+      "installerHeaderIcon": "electron/icon.ico"
     }
   }
 }

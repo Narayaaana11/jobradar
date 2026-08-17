@@ -5,6 +5,10 @@ const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } = r
 
 let mainWindow = null;
 
+const appIcon = process.platform === 'win32' && fs.existsSync(path.join(__dirname, 'icon.ico'))
+  ? path.join(__dirname, 'icon.ico')
+  : path.join(__dirname, 'icon.png');
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -12,7 +16,7 @@ function createWindow() {
     minWidth: 1080,
     minHeight: 700,
     title: 'JobRadar — Autonomous Career Agent',
-    icon: path.join(__dirname, 'icon.png'),
+    icon: appIcon,
     backgroundColor: '#09090b',
     autoHideMenuBar: true,
     show: false,
@@ -78,7 +82,7 @@ ipcMain.handle('open-whatsapp-web-window', async () => {
     width: 1100,
     height: 850,
     title: 'JobRadar — WhatsApp Web Companion & Live Listener',
-    icon: path.join(__dirname, 'icon.png'),
+    icon: appIcon,
     backgroundColor: '#111b21',
     autoHideMenuBar: true,
     webPreferences: {
