@@ -19,7 +19,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
   
   // Test Ingestion State
   const [testInput, setTestInput] = useState('');
-  const [testChannel, setTestChannel] = useState('Aditya Placement Cell 2026 (MCA/BTech)');
+  const [testChannel, setTestChannel] = useState(config.monitoredChannels[0]?.name || 'My Placement Group');
   const [testPlatform, setTestPlatform] = useState<'whatsapp' | 'telegram'>('whatsapp');
   const [isProcessing, setIsProcessing] = useState(false);
   
@@ -31,14 +31,14 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
 
   // WhatsApp Linking Modal
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
-  const [waPhone, setWaPhone] = useState(config.whatsappPhone || profile.phone || '+91 6301253789');
+  const [waPhone, setWaPhone] = useState(config.whatsappPhone || profile.phone || '');
   const [waPairingCode, setWaPairingCode] = useState<string | null>(config.whatsappPairingCode || null);
   const [waMode, setWaMode] = useState<'qr' | 'pairing'>('qr');
   const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
 
   // Telegram Login Modal
   const [showTelegramModal, setShowTelegramModal] = useState(false);
-  const [tgPhone, setTgPhone] = useState(config.telegramPhone || profile.phone || '+91 6301253789');
+  const [tgPhone, setTgPhone] = useState(config.telegramPhone || profile.phone || '');
   const [tgOtpCode, setTgOtpCode] = useState('');
   const [tgStep, setTgStep] = useState<'enter_phone' | 'enter_otp' | 'connected'>('enter_phone');
   const [tgLoading, setTgLoading] = useState(false);
@@ -64,8 +64,8 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
     refreshState();
   };
 
-  const handleRestoreDefaults = () => {
-    channelManager.resetToDefaultChannels();
+  const handleClearAll = () => {
+    channelManager.clearAllChannels();
     refreshState();
   };
 
@@ -337,25 +337,36 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
                 <Sliders className="w-4 h-4 text-purple-400" /> Monitored Channels & Groups ({config.monitoredChannels.length})
               </h2>
 
-              <button
-                onClick={handleRestoreDefaults}
-                className="text-[11px] font-mono text-zinc-400 hover:text-white flex items-center gap-1 transition"
-                title="Restore default campus & off-campus placement channels"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Reset</span>
-              </button>
+              {config.monitoredChannels.length > 0 && (
+                <button
+                  onClick={handleClearAll}
+                  className="text-[11px] font-mono text-zinc-400 hover:text-red-400 flex items-center gap-1 transition"
+                  title="Clear all monitored channels"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear All</span>
+                </button>
+              )}
             </div>
 
             <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
               {config.monitoredChannels.length === 0 ? (
                 <div className="p-8 text-center bg-[#18181b] border border-dashed border-zinc-700 rounded-2xl space-y-3">
-                  <p className="text-xs text-zinc-400 font-mono">No channels currently configured.</p>
+                  <div className="w-10 h-10 mx-auto rounded-2xl bg-purple-950/60 border border-purple-800/60 flex items-center justify-center text-purple-400">
+                    <Radio className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-white">No Channels Added Yet</h4>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
+                      Add your specific WhatsApp placement groups or Telegram drive channels to start monitoring.
+                    </p>
+                  </div>
                   <button
-                    onClick={handleRestoreDefaults}
-                    className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold font-mono transition"
+                    onClick={() => setShowAddModal(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 text-white rounded-xl text-xs font-bold font-mono transition inline-flex items-center gap-1.5 shadow"
                   >
-                    Restore Recommended Placement Channels
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Channel From Socials</span>
                   </button>
                 </div>
               ) : (
@@ -386,7 +397,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
                         <h4 className="text-xs font-bold text-white truncate">{channel.name}</h4>
                         <p className="text-[10px] font-mono text-zinc-400 flex items-center gap-2">
                           <span>{channel.type === 'group' ? '👥 Group' : '📢 Channel'}</span>
-                          {channel.memberCount && <span>• {channel.memberCount.toLocaleString()} members</span>}
+                          {channel.memberCount ? <span>• {channel.memberCount.toLocaleString()} members</span> : null}
                           <span>• {channel.totalCaptured} captured</span>
                         </p>
                       </div>
@@ -843,12 +854,20 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
         </div>
       )}
 
-      {/* ── 3. ADD CUSTOM CHANNEL MODAL ── */}
+      {/* ── 3. ADD CUSTOM CHANNEL / GROUP MODAL ── */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#121215] border border-[#27272a] rounded-[28px] max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-white">Add Monitored Channel / Group</h3>
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-purple-950 text-purple-400 border border-purple-800">
+                  <Plus className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Add Monitored Channel</h3>
+                  <p className="text-[11px] text-zinc-400">Select any group or channel from your socials</p>
+                </div>
+              </div>
               <button onClick={() => setShowAddModal(false)} className="text-zinc-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
               </button>
@@ -861,35 +880,43 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
                   <button
                     type="button"
                     onClick={() => setNewChannelPlatform('whatsapp')}
-                    className={`py-2 rounded-xl font-bold border transition ${
+                    className={`py-2 rounded-xl font-bold font-mono border transition flex items-center justify-center gap-1.5 ${
                       newChannelPlatform === 'whatsapp'
                         ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
                         : 'bg-[#18181b] text-zinc-400 border-[#27272a]'
                     }`}
                   >
-                    WhatsApp
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setNewChannelPlatform('telegram')}
-                    className={`py-2 rounded-xl font-bold border transition ${
+                    className={`py-2 rounded-xl font-bold font-mono border transition flex items-center justify-center gap-1.5 ${
                       newChannelPlatform === 'telegram'
                         ? 'bg-cyan-950 text-cyan-400 border-cyan-800'
                         : 'bg-[#18181b] text-zinc-400 border-[#27272a]'
                     }`}
                   >
-                    Telegram
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Telegram</span>
                   </button>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">Channel / Group Name</label>
+                <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">
+                  {newChannelPlatform === 'whatsapp' ? 'Group / Channel Name or Invite Link' : 'Channel Name, @handle or t.me link'}
+                </label>
                 <input
                   type="text"
                   value={newChannelName}
                   onChange={(e) => setNewChannelName(e.target.value)}
-                  placeholder="e.g. Aditya Placement Cell 2026"
+                  placeholder={
+                    newChannelPlatform === 'whatsapp'
+                      ? 'e.g. My College Placement Group or https://chat.whatsapp.com/...'
+                      : 'e.g. @MyTechChannel or https://t.me/...'
+                  }
                   className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-purple-500"
                 />
               </div>
@@ -901,7 +928,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
                   onChange={(e) => setNewChannelType(e.target.value as any)}
                   className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-xs focus:outline-none"
                 >
-                  <option value="group">👥 Group (Discussion & Forwards)</option>
+                  <option value="group">👥 Group (Discussion & Peer Forwards)</option>
                   <option value="channel">📢 Announcement Channel (Broadcast Only)</option>
                 </select>
               </div>
@@ -917,7 +944,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
               <button
                 onClick={handleAddChannel}
                 disabled={!newChannelName.trim()}
-                className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition disabled:opacity-50"
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 text-white font-bold text-xs transition disabled:opacity-50"
               >
                 Add Channel
               </button>

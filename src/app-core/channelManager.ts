@@ -3,118 +3,21 @@ import { evaluateNoiseTriage } from './noiseFilter';
 import { processIngestion } from './pipeline';
 import { store } from './store';
 
-const DEFAULT_CHANNELS: IChannelSource[] = [
-  // WhatsApp Channels & Groups
-  {
-    id: 'wa-aditya-2026',
-    platform: 'whatsapp',
-    type: 'group',
-    name: 'Aditya Placement Cell 2026 (MCA/BTech)',
-    memberCount: 840,
-    enabled: true,
-    lastActiveAt: new Date().toISOString(),
-    totalCaptured: 14,
-  },
-  {
-    id: 'wa-offcampus-drives',
-    platform: 'whatsapp',
-    type: 'channel',
-    name: 'Off-Campus Tech Drives - Pan India',
-    memberCount: 15200,
-    enabled: true,
-    lastActiveAt: new Date().toISOString(),
-    totalCaptured: 28,
-  },
-  {
-    id: 'wa-mern-freshers',
-    platform: 'whatsapp',
-    type: 'group',
-    name: 'MERN & Full-Stack Freshers Network',
-    memberCount: 512,
-    enabled: true,
-    lastActiveAt: new Date().toISOString(),
-    totalCaptured: 9,
-  },
-
-  // Telegram Channels & Groups
-  {
-    id: 'tg-placement-hub',
-    platform: 'telegram',
-    type: 'channel',
-    name: 'OffCampusJobs4u - 2026 Batch Alerts',
-    memberCount: 48500,
-    enabled: true,
-    lastActiveAt: new Date().toISOString(),
-    totalCaptured: 42,
-  },
-  {
-    id: 'tg-hyd-blr-tech',
-    platform: 'telegram',
-    type: 'channel',
-    name: 'Hyderabad & Bengaluru SDE Openings',
-    memberCount: 23100,
-    enabled: true,
-    lastActiveAt: new Date().toISOString(),
-    totalCaptured: 19,
-  },
-  {
-    id: 'tg-aditya-mca-career',
-    platform: 'telegram',
-    type: 'group',
-    name: 'Aditya MCA 2024-2026 Career Connect',
-    memberCount: 260,
-    enabled: true,
-    lastActiveAt: new Date().toISOString(),
-    totalCaptured: 7,
-  },
-];
-
 export class ChannelManagerService {
   private config: IWatcherConfig = {
     whatsappConnected: false,
     whatsappStatus: 'disconnected',
-    whatsappPhone: '+91 6301253789',
+    whatsappPhone: undefined,
     whatsappPairingCode: undefined,
     telegramConnected: false,
     telegramStatus: 'disconnected',
-    telegramPhone: '+91 6301253789',
+    telegramPhone: undefined,
     clipboardWatcherEnabled: true,
     minMatchScoreForToast: 80,
-    monitoredChannels: DEFAULT_CHANNELS,
+    monitoredChannels: [],
   };
 
-  private feedItems: IRadarFeedItem[] = [
-    {
-      id: 'feed-1',
-      platform: 'whatsapp',
-      channelName: 'Aditya Placement Cell 2026 (MCA/BTech)',
-      rawText: 'Amazon SDE Hiring. 2024/2025/2026 Batch. Location: Bengaluru/Hyderabad. CTC: 28 LPA. Apply Link: https://amazon.jobs/...',
-      status: 'council_approved',
-      extractedCompany: 'Amazon',
-      extractedRole: 'SDE',
-      matchScore: 97,
-      timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    },
-    {
-      id: 'feed-2',
-      platform: 'telegram',
-      channelName: 'Hyderabad & Bengaluru SDE Openings',
-      rawText: 'Good morning guys! Anyone got the link for TCS test yesterday?',
-      status: 'noise_dropped',
-      timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-    },
-    {
-      id: 'feed-3',
-      platform: 'telegram',
-      channelName: 'OffCampusJobs4u - 2026 Batch Alerts',
-      rawText: 'Microsoft Off-Campus 2026. Role: Full Stack Developer. Location: Hyderabad. Skills: React, Node.js, Express.',
-      status: 'council_approved',
-      extractedCompany: 'Microsoft',
-      extractedRole: 'Full Stack Developer',
-      matchScore: 97,
-      timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    },
-  ];
+  private feedItems: IRadarFeedItem[] = [];
 
   constructor() {
     this.loadFromStorage();
@@ -129,13 +32,8 @@ export class ChannelManagerService {
         this.config = {
           ...this.config,
           ...parsed,
-          monitoredChannels:
-            Array.isArray(parsed.monitoredChannels) && parsed.monitoredChannels.length > 0
-              ? parsed.monitoredChannels
-              : DEFAULT_CHANNELS,
+          monitoredChannels: Array.isArray(parsed.monitoredChannels) ? parsed.monitoredChannels : [],
         };
-      } else {
-        this.config.monitoredChannels = DEFAULT_CHANNELS;
       }
       const storedFeed = localStorage.getItem('jobradar_radar_feed_v1');
       if (storedFeed) {
@@ -143,7 +41,7 @@ export class ChannelManagerService {
       }
     } catch (e) {
       console.error('Failed to load watcher config from storage:', e);
-      this.config.monitoredChannels = DEFAULT_CHANNELS;
+      this.config.monitoredChannels = [];
     }
   }
 
@@ -166,8 +64,13 @@ export class ChannelManagerService {
     this.saveToStorage();
   }
 
-  public resetToDefaultChannels() {
-    this.config.monitoredChannels = [...DEFAULT_CHANNELS];
+  public clearAllChannels() {
+    this.config.monitoredChannels = [];
+    this.saveToStorage();
+  }
+
+  public clearFeed() {
+    this.feedItems = [];
     this.saveToStorage();
   }
 
