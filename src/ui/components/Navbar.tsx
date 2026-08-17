@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Radar, LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw } from 'lucide-react';
+import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw } from 'lucide-react';
+import { RadarLogoBadge } from './RadarLogo';
 import { s3Cloud, S3SyncStatus } from '../../app-core/s3Client';
 
 interface NavbarProps {
@@ -24,11 +25,7 @@ export function Navbar({ currentTab, setCurrentTab, onOpenIngestModal }: NavbarP
     <header className="sticky top-0 z-40 bg-black/90 backdrop-blur-xl border-b border-zinc-800/80 px-6 py-3.5 flex items-center justify-between">
       {/* Brand Identity */}
       <div className="flex items-center space-x-3">
-        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-white via-zinc-200 to-zinc-600 p-[1px] flex items-center justify-center shadow-lg shadow-white/5">
-          <div className="w-full h-full bg-black rounded-2xl flex items-center justify-center">
-            <Radar className="w-5 h-5 text-white" />
-          </div>
-        </div>
+        <RadarLogoBadge size="md" />
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="font-extrabold text-base tracking-tight text-white">JobRadar</h1>

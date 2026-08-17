@@ -6,8 +6,9 @@ import { parseEnvContent } from '../../app-core/envParser';
 import { IProfile } from '../../app-core/types';
 import {
   Sparkles, Cloud, User, FileText, CheckCircle2, ArrowRight,
-  ArrowLeft, Upload, Key, ShieldCheck, FileCode, Check, Radar
+  ArrowLeft, Upload, Key, ShieldCheck, FileCode, Check
 } from 'lucide-react';
+import { RadarLogoBadge } from './RadarLogo';
 
 interface OnboardingWizardProps {
   isOpen: boolean;
@@ -118,11 +119,7 @@ export function OnboardingWizard({ isOpen, onClose, onCompleted }: OnboardingWiz
         <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
           <div>
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-white via-zinc-200 to-zinc-600 p-[1px] flex items-center justify-center shadow-lg shadow-white/5 shrink-0">
-                <div className="w-full h-full bg-black rounded-2xl flex items-center justify-center">
-                  <Radar className="w-5 h-5 text-white" />
-                </div>
-              </div>
+              <RadarLogoBadge size="md" />
               <h2 className="text-xl font-extrabold text-white tracking-tight">JobRadar Setup Wizard</h2>
             </div>
             <p className="text-xs text-zinc-400 mt-1 font-medium">

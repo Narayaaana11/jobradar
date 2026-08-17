@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { processIngestion } from '../../app-core/pipeline';
 import { store } from '../../app-core/store';
 import { Sparkles, X, MessageSquare, Globe, CheckCircle2, Loader2, Bot, Zap } from 'lucide-react';
+import { RadarLogoBadge } from './RadarLogo';
 
 interface IngestModalProps {
   isOpen: boolean;
@@ -81,10 +82,8 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
       <div className="bg-[#121215] border border-[#27272a] rounded-[24px] w-full max-w-2xl p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-150">
         {/* Modal Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <span className="p-2 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400">
-              <Sparkles className="w-5 h-5" />
-            </span>
+          <div className="flex items-center space-x-3">
+            <RadarLogoBadge size="sm" />
             <div>
               <h3 className="text-base font-extrabold text-white">AI Job Ingestion & Extraction Engine</h3>
               <p className="text-xs text-zinc-400">Ingest WhatsApp / Telegram dumps or single JDs with automatic pipeline processing.</p>
