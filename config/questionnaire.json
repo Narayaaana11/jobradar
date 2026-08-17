@@ -1,0 +1,31 @@
+{
+  "personal": {
+    "fullName": "Veera Venkata Naga Satyanarayana Thota",
+    "firstName": "Veera Venkata Naga Satyanarayana",
+    "lastName": "Thota",
+    "email": "narayananaiduthota@gmail.com",
+    "phone": "+91 6301253789",
+    "linkedin": "https://www.linkedin.com/in/narayaaana/",
+    "github": "https://github.com/Narayaaana11",
+    "portfolio": "https://www.narayanathota.me",
+    "city": "Hyderabad",
+    "state": "Telangana",
+    "country": "India"
+  },
+  "workAuthorization": {
+    "are_you_legally_authorized_to_work": "Yes",
+    "will_you_now_or_in_the_future_require_sponsorship": "No",
+    "notice_period": "Immediate / 0 Days",
+    "willing_to_relocate": "Yes"
+  },
+  "demographics": {
+    "gender": "Male",
+    "race_ethnicity": "Asian / South Asian",
+    "veteran_status": "No",
+    "disability_status": "No"
+  },
+  "answers": {
+    "how_did_you_hear_about_us": "LinkedIn / Job Channel",
+    "why_do_you_want_to_work_here": "I am passionate about building scalable web applications and intelligent AI agent systems that solve real-world problems efficiently."
+  }
+}

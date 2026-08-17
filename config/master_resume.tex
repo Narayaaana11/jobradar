@@ -1,0 +1,179 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[colorlinks=true, urlcolor=blue, linkcolor=blue]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.6in}
+\addtolength{\evensidemargin}{-0.6in}
+\addtolength{\textwidth}{1.2in}
+\addtolength{\topmargin}{-.7in}
+\addtolength{\textheight}{1.4in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{
+\vspace{-6pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-7pt}]
+
+% Ensure generated PDF is machine readable / ATS parsable
+\pdfgentounicode=1
+
+% Custom commands
+\newcommand{\resumeItem}[1]{
+\item\small{
+{#1 \vspace{-2pt}}
+}
+}
+
+\newcommand{\resumeSubheading}[4]{
+\vspace{-2pt}\item
+\begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+\textbf{#1} & #2 \\
+\textit{\small#3} & \textit{\small #4} \\
+\end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+\item
+\begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+\small#1 & #2 \\
+\end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.20in, itemsep=0pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+%%%%%% RESUME STARTS HERE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+\textbf{\Huge \scshape Veera Venkata Naga Satyanarayana Thota} \\ \vspace{1pt}
+\small Bhimavaram, Andhra Pradesh $|$ +91 6301253789 $|$
+\href{mailto:narayananaiduthota@gmail.com}{narayananaiduthota@gmail.com} $|$
+\href{https://www.narayanathota.me}{Portfolio} $|$
+\href{https://www.linkedin.com/in/narayaaana/}{LinkedIn} $|$
+\href{https://github.com/Narayaaana11}{GitHub}\\ \vspace{2pt}
+\end{center}
+
+
+%-----------SUMMARY-----------
+\section{Summary}
+\small{Full Stack Developer with hands-on experience building responsive front-end interfaces (React.js, Tailwind CSS) and RESTful back-end services (Node.js, Express.js, MongoDB). Skilled in end-to-end ownership -- from API design to deployment -- with strong problem-solving skills, clear verbal communication, and organizational skills backed by a Computer Science foundation in Data Structures \& Algorithms and OOP.}
+
+
+%-----------TECHNICAL SKILLS-----------
+\section{Technical Skills}
+\begin{itemize}[leftmargin=0.15in, label={}]
+\small{\item{
+\textbf{Languages}{: Python, SQL, JavaScript (ES6+), HTML5, CSS3} \\
+\textbf{Frontend Development}{: React.js, Tailwind CSS} \\
+\textbf{Backend \& Database}{: Node.js, Express.js, MongoDB, REST APIs, JWT Auth} \\
+\textbf{Cloud \& DevOps}{: AWS (S3), Git, GitHub} \\
+\textbf{Tools \& Platforms}{: VS Code, Postman, Vercel, Render} \\
+\textbf{Core Concepts}{: Data Structures \& Algorithms (DSA), OOP}
+}}
+\end{itemize}
+
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+\resumeSubHeadingListStart
+
+\resumeSubheading
+{Full Stack Development Intern}{June 2025 -- July 2025}
+{Technical Hub Pvt. Ltd.}{}
+\resumeItemListStart
+\resumeItem{Built responsive user interfaces using React.js and Tailwind CSS, standardizing component layouts across mobile and desktop devices and reducing UI inconsistencies across the app.}
+\resumeItem{Designed and developed RESTful API endpoints using Node.js and Express to handle user authentication and state synchronization across frontend client interfaces.}
+\resumeItem{Tested API routes and UI workflows using Postman, identifying and resolving over 15 dynamic state and integration issues prior to deployment on Vercel and Render.}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+
+%-----------PROJECTS-----------
+\section{Projects}
+\resumeSubHeadingListStart
+
+\resumeSubheading
+{Aditya University Visitor Management System (AUSVMS)}{2025}
+{\emph{MERN Stack} \quad \href{https://github.com/Narayaaana11}{\underline{GitHub Repository}}}{}
+\resumeItemListStart
+\resumeItem{Developed a visitor tracking platform with role-based access control (RBAC) across 4 account types (Admin, Staff, Security Guard, Visitor).}
+\resumeItem{Designed MongoDB aggregation pipelines powering a real-time dashboard, cutting manual visitor-log lookup time for staff from minutes to seconds.}
+\resumeItem{Implemented OTP-based visitor check-in workflows with real-time updates and email alerts via Socket.io and Nodemailer, removing manual front-desk verification.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Guard Hub -- Security Roster Management System}{2025}
+{\emph{MERN Stack, Tailwind CSS} \quad \href{https://github.com/Narayaaana11/Guards-Hub}{\underline{GitHub Repository}}}{}
+\resumeItemListStart
+\resumeItem{Engineered a roster system to digitize shift allocation for 100+ campus security personnel, replacing manual spreadsheet tracking and cutting weekly scheduling time by an estimated 5+ hours.}
+\resumeItem{Built a scheduling engine with shift constraint validation, automatically detecting time collisions across 4 rotating shift patterns (General, A, B, and C) with zero manual review.}
+\resumeItem{Integrated attendance logging and approval modules, testing edge cases to maintain schedule consistency across supervisor views.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Matrix Library Management System}{2025}
+{\emph{MERN Stack, Python, NLP} \quad \href{https://github.com/Narayaaana11/Matrix-Library-Management-System}{\underline{GitHub Repository}}}{}
+\resumeItemListStart
+\resumeItem{Designed React dashboards to display real-time book availability, borrowing records, and inventory status for students and librarians.}
+\resumeItem{Integrated an NLP-based chatbot in Python to process natural language queries, helping users look up book titles and shelf locations without manual search.}
+\resumeItem{Built reservation and checkout interfaces using React state management to maintain accurate inventory availability during concurrent usage.}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+
+%-----------EDUCATION-----------
+\section{Education}
+\resumeSubHeadingListStart
+\resumeSubheading
+{Aditya University}{Aug 2024 -- May 2026}
+{Master of Computer Applications (MCA) -- Computer Science}{CGPA: 7.70 / 10}
+\resumeSubheading
+{Aditya Degree College}{Aug 2021 -- May 2024}
+{Bachelor of Computer Applications (BCA) -- Computer Science}{CGPA: 7.24 / 10}
+\resumeSubHeadingListEnd
+
+
+%-----------CERTIFICATIONS-----------
+\section{Certifications}
+\resumeSubHeadingListStart
+\small{\item{
+\textbf{Full Stack Developer Certification} $|$ \emph{Technical Hub Pvt. Ltd.} \hfill Jun 2025 \\
+\textbf{Project Space Hackathon Participant} $|$ \emph{Technical Hub Pvt. Ltd.} \hfill Jun 2025
+}}
+\resumeSubHeadingListEnd
+
+\end{document}

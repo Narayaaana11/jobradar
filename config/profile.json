@@ -1,0 +1,52 @@
+{
+  "name": "Narayana Thota",
+  "title": "Full Stack Developer / LLM Systems Engineer",
+  "education": {
+    "degree": "Master of Computer Applications (MCA)",
+    "batch": "2026",
+    "status": "Fresher / Final Year Student"
+  },
+  "location": {
+    "city": "Hyderabad",
+    "state": "Telangana",
+    "country": "India",
+    "openToRemote": true
+  },
+  "primarySkills": [
+    "JavaScript", "TypeScript", "React", "Next.js", "Node.js", "Express",
+    "MongoDB", "HTML5", "CSS3", "Tailwind CSS"
+  ],
+  "specializations": [
+    "MERN Stack Development",
+    "TallyPrime API / SDK Integrations",
+    "LLM Agent Orchestration & Prompt Engineering",
+    "RESTful API Design & Background Workers"
+  ],
+  "experienceLevel": "Fresher / 0-1 Year",
+  "yearsOfExperience": {
+    "overall": 1,
+    "JavaScript": 2,
+    "TypeScript": 2,
+    "React": 2,
+    "Node.js": 2,
+    "Express": 2,
+    "MongoDB": 2,
+    "Next.js": 1.5,
+    "Python": 1
+  },
+  "workAuthorization": {
+    "authorizedInIndia": true,
+    "requiresSponsorship": false,
+    "legallyAuthorizedInUS": false
+  },
+  "preferences": {
+    "noticePeriodDays": 0,
+    "immediateJoiner": true,
+    "expectedSalaryINR": "600000 - 1000000 PA",
+    "workMode": ["Remote", "Hybrid", "On-site"]
+  },
+  "targetRoles": [
+    "Software Engineer", "Full Stack Developer", "Frontend Engineer",
+    "Backend Engineer", "AI/LLM Agent Developer", "MERN Developer"
+  ]
+}
