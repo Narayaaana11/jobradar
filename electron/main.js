@@ -95,3 +95,43 @@ ipcMain.handle('save-pdf-file', async (_event, { filename, base64Data }) => {
 
   return { success: false, canceled: true };
 });
+
+// IPC Handler: Native Zero-CORS LLM API Execution
+ipcMain.handle('call-llm-api', async (_event, { endpoint, headers, body }) => {
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: headers || { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const status = res.status;
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { rawText: text };
+    }
+
+    if (!res.ok) {
+      return {
+        success: false,
+        status,
+        error: data?.error?.message || data?.error || `HTTP ${status}: ${text || 'Request failed'}`,
+      };
+    }
+
+    return {
+      success: true,
+      status,
+      data,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message || 'Native network request failed',
+    };
+  }
+});
+

@@ -6,7 +6,7 @@ import { parseLatexResume } from '../../app-core/latexParser';
 import { parseEnvContent } from '../../app-core/envParser';
 import {
   Settings, Save, Download, Upload, RotateCcw, CheckCircle2, User,
-  FileText, Key, ShieldCheck, Cloud, RefreshCw, Sparkles, FileCode
+  FileText, Key, ShieldCheck, Cloud, RefreshCw, Sparkles, FileCode, AlertCircle
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -22,6 +22,7 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
   const [saveMsg, setSaveMsg] = useState('');
   const [activeTab, setActiveTab] = useState<'profile' | 'latex' | 's3' | 'api' | 'backup'>('profile');
   const [s3Syncing, setS3Syncing] = useState(false);
+  const [testingApiKey, setTestingApiKey] = useState(false);
   const [envPasteModal, setEnvPasteModal] = useState(false);
   const [rawEnvText, setRawEnvText] = useState('');
 
@@ -282,8 +283,16 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
       </div>
 
       {saveMsg && (
-        <div className="p-3.5 rounded-2xl bg-emerald-950/70 border border-emerald-800 text-xs font-mono text-emerald-300 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
+        <div className={`p-3.5 rounded-2xl text-xs font-mono flex items-center gap-2 ${
+          saveMsg.startsWith('✕')
+            ? 'bg-red-950/70 border border-red-800 text-red-300'
+            : 'bg-emerald-950/70 border border-emerald-800 text-emerald-300'
+        }`}>
+          {saveMsg.startsWith('✕') ? (
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+          )}
           <span>{saveMsg}</span>
         </div>
       )}
@@ -582,24 +591,33 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
                 />
                 <button
                   type="button"
+                  disabled={testingApiKey}
                   onClick={async () => {
                     if (!profile.apiKey) {
                       setSaveMsg('Please enter an API key to test.');
                       setTimeout(() => setSaveMsg(''), 3000);
                       return;
                     }
-                    setSaveMsg('Testing API Key connection...');
-                    const res = await (await import('../../app-core/llmClient')).llmClient.testApiKey(profile.apiKey);
-                    if (res.valid) {
-                      setSaveMsg(`✓ Connected successfully to ${res.model || 'OpenRouter / Claude AI'}!`);
-                    } else {
-                      setSaveMsg(`✕ Connection failed: ${res.message}`);
+                    setTestingApiKey(true);
+                    setSaveMsg('Testing API Key connection via Native IPC...');
+                    try {
+                      const res = await (await import('../../app-core/llmClient')).llmClient.testApiKey(profile.apiKey);
+                      if (res.valid) {
+                        setSaveMsg(`✓ Connected successfully to ${res.model || 'OpenRouter / Claude AI'}!`);
+                      } else {
+                        setSaveMsg(`✕ Connection failed: ${res.message}`);
+                      }
+                    } catch (err: any) {
+                      setSaveMsg(`✕ Connection error: ${err.message}`);
+                    } finally {
+                      setTestingApiKey(false);
+                      setTimeout(() => setSaveMsg(''), 6000);
                     }
-                    setTimeout(() => setSaveMsg(''), 5000);
                   }}
-                  className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition shadow shrink-0"
+                  className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  Test Connection
+                  <RefreshCw className={`w-3.5 h-3.5 ${testingApiKey ? 'animate-spin' : ''}`} />
+                  <span>{testingApiKey ? 'Testing...' : 'Test Connection'}</span>
                 </button>
               </div>
               <p className="text-[11px] text-zinc-500">

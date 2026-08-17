@@ -1,4 +1,4 @@
-import { IJob, IProfile, IInterviewPrep, IRubricScores } from './types';
+import { IJob, IProfile, IInterviewPrep } from './types';
 import { IExtractedJD } from './extractor';
 import { IScoreResult } from './scorer';
 
@@ -11,7 +11,8 @@ export interface ILlmResponse<T> {
 
 export class LlmClientService {
   /**
-   * Universal fetch caller for OpenRouter or direct Anthropic Claude API
+   * Universal fetch caller supporting Electron Native IPC Bridge (Zero CORS)
+   * and clean browser fetch fallback (without forbidden headers).
    */
   public async callLlm(
     prompt: string,
@@ -26,61 +27,91 @@ export class LlmClientService {
     const key = apiKey.trim();
     const isOpenRouter = key.startsWith('sk-or-') || !key.startsWith('sk-ant-');
 
+    // Check if Electron native IPC is available (eliminates browser CORS & header restrictions)
+    const electronApi = (window as any)?.electronAPI;
+
     if (isOpenRouter) {
-      // OpenRouter Unified API
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-          'HTTP-Referer': 'https://github.com/Narayaaana11/jobradar',
-          'X-Title': 'JobRadar Autonomous Career Agent',
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.2,
-        }),
-      });
+      const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      };
+      const body = {
+        model: modelName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+      };
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `OpenRouter request failed with HTTP ${res.status}`);
+      if (electronApi?.callLlmApi) {
+        // Native Electron IPC Request (Zero CORS, 100% Reliable)
+        const res = await electronApi.callLlmApi({ endpoint, headers, body });
+        if (!res.success) {
+          throw new Error(res.error || `OpenRouter request failed (Status: ${res.status || 'unknown'})`);
+        }
+        const content = res.data?.choices?.[0]?.message?.content || '';
+        return { text: content, model: res.data?.model || modelName };
+      } else {
+        // Browser Fetch Fallback (Clean headers)
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData?.error?.message || `OpenRouter request failed with HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        return { text: content, model: data.model || modelName };
       }
-
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content || '';
-      return { text: content, model: data.model || modelName };
     } else {
       // Anthropic Direct Messages API
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 2500,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-        }),
-      });
+      const endpoint = 'https://api.anthropic.com/v1/messages';
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      };
+      const body = {
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 2500,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+      };
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || `Anthropic request failed with HTTP ${res.status}`);
+      if (electronApi?.callLlmApi) {
+        // Native Electron IPC Request
+        const res = await electronApi.callLlmApi({ endpoint, headers, body });
+        if (!res.success) {
+          throw new Error(res.error || `Anthropic request failed (Status: ${res.status || 'unknown'})`);
+        }
+        const content = res.data?.content?.[0]?.text || '';
+        return { text: content, model: res.data?.model || 'claude-3-5-sonnet-20241022' };
+      } else {
+        // Browser Fetch Fallback
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData?.error?.message || `Anthropic request failed with HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const content = data.content?.[0]?.text || '';
+        return { text: content, model: data.model || 'claude-3-5-sonnet-20241022' };
       }
-
-      const data = await res.json();
-      const content = data.content?.[0]?.text || '';
-      return { text: content, model: data.model || 'claude-3-5-sonnet-20241022' };
     }
   }
 
