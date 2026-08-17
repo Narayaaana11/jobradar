@@ -11,6 +11,7 @@ function createWindow() {
     minWidth: 1080,
     minHeight: 700,
     title: 'JobRadar — Autonomous Career Agent',
+    icon: path.join(__dirname, 'icon.png'),
     backgroundColor: '#09090b',
     autoHideMenuBar: true,
     show: false,
