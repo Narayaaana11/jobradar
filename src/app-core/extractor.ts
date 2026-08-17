@@ -19,7 +19,15 @@ export interface IExtractedJD {
  * High-precision heuristic & regex extractor for job postings
  */
 export function extractJobDetails(rawText: string, sourceUrl?: string): IExtractedJD {
-  const text = rawText.trim();
+  // Strip HTML tags and entities for clean parsing
+  const text = rawText
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .trim();
+
   let companyName = '';
   let jobTitle = '';
   let location: string | null = null;
@@ -31,8 +39,8 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
   // 1. Extract Company Name
   const companyPatterns = [
     /\*([A-Za-z0-9\s&.,-]+?)\s+(?:Recruitment|Hiring|Walkin|Walk.?in|Campus|Selection|Drive|Offcampus)\b/i,
-    /Company:\s*[\*_]*([A-Za-z0-9\s&.,-]+?)[\*_]*\s*\n/i,
-    /(?:hiring|recruiting)\s+at\s+([A-Za-z0-9\s&.,-]+)/i,
+    /(?:Company|Organization):\s*[\*_]*([A-Za-z0-9\s&.,-]+?)[\*_]*\s*(?:\n|$)/i,
+    /(?:hiring|recruiting|opening)\s+at\s+([A-Za-z0-9\s&.,-]+)/i,
     /^[\*_]+([A-Za-z0-9][A-Za-z0-9\s&.,'-]{1,35}?)[\*_]+/im,
     /\b([A-Za-z0-9]{2,}(?:\s[A-Za-z0-9]{2,}){0,2})\s+is\s+hiring/i,
   ];
@@ -41,7 +49,7 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
     const m = text.match(pattern);
     if (m) {
       const candidate = m[1].replace(/[*_🔥💼📅👉🧑‍💻🎓]/g, '').trim();
-      const genericWords = ['job', 'role', 'apply', 'recruitment', 'hiring', 'freshers', 'urgent', 'alert', 'top'];
+      const genericWords = ['job', 'role', 'apply', 'recruitment', 'hiring', 'freshers', 'urgent', 'alert', 'top', 'mega'];
       if (candidate.length > 1 && candidate.length < 50 && !genericWords.some((g) => candidate.toLowerCase().startsWith(g))) {
         companyName = candidate;
         break;
@@ -54,10 +62,11 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
     const knownCompanies = [
       'Google', 'Microsoft', 'Amazon', 'Apple', 'Meta', 'Netflix', 'Uber', 'Swiggy', 'Zomato', 'Razorpay',
       'Infosys', 'TCS', 'Wipro', 'Cognizant', 'Accenture', 'HCLTech', 'NTT DATA', 'Deloitte', 'Capgemini',
-      'Oracle', 'Salesforce', 'ServiceNow', 'Cisco', 'Adobe', 'Paytm', 'PhonePe', 'Cred', 'Zoho', 'Jio', 'Tech Mahindra'
+      'Goldman Sachs', 'JPMorgan', 'Morgan Stanley', 'Walmart', 'Flipkart', 'Cisco', 'Adobe', 'Paytm',
+      'PhonePe', 'Cred', 'Zoho', 'Jio', 'Tech Mahindra', 'Oracle', 'Salesforce', 'ServiceNow'
     ];
     for (const kc of knownCompanies) {
-      if (new RegExp(`\\b${kc}\\b`, 'i').test(text)) {
+      if (new RegExp(`\\b${kc.replace(/\s+/g, '\\s+')}\\b`, 'i').test(text)) {
         companyName = kc;
         break;
       }
@@ -70,11 +79,11 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
 
   // 2. Extract Job Title / Role
   const titlePatterns = [
-    /(?:Role|Job Role|Position|Designation|Profile|Title):\s*[\*_]*([^\n\*_]+)/i,
+    /(?:Role|Job Role|Position|Designation|Job Profile|Profile|Title):\s*[\*_]*([^\n\*_]+)/i,
     /\*Role:\*\s*([^\n\*_]+)/i,
     /Hiring\s+for\s+[\*_]*([^\n\*_]+)/i,
     /Looking\s+for\s+[\*_]*([^\n\*_]+)/i,
-    /\b(Software Engineer|Full Stack Developer|Frontend Developer|Backend Developer|MERN Stack Developer|SDE|Software Development Engineer|React Developer|Node Developer|Web Developer|Associate Software Engineer|Graduate Trainee|Java Developer|Python Developer)\b/i,
+    /\b(Software Engineer|Full Stack Developer|Frontend Developer|Backend Developer|MERN Stack Developer|Project Engineer|Systems Engineer|System Engineer|Associate Quality Engineer|SDE|Software Development Engineer|React Developer|Node Developer|Web Developer|Associate Software Engineer|Graduate Trainee|Java Developer|Python Developer|Systems Architect Associate|Senior Analyst)\b/i,
   ];
 
   for (const pattern of titlePatterns) {
@@ -94,14 +103,14 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
 
   // 3. Extract Location
   const locPatterns = [
-    /(?:Location|Job Location|Work Location):\s*[\*_]*([^\n\*_]+)/i,
+    /(?:Location|Locations|Job Location|Work Location):\s*[\*_]*([^\n\*_]+)/i,
     /\b(Hyderabad|Bengaluru|Bangalore|Pune|Chennai|Noida|Gurgaon|Gurugram|Mumbai|Delhi|Kolkata|Kochi|Coimbatore|Pan India|Remote|Work from Home|WFH)\b/i,
   ];
 
   for (const pattern of locPatterns) {
     const m = text.match(pattern);
     if (m) {
-      location = m[1].replace(/[*_📍]/g, '').trim();
+      location = m[1].replace(/[*_📍]/g, '').replace(/\s+/g, ' ').trim();
       break;
     }
   }
@@ -117,10 +126,10 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
     }
   }
 
-  // 5. Extract Experience
+  // 5. Extract Experience / Batch
   const expPatterns = [
-    /(?:Experience|Exp|Eligibility):\s*[\*_]*([^\n\*_]+)/i,
-    /\b(Fresher|Freshers|0\s*-\s*[123]\s*years?|2024|2025|2026\s*batch)\b/i,
+    /(?:Experience|Exp|Eligibility|Graduation Year|Grad Year|Batch|Passout Year|Target Batch):\s*[\*_]*([^\n\*_]+)/i,
+    /\b(Fresher|Freshers|0\s*-\s*[123]\s*years?|(?:2024|2025|2026)(?:\s*[\/\,\-]\s*(?:2024|2025|2026))*\s*(?:batch|passout)?)\b/i,
   ];
   for (const pattern of expPatterns) {
     const m = text.match(pattern);

@@ -10,11 +10,12 @@ export interface ILlmResponse<T> {
 }
 
 const OPENROUTER_ACTIVE_FREE_MODELS = [
-  'google/gemini-2.0-flash-lite:free',
-  'google/gemini-2.0-flash:free',
-  'meta-llama/llama-3.2-3b-instruct:free',
-  'deepseek/deepseek-r1:free',
-  'mistralai/mistral-7b-instruct:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'google/gemma-4-31b-it:free',
+  'openai/gpt-oss-20b:free',
+  'nvidia/nemotron-3-nano-30b-a3b:free',
+  'liquid/lfm-2.5-2.6b:free',
+  'z-ai/glm-5.2:free',
 ];
 
 const OPENROUTER_PAID_MODELS = [
@@ -40,7 +41,7 @@ export class LlmClientService {
 
     const key = apiKey.trim();
     const isOpenRouter = key.startsWith('sk-or-') || !key.startsWith('sk-ant-');
-    const electronApi = (window as any)?.electronAPI;
+    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
     if (isOpenRouter) {
       const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
@@ -455,7 +456,7 @@ CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfo
 
     const key = apiKey.trim();
     const isOpenRouter = key.startsWith('sk-or-') || !key.startsWith('sk-ant-');
-    const electronApi = (window as any)?.electronAPI;
+    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
     if (isOpenRouter) {
       try {

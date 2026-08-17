@@ -198,14 +198,13 @@ Qualifications:
     applicationStatus: 'not_applied',
     referralContacts: [
       {
-        name: 'Arjun Verma',
-        role: 'Staff Software Engineer',
+        personaTitle: 'Peer Developer / Senior SDE',
+        targetRole: 'Staff Software Engineer @ Google',
         department: 'Google Cloud Hyderabad',
-        guessedEmail: 'arjunverma@google.com',
-        verified: true,
-        linkedinSearchUrl: 'https://www.linkedin.com/search/results/people/?keywords=Arjun+Verma+Google+Hyderabad',
+        linkedinSearchUrl: 'https://www.linkedin.com/search/results/people/?keywords=Staff+Software+Engineer+Google+Hyderabad',
+        searchQuery: 'Staff Software Engineer Google Hyderabad',
         subject: 'Referral Request: Software Development Engineer (Hyderabad) - Narayana Thota',
-        outreachDraft: `Hi Arjun,
+        outreachDraft: `Hi [Name],
 
 Hope you are having a productive week!
 
@@ -217,18 +216,17 @@ Thank you for your time and guidance!
 
 Best regards,
 Veera Venkata Naga Satyanarayana Thota
-+91 93902 46849 | narayanathota2002@gmail.com
-LinkedIn: linkedin.com/in/narayana-thota`,
++91 6301253789 | narayananaiduthota@gmail.com
+LinkedIn: https://www.linkedin.com/in/narayaaana/`,
       },
       {
-        name: 'Pooja Sharma',
-        role: 'Technical Recruiter',
+        personaTitle: 'Tech Recruiter & Sourcer',
+        targetRole: 'Technical Recruiter @ Google',
         department: 'Google Talent Acquisition APAC',
-        guessedEmail: 'poojasharma@google.com',
-        verified: false,
-        linkedinSearchUrl: 'https://www.linkedin.com/search/results/people/?keywords=Pooja+Sharma+Google+Recruiter+Hyderabad',
+        linkedinSearchUrl: 'https://www.linkedin.com/search/results/people/?keywords=Technical+Recruiter+Google+Hyderabad',
+        searchQuery: 'Technical Recruiter Google Hyderabad',
         subject: 'Application Follow-Up: Software Development Engineer - Narayana Thota',
-        outreachDraft: `Dear Pooja,
+        outreachDraft: `Dear [Name],
 
 I am writing to express my strong enthusiasm for the Software Development Engineer opening at Google Hyderabad.
 
@@ -237,7 +235,8 @@ With my deep foundation in TypeScript, React 18, Next.js, and Node.js backend en
 Please let me know if you would like me to share any additional project portfolios or code repositories.
 
 Sincerely,
-Narayana Thota`,
+Veera Venkata Naga Satyanarayana Thota
+narayananaiduthota@gmail.com | +91 6301253789`,
       },
     ],
     interviewPrep: {
@@ -331,14 +330,13 @@ Responsibilities:
     applicationStatus: 'not_applied',
     referralContacts: [
       {
-        name: 'Rohan Kulkarni',
-        role: 'Senior Software Engineer',
+        personaTitle: 'Peer Developer / Senior SDE',
+        targetRole: 'Senior Software Engineer @ Microsoft',
         department: 'Microsoft IDC Hyderabad',
-        guessedEmail: 'rohan.kulkarni@microsoft.com',
-        verified: true,
-        linkedinSearchUrl: 'https://www.linkedin.com/search/results/people/?keywords=Rohan+Kulkarni+Microsoft+Hyderabad',
+        linkedinSearchUrl: 'https://www.linkedin.com/search/results/people/?keywords=Senior+Software+Engineer+Microsoft+Hyderabad',
+        searchQuery: 'Senior Software Engineer Microsoft Hyderabad',
         subject: 'Referral Request: Software Engineer - Narayana Thota',
-        outreachDraft: `Hi Rohan,\n\nI am writing to inquire if you would be open to referring me for the Software Engineer opening in the Web & Cloud Experience team at Microsoft IDC. I specialize in modern TypeScript, React, and Node.js full-stack development.\n\nThank you for considering my request!\n\nBest,\nNarayana Thota`,
+        outreachDraft: `Hi [Name],\n\nI am writing to inquire if you would be open to referring me for the Software Engineer opening in the Web & Cloud Experience team at Microsoft IDC. I specialize in modern TypeScript, React, and Node.js full-stack development.\n\nThank you for considering my request!\n\nBest,\nVeera Venkata Naga Satyanarayana Thota\nnarayananaiduthota@gmail.com | +91 6301253789`,
       },
     ],
     interviewPrep: {

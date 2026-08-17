@@ -8,7 +8,7 @@ import { generateResumePdfDataUri, downloadResumePdfFile, cleanFilenameSlug } fr
 import {
   X, Check, Trash2, ExternalLink, MapPin, Building, AlertCircle,
   Copy, FileText, CheckCircle2, XCircle, Sparkles, Mail, Download,
-  UserCheck, Linkedin, Eye, Send, Award, RefreshCw, Bot, Key, Wand2
+  UserCheck, Linkedin, Eye, Send, Award, RefreshCw, Bot, Key, Wand2, Users
 } from 'lucide-react';
 
 interface JobDrawerProps {
@@ -687,14 +687,20 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     <div className="flex items-start justify-between">
                       <div>
                         <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
-                          <span>{contact.name}</span>
+                          <span>{contact.personaTitle || (contact as any).name}</span>
                         </h4>
                         <p className="text-xs font-mono text-zinc-400 mt-0.5">
-                          {contact.role}
+                          {contact.targetRole || (contact as any).role}
                         </p>
-                        <p className="text-[11px] font-mono text-emerald-400 mt-1 flex items-center gap-1.5">
-                          <Mail className="w-3.5 h-3.5 text-zinc-500" />
-                          <span>Estimated Pattern: {contact.guessedEmail}</span>
+                        <p className="text-[11px] font-mono text-zinc-500 mt-1 flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-zinc-500" />
+                          <span>{contact.department}</span>
+                          {contact.searchQuery && (
+                            <>
+                              <span>•</span>
+                              <span className="text-zinc-400">Query: "{contact.searchQuery}"</span>
+                            </>
+                          )}
                         </p>
                       </div>
                       <a
@@ -703,7 +709,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         rel="noreferrer"
                         className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-[#0a66c2] hover:bg-[#0856a5] text-white border border-[#0a66c2] flex items-center gap-1.5 transition shadow shrink-0"
                       >
-                        <Linkedin className="w-3.5 h-3.5" /> Find Real Employees
+                        <Linkedin className="w-3.5 h-3.5" /> Search Live on LinkedIn
                       </a>
                     </div>
 
@@ -715,7 +721,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         <div className="flex items-center space-x-2">
                           <button
                             type="button"
-                            onClick={() => handleAiPersonalizeReferral(idx, contact.role)}
+                            onClick={() => handleAiPersonalizeReferral(idx, contact.targetRole || (contact as any).role)}
                             disabled={isLlmRunning}
                             className="text-xs font-bold px-3 py-1 rounded-full bg-purple-950 text-purple-300 border border-purple-800 hover:bg-purple-900 flex items-center gap-1 transition shadow shrink-0 disabled:opacity-50"
                           >

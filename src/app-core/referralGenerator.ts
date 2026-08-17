@@ -5,7 +5,6 @@ interface ITargetPersona {
   targetTitle: string;
   department: string;
   personaLabel: string;
-  emailPatternSuffix: (cleanCompany: string) => string;
   tone: string;
 }
 
@@ -14,42 +13,36 @@ const targetPersonas: ITargetPersona[] = [
     targetTitle: 'Engineering Manager',
     department: 'Engineering Leadership',
     personaLabel: 'Hiring Manager (Direct Team Lead)',
-    emailPatternSuffix: (c) => `first.last@${c}.com`,
     tone: 'leadership',
   },
   {
     targetTitle: 'Senior Software Engineer',
-    department: 'Engineering',
+    department: 'Engineering Team',
     personaLabel: 'Peer Developer / Senior SDE',
-    emailPatternSuffix: (c) => `first@${c}.com`,
     tone: 'peer',
   },
   {
-    targetTitle: 'Technical Recruiter & Talent Partner',
+    targetTitle: 'Technical Recruiter',
     department: 'Talent Acquisition',
-    personaLabel: 'Tech Recruiter (Active Sourcer)',
-    emailPatternSuffix: (c) => `careers@${c}.com`,
+    personaLabel: 'Tech Recruiter & Sourcer',
     tone: 'recruiter',
   },
   {
-    targetTitle: 'Campus Relations & University Recruiter',
-    department: 'University Relations',
-    personaLabel: 'Early Career / Fresher Recruiter',
-    emailPatternSuffix: (c) => `campus-recruitment@${c}.com`,
+    targetTitle: 'University Recruiter',
+    department: 'Early Career Relations',
+    personaLabel: 'Campus & Graduate Recruiter',
     tone: 'campus',
   },
   {
     targetTitle: 'Software Engineer Alumni',
-    department: 'Engineering (Alumni Network)',
-    personaLabel: 'Aditya University Alumni',
-    emailPatternSuffix: (c) => `first.last@${c}.com`,
+    department: 'Alumni Network (Aditya University)',
+    personaLabel: 'College Alumni at Company',
     tone: 'alumni',
   },
   {
-    targetTitle: 'Director of Software Engineering',
+    targetTitle: 'Director of Engineering',
     department: 'Executive Leadership',
-    personaLabel: 'Department Head',
-    emailPatternSuffix: (c) => `first.last@${c}.com`,
+    personaLabel: 'Department Head / VP',
     tone: 'director',
   },
 ];
@@ -57,14 +50,10 @@ const targetPersonas: ITargetPersona[] = [
 export function generateReferralContacts(job: IExtractedJD, profile: IProfile): IReferralContact[] {
   const company = job.companyName || 'Target Company';
   const role = job.jobTitle || 'Software Engineer';
-  const cleanDomain = company.toLowerCase().replace(/[^a-z0-9]/g, '') || 'company';
 
-  return targetPersonas.map((persona, idx) => {
-    // Construct direct LinkedIn search query for REAL employees at this specific company
+  return targetPersonas.map((persona) => {
     const searchTerms = `${persona.targetTitle} ${company}`;
     const linkedinSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchTerms)}`;
-
-    const guessedEmail = persona.emailPatternSuffix(cleanDomain);
 
     let outreachDraft = '';
     if (persona.tone === 'alumni') {
@@ -84,7 +73,7 @@ Warm regards,
 ${profile.name}
 ${profile.email} | ${profile.phone}
 LinkedIn: ${profile.linkedin}`;
-    } else if (persona.tone === 'leadership') {
+    } else if (persona.tone === 'leadership' || persona.tone === 'director') {
       outreachDraft = `Hi [Name],
 
 I hope all is well with you and your team at ${company}.
@@ -120,12 +109,11 @@ LinkedIn: ${profile.linkedin}`;
     }
 
     return {
-      name: `${persona.personaLabel}`,
-      role: `${persona.targetTitle} @ ${company}`,
+      personaTitle: persona.personaLabel,
+      targetRole: `${persona.targetTitle} @ ${company}`,
       department: persona.department,
-      guessedEmail,
-      verified: false, // Never falsely claim verification without live validation
       linkedinSearchUrl,
+      searchQuery: searchTerms,
       subject: `Referral Request: ${role} (${company}) — ${profile.name}`,
       outreachDraft,
     };

@@ -109,7 +109,7 @@ class S3CloudService {
    * Uses Native Electron IPC bridge (Zero CORS) when running on Desktop.
    */
   public async putObject(key: string, body: Uint8Array | string, contentType: string = 'application/json'): Promise<string> {
-    const electronApi = (window as any)?.electronAPI;
+    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
     if (electronApi?.s3PutObject) {
       const res = await electronApi.s3PutObject({
@@ -150,7 +150,7 @@ class S3CloudService {
   public async syncAllToS3(jobs: IJob[], queue: IRawQueueItem[], profile: IProfile, masterResume: string): Promise<boolean> {
     this.setStatus('syncing');
     try {
-      const electronApi = (window as any)?.electronAPI;
+      const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
       if (electronApi?.s3SyncAll) {
         const res = await electronApi.s3SyncAll({
@@ -170,30 +170,32 @@ class S3CloudService {
         return true;
       }
 
-      // 2. Dev Server Proxy Fallback (Vite Node.js Proxy)
-      try {
-        const proxyRes = await fetch('/api/s3-sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: this.config, jobs, queue, profile, masterResume }),
-        });
-        if (proxyRes.ok) {
-          const proxyData = await proxyRes.json();
-          if (proxyData.success) {
-            this.setStatus('synced');
-            console.log(`[S3Sync] Successfully synced all data (${jobs.length} jobs) via Dev Server Proxy to S3 bucket '${this.config.bucket}'.`);
-            return true;
-          } else {
-            throw new Error(proxyData.error || 'Dev server proxy S3 sync failed');
+      // 2. Dev Server Proxy Fallback (Vite Node.js Proxy when running in browser)
+      if (typeof window !== 'undefined') {
+        try {
+          const proxyRes = await fetch('/api/s3-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: this.config, jobs, queue, profile, masterResume }),
+          });
+          if (proxyRes.ok) {
+            const proxyData = await proxyRes.json();
+            if (proxyData.success) {
+              this.setStatus('synced');
+              console.log(`[S3Sync] Successfully synced all data (${jobs.length} jobs) via Dev Server Proxy to S3 bucket '${this.config.bucket}'.`);
+              return true;
+            } else {
+              throw new Error(proxyData.error || 'Dev server proxy S3 sync failed');
+            }
           }
-        }
-      } catch (proxyErr: any) {
-        if (!proxyErr.message.includes('404') && !proxyErr.message.includes('Failed to fetch')) {
-          throw proxyErr;
+        } catch (proxyErr: any) {
+          if (!proxyErr.message.includes('404') && !proxyErr.message.includes('Failed to fetch')) {
+            throw proxyErr;
+          }
         }
       }
 
-      // 3. Direct Browser AWS SDK Fallback
+      // 3. Direct AWS SDK Fallback
       await this.putObject('data/jobs.json', JSON.stringify(jobs, null, 2), 'application/json');
       await this.putObject('data/queue.json', JSON.stringify(queue, null, 2), 'application/json');
       await this.putObject('data/profile.json', JSON.stringify(profile, null, 2), 'application/json');
@@ -240,7 +242,7 @@ class S3CloudService {
    * Pulls the latest jobs and profile data from S3 if present.
    */
   public async pullFromS3(): Promise<{ jobs?: IJob[]; queue?: IRawQueueItem[]; profile?: IProfile; masterResume?: string } | null> {
-    const electronApi = (window as any)?.electronAPI;
+    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
     if (electronApi?.s3PullAll) {
       const res = await electronApi.s3PullAll({ config: this.config });
@@ -251,20 +253,22 @@ class S3CloudService {
     }
 
     // Dev Server Proxy Fallback
-    try {
-      const proxyRes = await fetch('/api/s3-pull', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: this.config }),
-      });
-      if (proxyRes.ok) {
-        const proxyData = await proxyRes.json();
-        if (proxyData.success && proxyData.data) {
-          return proxyData.data;
+    if (typeof window !== 'undefined') {
+      try {
+        const proxyRes = await fetch('/api/s3-pull', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: this.config }),
+        });
+        if (proxyRes.ok) {
+          const proxyData = await proxyRes.json();
+          if (proxyData.success && proxyData.data) {
+            return proxyData.data;
+          }
         }
+      } catch {
+        // Fall through to direct SDK
       }
-    } catch {
-      // Fall through to direct SDK
     }
 
     if (!this.client) return null;

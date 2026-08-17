@@ -40,12 +40,11 @@ export interface IAtsAnalysis {
 }
 
 export interface IReferralContact {
-  name: string;
-  role: string;
+  personaTitle: string;
+  targetRole: string;
   department: string;
-  guessedEmail: string;
-  verified: boolean;
   linkedinSearchUrl: string;
+  searchQuery: string;
   subject: string;
   outreachDraft: string;
 }
