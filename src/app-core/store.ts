@@ -693,6 +693,10 @@ class AppStore {
     );
   }
 
+  public exportFullBackup(): string {
+    return this.exportAllData();
+  }
+
   public importAllData(jsonString: string): boolean {
     try {
       const data = JSON.parse(jsonString);
