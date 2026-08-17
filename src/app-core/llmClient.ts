@@ -148,6 +148,7 @@ export class LlmClientService {
             method: 'POST',
             headers,
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(12000),
           });
 
           if (res.ok) {

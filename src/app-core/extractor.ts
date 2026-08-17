@@ -15,12 +15,26 @@ export interface IExtractedJD {
   dedupHash: string;
 }
 
+const KNOWN_COMPANIES = [
+  'Google', 'Microsoft', 'Amazon', 'Apple', 'Meta', 'Netflix', 'Uber', 'Swiggy', 'Zomato', 'Razorpay',
+  'Infosys', 'TCS', 'Wipro', 'Cognizant', 'Accenture', 'HCLTech', 'NTT DATA', 'Deloitte', 'Capgemini',
+  'Goldman Sachs', 'JPMorgan', 'Morgan Stanley', 'Walmart', 'Flipkart', 'Cisco', 'Adobe', 'Paytm',
+  'PhonePe', 'Cred', 'Zoho', 'Jio', 'Tech Mahindra', 'Oracle', 'Salesforce', 'ServiceNow'
+];
+
+const COMMON_TECH_SKILLS = [
+  'React', 'Next.js', 'TypeScript', 'JavaScript', 'Node.js', 'Express', 'MongoDB', 'PostgreSQL',
+  'SQL', 'Python', 'Java', 'C++', 'C#', 'HTML', 'CSS', 'Tailwind', 'REST APIs', 'GraphQL',
+  'Git', 'Docker', 'AWS', 'Azure', 'Redux', 'Data Structures', 'Algorithms', 'Microservices',
+  'Full Stack', 'MERN', 'Spring Boot', 'Django', 'FastAPI', 'Linux', 'Unit Testing'
+];
+
 /**
  * High-precision heuristic & regex extractor for job postings
  */
 export function extractJobDetails(rawText: string, sourceUrl?: string): IExtractedJD {
   // Strip HTML tags and entities for clean parsing
-  const text = rawText
+  const text = (rawText || '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -30,8 +44,17 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
 
   // Validate input contains actual readable alphanumeric text
   const alphanumericOnly = text.replace(/[^a-zA-Z0-9]/g, '');
-  if (!text || alphanumericOnly.length < 12) {
+  if (!text || alphanumericOnly.length < 15) {
     throw new Error('Unable to extract job details: Input is empty, contains only emojis/symbols, or lacks substantive job posting content.');
+  }
+
+  // Validate that the text actually contains job-relevant content
+  const hasJobKeywords = /(?:hiring|recruiting|opening|job|role|position|developer|engineer|intern|analyst|trainee|fresher|salary|ctc|lpa|experience|apply|skills?|responsibilities|qualifications|requirements|batch|passout)\b/i.test(text);
+  const hasMatchedSkills = COMMON_TECH_SKILLS.some((s) => new RegExp(`\\b${s.replace('+', '\\+')}\\b`, 'i').test(text));
+  const hasKnownCompany = KNOWN_COMPANIES.some((kc) => new RegExp(`\\b${kc.replace(/\s+/g, '\\s+')}\\b`, 'i').test(text));
+
+  if (!hasJobKeywords && !hasMatchedSkills && !hasKnownCompany) {
+    throw new Error('Unable to extract job details: Input lacks job-related keywords, technical skills, or company information.');
   }
 
   let companyName = '';
@@ -65,13 +88,7 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
 
   // Known company lookup fallback
   if (!companyName || companyName.toLowerCase().includes('job') || companyName.length < 2) {
-    const knownCompanies = [
-      'Google', 'Microsoft', 'Amazon', 'Apple', 'Meta', 'Netflix', 'Uber', 'Swiggy', 'Zomato', 'Razorpay',
-      'Infosys', 'TCS', 'Wipro', 'Cognizant', 'Accenture', 'HCLTech', 'NTT DATA', 'Deloitte', 'Capgemini',
-      'Goldman Sachs', 'JPMorgan', 'Morgan Stanley', 'Walmart', 'Flipkart', 'Cisco', 'Adobe', 'Paytm',
-      'PhonePe', 'Cred', 'Zoho', 'Jio', 'Tech Mahindra', 'Oracle', 'Salesforce', 'ServiceNow'
-    ];
-    for (const kc of knownCompanies) {
+    for (const kc of KNOWN_COMPANIES) {
       if (new RegExp(`\\b${kc.replace(/\s+/g, '\\s+')}\\b`, 'i').test(text)) {
         companyName = kc;
         break;
@@ -160,21 +177,18 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
   }
 
   // 7. Extract Skills
-  const commonTechSkills = [
-    'React', 'Next.js', 'TypeScript', 'JavaScript', 'Node.js', 'Express', 'MongoDB', 'PostgreSQL',
-    'SQL', 'Python', 'Java', 'C++', 'C#', 'HTML', 'CSS', 'Tailwind', 'REST APIs', 'GraphQL',
-    'Git', 'Docker', 'AWS', 'Azure', 'Redux', 'Data Structures', 'Algorithms', 'Microservices',
-    'Full Stack', 'MERN', 'Spring Boot', 'Django', 'FastAPI', 'Linux', 'Unit Testing'
-  ];
-
-  for (const skill of commonTechSkills) {
+  for (const skill of COMMON_TECH_SKILLS) {
     const regex = new RegExp(`\\b${skill.replace('+', '\\+')}\\b`, 'i');
     if (regex.test(text)) {
       skills.push(skill);
     }
   }
   if (skills.length === 0) {
-    skills.push('JavaScript', 'React', 'Node.js', 'REST APIs');
+    if (hasJobKeywords) {
+      skills.push('JavaScript', 'React', 'Node.js', 'REST APIs');
+    } else {
+      throw new Error('Unable to extract job details: No relevant skills or technical requirements found in text.');
+    }
   }
 
   const isRemote = /remote|work from home|wfh/i.test(text + ' ' + (location || ''));
