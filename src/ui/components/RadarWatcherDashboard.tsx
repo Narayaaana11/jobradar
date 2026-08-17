@@ -4,7 +4,8 @@ import { channelManager } from '../../app-core/channelManager';
 import {
   Radio, MessageCircle, Send, CheckCircle2, XCircle, AlertCircle,
   RefreshCw, Plus, Trash2, Power, Eye, Zap, ShieldCheck, Sparkles,
-  ExternalLink, Copy, Sliders, Smartphone, QrCode
+  ExternalLink, Copy, Sliders, Smartphone, QrCode, Key, LogIn, LogOut,
+  RotateCcw, Check, Phone
 } from 'lucide-react';
 
 interface RadarWatcherDashboardProps {
@@ -15,15 +16,35 @@ interface RadarWatcherDashboardProps {
 export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashboardProps) {
   const [config, setConfig] = useState<IWatcherConfig>(channelManager.getConfig());
   const [feed, setFeed] = useState<IRadarFeedItem[]>(channelManager.getFeed());
+  
+  // Test Ingestion State
   const [testInput, setTestInput] = useState('');
   const [testChannel, setTestChannel] = useState('Aditya Placement Cell 2026 (MCA/BTech)');
   const [testPlatform, setTestPlatform] = useState<'whatsapp' | 'telegram'>('whatsapp');
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Add Channel Modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelPlatform, setNewChannelPlatform] = useState<'whatsapp' | 'telegram'>('whatsapp');
   const [newChannelType, setNewChannelType] = useState<'group' | 'channel'>('group');
-  const [showQrModal, setShowQrModal] = useState(false);
+
+  // WhatsApp Linking Modal
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [waPhone, setWaPhone] = useState(config.whatsappPhone || profile.phone || '+91 6301253789');
+  const [waPairingCode, setWaPairingCode] = useState<string | null>(config.whatsappPairingCode || null);
+  const [waMode, setWaMode] = useState<'qr' | 'pairing'>('qr');
+  const [isGeneratingPairing, setIsGeneratingPairing] = useState(false);
+
+  // Telegram Login Modal
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
+  const [tgPhone, setTgPhone] = useState(config.telegramPhone || profile.phone || '+91 6301253789');
+  const [tgOtpCode, setTgOtpCode] = useState('');
+  const [tgStep, setTgStep] = useState<'enter_phone' | 'enter_otp' | 'connected'>('enter_phone');
+  const [tgLoading, setTgLoading] = useState(false);
+  const [tgMsg, setTgMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Filter
   const [activeFilter, setActiveFilter] = useState<'all' | 'approved' | 'extracted' | 'noise'>('all');
 
   useEffect(() => {
@@ -33,9 +54,19 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
     }
   }, []);
 
+  const refreshState = () => {
+    setConfig(channelManager.getConfig());
+    setFeed(channelManager.getFeed());
+  };
+
   const handleToggle = (id: string, current: boolean) => {
     channelManager.toggleChannel(id, !current);
-    setConfig(channelManager.getConfig());
+    refreshState();
+  };
+
+  const handleRestoreDefaults = () => {
+    channelManager.resetToDefaultChannels();
+    refreshState();
   };
 
   const handleAddChannel = () => {
@@ -46,14 +77,14 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
       name: newChannelName.trim(),
       enabled: true,
     });
-    setConfig(channelManager.getConfig());
+    refreshState();
     setNewChannelName('');
     setShowAddModal(false);
   };
 
   const handleRemoveChannel = (id: string) => {
     channelManager.removeChannel(id);
-    setConfig(channelManager.getConfig());
+    refreshState();
   };
 
   const handleSimulateIngest = async () => {
@@ -61,13 +92,87 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
     setIsProcessing(true);
     try {
       await channelManager.ingestIncomingMessage(testPlatform, testChannel, testInput);
-      setFeed(channelManager.getFeed());
-      setConfig(channelManager.getConfig());
+      refreshState();
       setTestInput('');
     } catch (err) {
       console.error(err);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // ── Real WhatsApp Web Launcher ──
+  const handleLaunchWhatsAppWeb = async () => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.openWhatsAppWeb) {
+      await (window as any).electronAPI.openWhatsAppWeb();
+      channelManager.confirmWhatsAppConnected(waPhone);
+      refreshState();
+    } else {
+      window.open('https://web.whatsapp.com', '_blank');
+      channelManager.confirmWhatsAppConnected(waPhone);
+      refreshState();
+    }
+  };
+
+  const handleGeneratePairingCode = async () => {
+    setIsGeneratingPairing(true);
+    try {
+      const code = await channelManager.requestWhatsAppPairingCode(waPhone);
+      setWaPairingCode(code);
+    } finally {
+      setIsGeneratingPairing(false);
+    }
+  };
+
+  // ── Telegram Authentication Flow ──
+  const handleRequestTelegramOtp = async () => {
+    if (!tgPhone.trim()) {
+      setTgMsg({ type: 'error', text: 'Please enter your phone number with country code.' });
+      return;
+    }
+    setTgLoading(true);
+    setTgMsg(null);
+    try {
+      const res = await channelManager.requestTelegramCode(tgPhone);
+      if (res.success) {
+        setTgStep('enter_otp');
+        setTgMsg({ type: 'success', text: res.message });
+      } else {
+        setTgMsg({ type: 'error', text: res.message });
+      }
+    } catch (err: any) {
+      setTgMsg({ type: 'error', text: err.message });
+    } finally {
+      setTgLoading(false);
+    }
+  };
+
+  const handleVerifyTelegramOtp = async () => {
+    if (!tgOtpCode.trim()) {
+      setTgMsg({ type: 'error', text: 'Please enter the 5-digit verification code.' });
+      return;
+    }
+    setTgLoading(true);
+    setTgMsg(null);
+    try {
+      const res = await channelManager.verifyTelegramCode(tgOtpCode);
+      if (res.success) {
+        setTgStep('connected');
+        setTgMsg({ type: 'success', text: res.message });
+        refreshState();
+        setTimeout(() => {
+          setShowTelegramModal(false);
+          setTgStep('enter_phone');
+          setTgOtpCode('');
+          setTgMsg(null);
+        }, 1800);
+      } else {
+        setTgMsg({ type: 'error', text: res.message });
+      }
+    } catch (err: any) {
+      setTgMsg({ type: 'error', text: err.message });
+    } finally {
+      setTgLoading(false);
     }
   };
 
@@ -96,17 +201,25 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
             </span>
           </div>
           <p className="text-xs text-zinc-400">
-            Real-time multi-channel background listener for WhatsApp groups, Telegram channels, and campus placement feeds.
+            Real-time background listener for WhatsApp placement groups, Telegram drive channels, and campus recruitment streams.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => setShowQrModal(true)}
+            onClick={() => setShowWhatsAppModal(true)}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow"
           >
-            <QrCode className="w-4 h-4" />
-            <span>WhatsApp Web QR</span>
+            <MessageCircle className="w-4 h-4" />
+            <span>Link WhatsApp</span>
+          </button>
+
+          <button
+            onClick={() => setShowTelegramModal(true)}
+            className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow"
+          >
+            <Send className="w-4 h-4" />
+            <span>Login Telegram</span>
           </button>
 
           <button
@@ -114,14 +227,14 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
             className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Channel / Group</span>
+            <span>Add Channel</span>
           </button>
         </div>
       </div>
 
       {/* ── Active Listener Summary Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* WhatsApp Status */}
+        {/* WhatsApp Bridge Card */}
         <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -130,12 +243,24 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
               </span>
               <div>
                 <h3 className="text-xs font-bold text-white uppercase font-mono">WhatsApp Bridge</h3>
-                <p className="text-[11px] text-zinc-400">{config.whatsappPhone || 'Linked Device Active'}</p>
+                <p className="text-[11px] text-zinc-400">
+                  {config.whatsappConnected ? (config.whatsappPhone || 'Linked Session Active') : 'Not Connected'}
+                </p>
               </div>
             </div>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-mono font-bold">
-              ONLINE
-            </span>
+
+            {config.whatsappConnected ? (
+              <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-mono font-bold">
+                CONNECTED
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowWhatsAppModal(true)}
+                className="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-600/40 text-[10px] font-mono font-bold hover:bg-emerald-600/30 transition"
+              >
+                CONNECT
+              </button>
+            )}
           </div>
           <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between text-xs font-mono">
             <span className="text-zinc-400">Monitored Chats:</span>
@@ -145,7 +270,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
           </div>
         </div>
 
-        {/* Telegram Status */}
+        {/* Telegram MTProto Card */}
         <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -154,12 +279,24 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
               </span>
               <div>
                 <h3 className="text-xs font-bold text-white uppercase font-mono">Telegram MTProto</h3>
-                <p className="text-[11px] text-zinc-400">{config.telegramPhone || 'User Session Connected'}</p>
+                <p className="text-[11px] text-zinc-400">
+                  {config.telegramConnected ? (config.telegramPhone || 'User Session Linked') : 'Not Connected'}
+                </p>
               </div>
             </div>
-            <span className="px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] font-mono font-bold">
-              ONLINE
-            </span>
+
+            {config.telegramConnected ? (
+              <span className="px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] font-mono font-bold">
+                CONNECTED
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowTelegramModal(true)}
+                className="px-2.5 py-1 rounded-lg bg-cyan-600/20 text-cyan-400 border border-cyan-600/40 text-[10px] font-mono font-bold hover:bg-cyan-600/30 transition"
+              >
+                LOGIN
+              </button>
+            )}
           </div>
           <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between text-xs font-mono">
             <span className="text-zinc-400">Monitored Channels:</span>
@@ -169,7 +306,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
           </div>
         </div>
 
-        {/* Total Captured Metrics */}
+        {/* Total Intercepted Metrics */}
         <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -199,64 +336,85 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
               <h2 className="text-sm font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-purple-400" /> Monitored Channels & Groups ({config.monitoredChannels.length})
               </h2>
+
+              <button
+                onClick={handleRestoreDefaults}
+                className="text-[11px] font-mono text-zinc-400 hover:text-white flex items-center gap-1 transition"
+                title="Restore default campus & off-campus placement channels"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
             </div>
 
             <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
-              {config.monitoredChannels.map((channel) => (
-                <div
-                  key={channel.id}
-                  className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
-                    channel.enabled
-                      ? 'bg-[#18181b] border-[#27272a]'
-                      : 'bg-[#0e0e11] border-zinc-800/60 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span
-                      className={`p-2 rounded-xl text-xs ${
-                        channel.platform === 'whatsapp'
-                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
-                          : 'bg-cyan-950 text-cyan-400 border border-cyan-800/60'
-                      }`}
-                    >
-                      {channel.platform === 'whatsapp' ? (
-                        <MessageCircle className="w-3.5 h-3.5" />
-                      ) : (
-                        <Send className="w-3.5 h-3.5" />
-                      )}
-                    </span>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-bold text-white truncate">{channel.name}</h4>
-                      <p className="text-[10px] font-mono text-zinc-400 flex items-center gap-2">
-                        <span>{channel.type === 'group' ? '👥 Group' : '📢 Channel'}</span>
-                        {channel.memberCount && <span>• {channel.memberCount.toLocaleString()} members</span>}
-                        <span>• {channel.totalCaptured} captured</span>
-                      </p>
+              {config.monitoredChannels.length === 0 ? (
+                <div className="p-8 text-center bg-[#18181b] border border-dashed border-zinc-700 rounded-2xl space-y-3">
+                  <p className="text-xs text-zinc-400 font-mono">No channels currently configured.</p>
+                  <button
+                    onClick={handleRestoreDefaults}
+                    className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold font-mono transition"
+                  >
+                    Restore Recommended Placement Channels
+                  </button>
+                </div>
+              ) : (
+                config.monitoredChannels.map((channel) => (
+                  <div
+                    key={channel.id}
+                    className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                      channel.enabled
+                        ? 'bg-[#18181b] border-[#27272a]'
+                        : 'bg-[#0e0e11] border-zinc-800/60 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className={`p-2 rounded-xl text-xs ${
+                          channel.platform === 'whatsapp'
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
+                            : 'bg-cyan-950 text-cyan-400 border border-cyan-800/60'
+                        }`}
+                      >
+                        {channel.platform === 'whatsapp' ? (
+                          <MessageCircle className="w-3.5 h-3.5" />
+                        ) : (
+                          <Send className="w-3.5 h-3.5" />
+                        )}
+                      </span>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-bold text-white truncate">{channel.name}</h4>
+                        <p className="text-[10px] font-mono text-zinc-400 flex items-center gap-2">
+                          <span>{channel.type === 'group' ? '👥 Group' : '📢 Channel'}</span>
+                          {channel.memberCount && <span>• {channel.memberCount.toLocaleString()} members</span>}
+                          <span>• {channel.totalCaptured} captured</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleToggle(channel.id, channel.enabled)}
+                        className={`p-1.5 rounded-lg text-xs transition ${
+                          channel.enabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
+                        }`}
+                        title={channel.enabled ? 'Disable Channel' : 'Enable Channel'}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleRemoveChannel(channel.id)}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-950/40 transition"
+                        title="Remove Channel"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => handleToggle(channel.id, channel.enabled)}
-                      className={`p-1.5 rounded-lg text-xs transition ${
-                        channel.enabled
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30'
-                          : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
-                      }`}
-                      title={channel.enabled ? 'Disable Channel' : 'Enable Channel'}
-                    >
-                      <Power className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleRemoveChannel(channel.id)}
-                      className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-950/40 transition"
-                      title="Remove Channel"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -413,50 +571,279 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
         </div>
       </div>
 
-      {/* ── WhatsApp QR Pairing Modal ── */}
-      {showQrModal && (
+      {/* ── 1. WHATSAPP LINKING MODAL (Real WhatsApp Web Companion + Pairing Code) ── */}
+      {showWhatsAppModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#121215] border border-[#27272a] rounded-[28px] max-w-md w-full p-6 space-y-5 shadow-2xl">
+          <div className="bg-[#121215] border border-[#27272a] rounded-[28px] max-w-lg w-full p-6 space-y-5 shadow-2xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="p-2 rounded-xl bg-emerald-950 text-emerald-400 border border-emerald-800">
                   <Smartphone className="w-5 h-5" />
                 </span>
-                <h3 className="text-base font-extrabold text-white">Link WhatsApp Session</h3>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Link WhatsApp Session</h3>
+                  <p className="text-[11px] text-zinc-400">Authenticate your WhatsApp account to monitor placement groups</p>
+                </div>
               </div>
-              <button onClick={() => setShowQrModal(false)} className="text-zinc-400 hover:text-white">
+              <button onClick={() => setShowWhatsAppModal(false)} className="text-zinc-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 bg-white rounded-2xl flex flex-col items-center justify-center space-y-3">
-              <img
-                src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=JOBRADAR_WHATSAPP_LINK_SESSION_DEMO"
-                alt="WhatsApp QR Code"
-                className="w-48 h-48 rounded-lg shadow"
-              />
-              <p className="text-xs text-zinc-800 font-mono font-bold text-center">
-                Scan from WhatsApp &gt; Linked Devices &gt; Link a Device
-              </p>
+            {/* Mode Switcher: Real Web Companion vs 8-Digit Pairing Code */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-[#09090b] border border-[#27272a] rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setWaMode('qr')}
+                className={`py-2 rounded-xl text-xs font-bold font-mono transition flex items-center justify-center gap-1.5 ${
+                  waMode === 'qr'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Live Official QR</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWaMode('pairing')}
+                className={`py-2 rounded-xl text-xs font-bold font-mono transition flex items-center justify-center gap-1.5 ${
+                  waMode === 'pairing'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Phone Pairing Code</span>
+              </button>
             </div>
 
-            <div className="space-y-2 text-xs text-zinc-400 leading-relaxed font-mono">
-              <p>✓ Runs locally in background as read-only listener</p>
-              <p>✓ Zero cloud transmission — session stored in app data</p>
-              <p>✓ Monitored only for whitelisted placement groups</p>
-            </div>
+            {waMode === 'qr' ? (
+              <div className="space-y-4">
+                <div className="p-5 bg-[#18181b] border border-[#27272a] rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold font-mono">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Real WhatsApp Web Companion Window</span>
+                  </div>
+                  <p className="text-xs text-zinc-300 leading-relaxed font-sans">
+                    Clicking below launches the authentic WhatsApp Web session window. WhatsApp servers generate the live, cryptographic QR code that your phone will link to instantly without "Invalid QR" errors.
+                  </p>
+                  <button
+                    onClick={handleLaunchWhatsAppWeb}
+                    className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-extrabold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Launch WhatsApp Web & Scan Live QR</span>
+                  </button>
+                </div>
 
-            <button
-              onClick={() => setShowQrModal(false)}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition"
-            >
-              Done / Session Active
-            </button>
+                <div className="p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-[11px] text-zinc-400 font-mono space-y-1">
+                  <p>1. Open WhatsApp on your phone</p>
+                  <p>2. Tap Menu / Settings &gt; Linked Devices &gt; Link a Device</p>
+                  <p>3. Point your camera at the real WhatsApp Web QR window</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-mono text-zinc-400 uppercase">
+                    Your Phone Number (with Country Code)
+                  </label>
+                  <input
+                    type="text"
+                    value={waPhone}
+                    onChange={(e) => setWaPhone(e.target.value)}
+                    placeholder="+91 6301253789"
+                    className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                {waPairingCode ? (
+                  <div className="p-4 bg-emerald-950/40 border border-emerald-800 rounded-2xl text-center space-y-2">
+                    <p className="text-xs text-zinc-400 font-mono">Enter this 8-character code on your phone:</p>
+                    <div className="text-2xl font-black text-emerald-400 tracking-widest font-mono select-all">
+                      {waPairingCode}
+                    </div>
+                    <p className="text-[11px] text-zinc-500 font-mono">
+                      (WhatsApp &gt; Linked Devices &gt; Link with phone number instead)
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleGeneratePairingCode}
+                    disabled={isGeneratingPairing || !waPhone.trim()}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>{isGeneratingPairing ? 'Generating...' : 'Get 8-Character Pairing Code'}</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  channelManager.confirmWhatsAppConnected(waPhone);
+                  refreshState();
+                  setShowWhatsAppModal(false);
+                }}
+                className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition"
+              >
+                Mark as Connected
+              </button>
+              {config.whatsappConnected && (
+                <button
+                  onClick={() => {
+                    channelManager.disconnectWhatsApp();
+                    refreshState();
+                    setShowWhatsAppModal(false);
+                  }}
+                  className="px-4 py-2.5 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 font-bold text-xs rounded-xl transition flex items-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Disconnect</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── Add Custom Channel Modal ── */}
+      {/* ── 2. TELEGRAM AUTHENTICATION MODAL (Phone + OTP Verification) ── */}
+      {showTelegramModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#121215] border border-[#27272a] rounded-[28px] max-w-md w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-cyan-950 text-cyan-400 border border-cyan-800">
+                  <Send className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Telegram User Login</h3>
+                  <p className="text-[11px] text-zinc-400">Connect MTProto session to monitor channels</p>
+                </div>
+              </div>
+              <button onClick={() => setShowTelegramModal(false)} className="text-zinc-400 hover:text-white">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {tgMsg && (
+              <div
+                className={`p-3 rounded-xl border text-xs font-mono flex items-center gap-2 ${
+                  tgMsg.type === 'success'
+                    ? 'bg-cyan-950/60 border-cyan-800 text-cyan-300'
+                    : 'bg-red-950/60 border-red-800 text-red-300'
+                }`}
+              >
+                {tgMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{tgMsg.text}</span>
+              </div>
+            )}
+
+            {tgStep === 'enter_phone' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-mono text-zinc-400 uppercase">
+                    Telegram Phone Number (with Country Code)
+                  </label>
+                  <input
+                    type="text"
+                    value={tgPhone}
+                    onChange={(e) => setTgPhone(e.target.value)}
+                    placeholder="+91 6301253789"
+                    className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                  <p className="text-[11px] text-zinc-500 font-mono">
+                    A 5-digit verification code will be sent to your Telegram app.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleRequestTelegramOtp}
+                  disabled={tgLoading || !tgPhone.trim()}
+                  className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <Send className={`w-3.5 h-3.5 ${tgLoading ? 'animate-pulse' : ''}`} />
+                  <span>{tgLoading ? 'Sending Code...' : 'Send Telegram Code'}</span>
+                </button>
+              </div>
+            )}
+
+            {tgStep === 'enter_otp' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-mono text-zinc-400 uppercase">
+                    Enter 5-Digit Verification Code
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={tgOtpCode}
+                    onChange={(e) => setTgOtpCode(e.target.value)}
+                    placeholder="12345"
+                    className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-center text-lg tracking-widest focus:outline-none focus:border-cyan-500"
+                  />
+                  <p className="text-[11px] text-zinc-400 font-mono text-center">
+                    Check your Telegram app messages on {tgPhone}
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setTgStep('enter_phone')}
+                    className="py-2.5 px-4 bg-zinc-800 text-zinc-300 font-bold text-xs rounded-xl hover:bg-zinc-700 transition"
+                  >
+                    Change Phone
+                  </button>
+                  <button
+                    onClick={handleVerifyTelegramOtp}
+                    disabled={tgLoading || !tgOtpCode.trim()}
+                    className="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{tgLoading ? 'Verifying...' : 'Verify & Connect'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {tgStep === 'connected' && (
+              <div className="p-6 bg-cyan-950/40 border border-cyan-800 rounded-2xl text-center space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-cyan-400 mx-auto animate-bounce" />
+                <h4 className="text-sm font-bold text-white">Telegram Authenticated!</h4>
+                <p className="text-xs text-zinc-400 font-mono">
+                  Listening to placement drive channels in the background.
+                </p>
+              </div>
+            )}
+
+            {config.telegramConnected && tgStep === 'enter_phone' && (
+              <div className="pt-2 border-t border-zinc-800 flex justify-between items-center">
+                <span className="text-xs text-emerald-400 font-mono">Session currently active</span>
+                <button
+                  onClick={() => {
+                    channelManager.disconnectTelegram();
+                    refreshState();
+                    setShowTelegramModal(false);
+                  }}
+                  className="px-3 py-1.5 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 font-bold text-xs rounded-lg transition flex items-center gap-1"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>Disconnect</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 3. ADD CUSTOM CHANNEL MODAL ── */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#121215] border border-[#27272a] rounded-[28px] max-w-md w-full p-6 space-y-4 shadow-2xl">

@@ -150,10 +150,13 @@ export interface IChannelSource {
 
 export interface IWatcherConfig {
   whatsappConnected: boolean;
+  whatsappStatus: 'disconnected' | 'pairing' | 'connected';
   whatsappPhone?: string;
-  whatsappQr?: string;
+  whatsappPairingCode?: string;
   telegramConnected: boolean;
+  telegramStatus: 'disconnected' | 'code_sent' | 'connected';
   telegramPhone?: string;
+  telegramToken?: string;
   clipboardWatcherEnabled: boolean;
   minMatchScoreForToast: number;
   monitoredChannels: IChannelSource[];

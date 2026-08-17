@@ -66,6 +66,41 @@ app.on('window-all-closed', () => {
   }
 });
 
+// IPC Handler: Open Real WhatsApp Web Companion Window for genuine QR scan & live listening
+let whatsappWindow = null;
+ipcMain.handle('open-whatsapp-web-window', async () => {
+  if (whatsappWindow && !whatsappWindow.isDestroyed()) {
+    whatsappWindow.focus();
+    return { success: true };
+  }
+
+  whatsappWindow = new BrowserWindow({
+    width: 1100,
+    height: 850,
+    title: 'JobRadar — WhatsApp Web Companion & Live Listener',
+    icon: path.join(__dirname, 'icon.png'),
+    backgroundColor: '#111b21',
+    autoHideMenuBar: true,
+    webPreferences: {
+      partition: 'persist:whatsapp_session',
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  whatsappWindow.webContents.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+  );
+
+  whatsappWindow.loadURL('https://web.whatsapp.com');
+
+  whatsappWindow.on('closed', () => {
+    whatsappWindow = null;
+  });
+
+  return { success: true };
+});
+
 // IPC Handler: Open External URL safely
 ipcMain.handle('open-external-url', async (_event, url) => {
   if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:'))) {

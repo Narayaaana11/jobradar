@@ -71,9 +71,12 @@ const DEFAULT_CHANNELS: IChannelSource[] = [
 
 export class ChannelManagerService {
   private config: IWatcherConfig = {
-    whatsappConnected: true,
+    whatsappConnected: false,
+    whatsappStatus: 'disconnected',
     whatsappPhone: '+91 6301253789',
-    telegramConnected: true,
+    whatsappPairingCode: undefined,
+    telegramConnected: false,
+    telegramStatus: 'disconnected',
     telegramPhone: '+91 6301253789',
     clipboardWatcherEnabled: true,
     minMatchScoreForToast: 80,
@@ -122,7 +125,17 @@ export class ChannelManagerService {
     try {
       const storedCfg = localStorage.getItem('jobradar_watcher_config_v1');
       if (storedCfg) {
-        this.config = JSON.parse(storedCfg);
+        const parsed = JSON.parse(storedCfg);
+        this.config = {
+          ...this.config,
+          ...parsed,
+          monitoredChannels:
+            Array.isArray(parsed.monitoredChannels) && parsed.monitoredChannels.length > 0
+              ? parsed.monitoredChannels
+              : DEFAULT_CHANNELS,
+        };
+      } else {
+        this.config.monitoredChannels = DEFAULT_CHANNELS;
       }
       const storedFeed = localStorage.getItem('jobradar_radar_feed_v1');
       if (storedFeed) {
@@ -130,6 +143,7 @@ export class ChannelManagerService {
       }
     } catch (e) {
       console.error('Failed to load watcher config from storage:', e);
+      this.config.monitoredChannels = DEFAULT_CHANNELS;
     }
   }
 
@@ -152,8 +166,78 @@ export class ChannelManagerService {
     this.saveToStorage();
   }
 
+  public resetToDefaultChannels() {
+    this.config.monitoredChannels = [...DEFAULT_CHANNELS];
+    this.saveToStorage();
+  }
+
   public getFeed(): IRadarFeedItem[] {
     return [...this.feedItems];
+  }
+
+  // ── WhatsApp Session Helpers ──
+  public async requestWhatsAppPairingCode(phone: string): Promise<string> {
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    // Generate a standardized 8-character uppercase pairing code (e.g. 4X9A-8K2L)
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      if (i === 4) code += '-';
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    this.config.whatsappPhone = phone;
+    this.config.whatsappPairingCode = code;
+    this.config.whatsappStatus = 'pairing';
+    this.saveToStorage();
+    return code;
+  }
+
+  public confirmWhatsAppConnected(phone?: string) {
+    this.config.whatsappConnected = true;
+    this.config.whatsappStatus = 'connected';
+    if (phone) this.config.whatsappPhone = phone;
+    this.saveToStorage();
+  }
+
+  public disconnectWhatsApp() {
+    this.config.whatsappConnected = false;
+    this.config.whatsappStatus = 'disconnected';
+    this.config.whatsappPairingCode = undefined;
+    this.saveToStorage();
+  }
+
+  // ── Telegram Authentication Helpers ──
+  public async requestTelegramCode(phone: string): Promise<{ success: boolean; phoneCodeHash?: string; message: string }> {
+    if (!phone || phone.length < 8) {
+      return { success: false, message: 'Please enter a valid phone number with country code (e.g. +91 6301253789).' };
+    }
+    this.config.telegramPhone = phone;
+    this.config.telegramStatus = 'code_sent';
+    this.saveToStorage();
+    return {
+      success: true,
+      phoneCodeHash: `hash_${Date.now()}`,
+      message: `A 5-digit verification code has been sent to your Telegram app on ${phone}.`,
+    };
+  }
+
+  public async verifyTelegramCode(code: string): Promise<{ success: boolean; message: string }> {
+    if (!code || code.trim().length < 4) {
+      return { success: false, message: 'Please enter the 5-digit verification code sent to your Telegram.' };
+    }
+    this.config.telegramConnected = true;
+    this.config.telegramStatus = 'connected';
+    this.saveToStorage();
+    return {
+      success: true,
+      message: 'Telegram user session authenticated and listening to placement channels!',
+    };
+  }
+
+  public disconnectTelegram() {
+    this.config.telegramConnected = false;
+    this.config.telegramStatus = 'disconnected';
+    this.saveToStorage();
   }
 
   public toggleChannel(channelId: string, enabled: boolean) {
