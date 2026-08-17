@@ -90,11 +90,29 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
+    const unsubscribe = channelManager.subscribe(refreshState);
+    return () => unsubscribe();
   }, []);
 
   const refreshState = () => {
     setConfig(channelManager.getConfig());
     setFeed(channelManager.getFeed());
+  };
+
+  const handleTogglePeriodicScanning = () => {
+    const nextState = !config.periodicScanningEnabled;
+    channelManager.updateConfig({ periodicScanningEnabled: nextState });
+    refreshState();
+  };
+
+  const handleResetCircuitBreaker = () => {
+    channelManager.resetCircuitBreaker();
+    refreshState();
+  };
+
+  const handleClearDomWarning = (platform: string) => {
+    channelManager.clearDomUpdateWarning(platform);
+    refreshState();
   };
 
   const handleToggle = (id: string, current: boolean) => {
@@ -232,7 +250,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
 
   const handleVerifyTelegramOtp = async () => {
     if (!tgOtpCode.trim()) {
-      setTgMsg({ type: 'error', text: 'Please enter the 5-digit verification code.' });
+      setTgMsg({ type: 'error', text: 'Please enter the verification code.' });
       return;
     }
     setTgLoading(true);
@@ -283,6 +301,75 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* ── 1. Circuit Breaker Warning Alert Banner (If Tripped) ── */}
+      {config.circuitBreaker?.tripped && (
+        <div className="p-5 bg-gradient-to-r from-red-950/90 via-[#1e1014] to-red-950/90 border-2 border-red-600 rounded-[24px] shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 rounded-2xl bg-red-900/60 border border-red-700 text-red-200 shrink-0">
+              <AlertCircle className="w-6 h-6 animate-bounce" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                  ⚠️ Scraper Circuit Breaker Tripped
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-red-900 text-red-200 border border-red-700 text-[10px] uppercase font-mono font-bold">
+                  {config.circuitBreaker.platform}
+                </span>
+              </div>
+              <p className="text-xs text-red-200 font-medium">
+                {config.circuitBreaker.reason}
+              </p>
+              <p className="text-[11px] text-red-300/80 font-mono">
+                Periodic and on-demand scanning was halted to prevent automated detection and protect your account from ban. Open your companion window, verify that your session is fully authenticated, and click below to resume.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleResetCircuitBreaker}
+            className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold font-mono transition shrink-0 flex items-center gap-2 shadow-lg"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Reset Circuit Breaker & Resume</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── 2. Potential DOM / Selector Change Warning Banner ── */}
+      {config.domUpdateWarnings && Object.keys(config.domUpdateWarnings).length > 0 && (
+        <div className="p-4 bg-gradient-to-r from-amber-950/90 via-[#1c160c] to-amber-950/90 border border-amber-600/80 rounded-[20px] shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-amber-900/60 border border-amber-700 text-amber-200 shrink-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div className="space-y-0.5">
+              <h3 className="text-xs font-extrabold text-amber-100 uppercase tracking-wider">
+                ⚠️ Scraper Selector Drift / DOM Change Warning
+              </h3>
+              {Object.entries(config.domUpdateWarnings).map(([platform, w]) => (
+                <p key={platform} className="text-xs text-amber-200/90">
+                  • <strong>{platform.toUpperCase()}</strong>: {w.warning}
+                </p>
+              ))}
+              <p className="text-[11px] text-amber-300/70 font-mono">
+                If Meta or Telegram recently updated their web client markup, update selectors in <code className="text-white">src/app-core/scraperSelectors.ts</code>.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {Object.keys(config.domUpdateWarnings).map((platform) => (
+              <button
+                key={platform}
+                onClick={() => handleClearDomWarning(platform)}
+                className="px-3 py-1.5 bg-amber-900/60 hover:bg-amber-800 text-amber-200 border border-amber-700 rounded-lg text-xs font-mono transition"
+              >
+                Clear {platform} Warning
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Top Header & Stats ── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#121215] border border-[#27272a] rounded-[24px] p-6 shadow-2xl">
         <div className="space-y-1">
@@ -414,8 +501,8 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
         )}
       </div>
 
-      {/* ── Active Listener Summary Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* ── Active Listener Summary Cards (4-Col Grid) ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* WhatsApp Bridge Card */}
         <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
           <div className="flex items-center justify-between">
@@ -484,6 +571,43 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
             <span className="text-zinc-400">Monitored Channels:</span>
             <span className="text-white font-bold">
               {config.monitoredChannels.filter((c) => c.platform === 'telegram' && c.enabled).length} Active
+            </span>
+          </div>
+        </div>
+
+        {/* Hardened Periodic Background Scanner Card */}
+        <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className={`p-2 rounded-xl border ${config.periodicScanningEnabled ? 'bg-indigo-950/70 border-indigo-800/70 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
+                <RefreshCw className={`w-4 h-4 ${config.periodicScanningEnabled ? 'animate-spin' : ''}`} />
+              </span>
+              <div>
+                <h3 className="text-xs font-bold text-white uppercase font-mono">Periodic Scanner</h3>
+                <p className="text-[11px] text-zinc-400">
+                  {config.periodicScanningEnabled
+                    ? `${config.minScanIntervalMinutes || 8}–${config.maxScanIntervalMinutes || 20}m (Jittered)`
+                    : 'Manual On-Demand'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleTogglePeriodicScanning}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition flex items-center gap-1 ${
+                config.periodicScanningEnabled
+                  ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/30'
+                  : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+              }`}
+            >
+              <Power className="w-3 h-3" />
+              <span>{config.periodicScanningEnabled ? 'ENABLED' : 'PAUSED'}</span>
+            </button>
+          </div>
+          <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between text-xs font-mono">
+            <span className="text-zinc-400">24h Scan Cap:</span>
+            <span className="text-indigo-400 font-bold">
+              {config.scansInLast24h || 0} / {config.dailyScanCap || 50} scans
             </span>
           </div>
         </div>

@@ -148,6 +148,19 @@ export interface IChannelSource {
   totalCaptured: number;
 }
 
+export interface ICircuitBreakerState {
+  tripped: boolean;
+  reason: string;
+  platform: 'whatsapp' | 'telegram' | 'all';
+  trippedAt: string;
+}
+
+export interface IDomUpdateWarning {
+  consecutiveEmptyCount: number;
+  warning: string;
+  lastCheckedAt: string;
+}
+
 export interface IWatcherConfig {
   whatsappConnected: boolean;
   whatsappStatus: 'disconnected' | 'pairing' | 'connected';
@@ -160,6 +173,18 @@ export interface IWatcherConfig {
   clipboardWatcherEnabled: boolean;
   minMatchScoreForToast: number;
   monitoredChannels: IChannelSource[];
+
+  // Hardened Background Scanning & Detection Defense Config
+  periodicScanningEnabled: boolean;
+  minScanIntervalMinutes: number; // e.g. 8 mins
+  maxScanIntervalMinutes: number; // e.g. 20 mins
+  dailyScanCap: number; // e.g. 50 scans per 24h
+  idleSkipChancePct: number; // e.g. 20%
+  lastScanTimestamp?: number;
+  scansInLast24h?: number;
+  nextScheduledScanTime?: string;
+  circuitBreaker?: ICircuitBreakerState;
+  domUpdateWarnings?: Record<string, IDomUpdateWarning>;
 }
 
 export interface IRadarFeedItem {

@@ -140,33 +140,203 @@ ipcMain.handle('open-telegram-web-window', async () => {
   return { success: true };
 });
 
+// Centralized Scraper Selectors for Electron Main Process (mirrored from src/app-core/scraperSelectors.ts)
+const SCRAPER_SELECTORS = {
+  whatsapp: {
+    rootContainer: [
+      '#pane-side',
+      'div[role="listitem"]',
+      'div[data-testid="cell-frame-container"]',
+      'div[data-testid="chat-list"]',
+      'div[data-testid="newsletter-list"]',
+      '#app div[tabindex="-1"]',
+    ],
+    challengeOrLoginIndicators: [
+      'div[data-testid="qrcode"]',
+      'canvas[aria-label="Scan me!"]',
+      'canvas[aria-label*="Scan"]',
+      '.landing-wrapper',
+      'div[data-testid="intro-title"]',
+      'div[data-testid="landing-title"]',
+      'div[data-testid="alert-phone-disconnected"]',
+    ],
+    chatListItems: [
+      'div[role="listitem"]',
+      'div[data-testid="cell-frame-container"]',
+      'div[data-testid="newsletter-list"] > div',
+      '#pane-side > div > div > div > div',
+      'div._ak72',
+      'div._ak8l',
+    ],
+    chatListTitle: [
+      'span[data-testid="cell-frame-title"]',
+      'span[data-testid="chat-title"]',
+      'span[dir="auto"]',
+      'span[title]',
+      'div._ak8q span',
+    ],
+    chatListPreviewSnippet: [
+      'span[title]:not([data-testid="cell-frame-title"])',
+      'span.x1rg5ohu',
+      'span[data-testid="last-msg-status"] + span',
+      'div._ak8k span',
+      'div._ak8l span',
+      'span._ao3e',
+    ],
+    chatListTimestamp: [
+      'div[data-testid="cell-frame-meta"] span',
+      'div._ak8i',
+      'span[dir="auto"]',
+    ],
+    activeConversationHeader: [
+      'header span[data-testid="conversation-info-header-chat-title"]',
+      'header span[title]',
+      'header div[role="button"] span',
+    ],
+    activeConversationMessages: [
+      'div.message-in',
+      'div.message-out',
+      'div[data-testid="msg-container"]',
+      'div._amk4',
+    ],
+    activeConversationText: [
+      '.selectable-text',
+      'span._ao3e',
+      'div.copyable-text',
+      'div._akbu span',
+    ],
+    activeConversationTime: [
+      'span[data-testid="msg-meta"]',
+      'div[data-pre-plain-text]',
+    ],
+  },
+  telegram: {
+    rootContainer: [
+      '.chatlist',
+      '.chat-list',
+      '.ListItem',
+      '.chatlist-chat',
+      '#middle-column',
+      '#column-left',
+    ],
+    challengeOrLoginIndicators: [
+      '.login-header',
+      'input[type="tel"]',
+      '.qr-container',
+      '.auth-form',
+      '#auth-pages',
+      '.login-form',
+    ],
+    chatListItems: [
+      '.chatlist-chat',
+      '.ListItem',
+      '.chat-item',
+      'a.chatlist-chat',
+    ],
+    chatListTitle: [
+      '.peer-title',
+      '.title',
+      '.ListItem-title',
+      '.chat-title',
+      '.dialog-title .peer-title',
+    ],
+    chatListPreviewSnippet: [
+      '.subtitle',
+      '.dialog-subtitle',
+      '.ListItem-subtitle',
+      '.last-message',
+      '.message',
+    ],
+    chatListTimestamp: [
+      '.dialog-title-details',
+      '.time',
+      '.ListItem-meta',
+    ],
+    activeConversationHeader: [
+      '.chat-info .title',
+      '.topbar .peer-title',
+      '.user-caption .dialog-title',
+    ],
+    activeConversationMessages: [
+      '.message',
+      '.Message',
+      '.bubble',
+      '.im_message_body',
+    ],
+    activeConversationText: [
+      '.text-content',
+      '.message-content',
+      '.copyable-area',
+      '.im_message_text',
+    ],
+    activeConversationTime: [
+      '.message-time',
+      '.time',
+    ],
+  },
+};
+
 // IPC Handler: Scrape live chat/group/channel titles directly from active WhatsApp & Telegram sessions
 ipcMain.handle('scrape-social-chats', async () => {
   const discovered = [];
+  const diagnostics = [];
 
   // 1. Live scrape from Telegram Web window if open
   if (telegramWindow && !telegramWindow.isDestroyed()) {
     try {
-      const tgChats = await telegramWindow.webContents.executeJavaScript(`
-        (() => {
+      const tgRes = await telegramWindow.webContents.executeJavaScript(`
+        (async () => {
           const chats = [];
           const seen = new Set();
-          
-          // Telegram Web K & A selectors
-          const selectors = [
-            '.chatlist-chat .peer-title',
-            '.ListItem .ListItem-title',
-            '.chat-item .title',
-            '.user-caption .dialog-title',
-            '.chat-title',
-            '.ListItem-button .title',
-            'a.chatlist-chat',
-            '.dialog-title .peer-title',
-            '.sidebar-header .chat-info .title',
-            '.chat-list .chat-title'
-          ];
+          const diagnostics = [];
+          const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-          document.querySelectorAll(selectors.join(', ')).forEach((el) => {
+          // 1. Check for Challenge / Login Screen
+          const challengeSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.challengeOrLoginIndicators)};
+          for (const sel of challengeSels) {
+            if (document.querySelector(sel)) {
+              return {
+                circuitBreakerTripped: true,
+                reason: 'Telegram Web session presented login/auth challenge screen (' + sel + ').',
+                platform: 'telegram',
+                chats: [],
+                diagnostics: ['Challenge screen detected via ' + sel]
+              };
+            }
+          }
+
+          // 2. Check for Root Container
+          const rootSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.rootContainer)};
+          let rootFound = false;
+          for (const sel of rootSels) {
+            if (document.querySelector(sel)) {
+              rootFound = true;
+              break;
+            }
+          }
+          if (!rootFound) {
+            return {
+              circuitBreakerTripped: true,
+              reason: 'Telegram Web root chatlist container is absent from DOM.',
+              platform: 'telegram',
+              chats: [],
+              diagnostics: ['Root container not found']
+            };
+          }
+
+          // 3. Query Chat List Elements with randomized micro-delays
+          const titleSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.chatListTitle)};
+          const elements = document.querySelectorAll(titleSels.join(', '));
+          
+          if (elements.length === 0) {
+            diagnostics.push('Telegram title selectors returned 0 elements.');
+          }
+
+          for (let i = 0; i < elements.length; i++) {
+            const el = elements[i];
+            if (i > 0 && i % 4 === 0) {
+              await delay(30 + Math.floor(Math.random() * 60));
+            }
             const name = el.textContent ? el.textContent.trim() : '';
             if (name && name.length > 1 && !seen.has(name.toLowerCase())) {
               seen.add(name.toLowerCase());
@@ -186,14 +356,26 @@ ipcMain.handle('scrape-social-chats', async () => {
                 enabled: true
               });
             }
-          });
+          }
 
-          return chats;
+          return { circuitBreakerTripped: false, chats, diagnostics };
         })()
       `);
 
-      if (Array.isArray(tgChats) && tgChats.length > 0) {
-        discovered.push(...tgChats);
+      if (tgRes?.circuitBreakerTripped) {
+        return {
+          circuitBreakerTripped: true,
+          reason: tgRes.reason,
+          platform: 'telegram',
+          discovered: []
+        };
+      }
+
+      if (Array.isArray(tgRes?.chats) && tgRes.chats.length > 0) {
+        discovered.push(...tgRes.chats);
+      }
+      if (Array.isArray(tgRes?.diagnostics)) {
+        diagnostics.push(...tgRes.diagnostics);
       }
     } catch (e) {
       console.error('Error scraping live Telegram session:', e);
@@ -203,30 +385,60 @@ ipcMain.handle('scrape-social-chats', async () => {
   // 2. Live scrape from WhatsApp Web window if open
   if (whatsappWindow && !whatsappWindow.isDestroyed()) {
     try {
-      const waChats = await whatsappWindow.webContents.executeJavaScript(`
-        (() => {
+      const waRes = await whatsappWindow.webContents.executeJavaScript(`
+        (async () => {
           const chats = [];
           const seen = new Set();
+          const diagnostics = [];
+          const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-          // WhatsApp Web chat list, channel (newsletter), and communities selectors
-          const selectors = [
-            'span[data-testid="cell-frame-title"]',
-            'span[data-testid="chat-title"]',
-            'div[data-testid="cell-frame-container"] span[title]',
-            '#pane-side span[title]',
-            'div[data-testid="newsletter-list"] span[title]',
-            'div[data-testid="newsletter-list"] span[dir="auto"]',
-            'div[role="listitem"] span[title]',
-            'div[role="listitem"] span[dir="auto"]',
-            'div[tabindex="-1"] span[title]',
-            'div._ak8q span',
-            'div._ak72 span',
-            'span._ao3e'
-          ];
+          // 1. Check for Challenge / QR / Login Screen
+          const challengeSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.challengeOrLoginIndicators)};
+          for (const sel of challengeSels) {
+            if (document.querySelector(sel)) {
+              return {
+                circuitBreakerTripped: true,
+                reason: 'WhatsApp Web presented QR code or unauthenticated login screen (' + sel + ').',
+                platform: 'whatsapp',
+                chats: [],
+                diagnostics: ['Challenge screen detected via ' + sel]
+              };
+            }
+          }
 
-          document.querySelectorAll(selectors.join(', ')).forEach((el) => {
+          // 2. Check for Root Container
+          const rootSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.rootContainer)};
+          let rootFound = false;
+          for (const sel of rootSels) {
+            if (document.querySelector(sel)) {
+              rootFound = true;
+              break;
+            }
+          }
+          if (!rootFound) {
+            return {
+              circuitBreakerTripped: true,
+              reason: 'WhatsApp Web root chat pane is absent from DOM.',
+              platform: 'whatsapp',
+              chats: [],
+              diagnostics: ['Root container not found']
+            };
+          }
+
+          // 3. Query Chat List Elements with randomized micro-delays
+          const titleSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.chatListTitle)};
+          const elements = document.querySelectorAll(titleSels.join(', '));
+          
+          if (elements.length === 0) {
+            diagnostics.push('WhatsApp title selectors returned 0 elements.');
+          }
+
+          for (let i = 0; i < elements.length; i++) {
+            const el = elements[i];
+            if (i > 0 && i % 4 === 0) {
+              await delay(30 + Math.floor(Math.random() * 60));
+            }
             const name = (el.getAttribute('title') || el.textContent || '').trim();
-            // Filter out timestamps, single numbers, unread counters, UI labels
             if (
               name &&
               name.length > 2 &&
@@ -253,14 +465,26 @@ ipcMain.handle('scrape-social-chats', async () => {
                 enabled: true
               });
             }
-          });
+          }
 
-          return chats;
+          return { circuitBreakerTripped: false, chats, diagnostics };
         })()
       `);
 
-      if (Array.isArray(waChats) && waChats.length > 0) {
-        discovered.push(...waChats);
+      if (waRes?.circuitBreakerTripped) {
+        return {
+          circuitBreakerTripped: true,
+          reason: waRes.reason,
+          platform: 'whatsapp',
+          discovered: []
+        };
+      }
+
+      if (Array.isArray(waRes?.chats) && waRes.chats.length > 0) {
+        discovered.push(...waRes.chats);
+      }
+      if (Array.isArray(waRes?.diagnostics)) {
+        diagnostics.push(...waRes.diagnostics);
       }
     } catch (e) {
       console.error('Error scraping live WhatsApp session:', e);
@@ -270,22 +494,57 @@ ipcMain.handle('scrape-social-chats', async () => {
   return discovered;
 });
 
-// IPC Handler: Intercept recent message texts from active WhatsApp & Telegram sessions with date tracking
+// IPC Handler: Intercept recent message texts from active WhatsApp & Telegram sessions with date tracking, micro-delays & circuit breaker
 ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) => {
   const intercepted = [];
   const cutoffTime = Date.now() - (daysBack * 24 * 60 * 60 * 1000);
   const now = Date.now();
+  const diagnostics = [];
 
   // 1. Scrape message text elements & list previews from active WhatsApp Web window
   if (whatsappWindow && !whatsappWindow.isDestroyed()) {
     try {
-      const waMessages = await whatsappWindow.webContents.executeJavaScript(`
-        (() => {
+      const waResult = await whatsappWindow.webContents.executeJavaScript(`
+        (async () => {
           const results = [];
           const seen = new Set();
+          const diagnostics = [];
           const now = Date.now();
+          const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-          // Helper to parse WhatsApp timestamp strings (e.g. "10:24 pm", "Yesterday", "8/15/2026", "Saturday")
+          // 1. Pre-flight Circuit Breaker / Health Check
+          const challengeSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.challengeOrLoginIndicators)};
+          for (const sel of challengeSels) {
+            if (document.querySelector(sel)) {
+              return {
+                circuitBreakerTripped: true,
+                reason: 'WhatsApp Web presented QR code / challenge screen (' + sel + ').',
+                platform: 'whatsapp',
+                messages: [],
+                diagnostics: ['Challenge screen detected via ' + sel]
+              };
+            }
+          }
+
+          const rootSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.rootContainer)};
+          let rootFound = false;
+          for (const sel of rootSels) {
+            if (document.querySelector(sel)) {
+              rootFound = true;
+              break;
+            }
+          }
+          if (!rootFound) {
+            return {
+              circuitBreakerTripped: true,
+              reason: 'WhatsApp Web root chat pane is absent from DOM.',
+              platform: 'whatsapp',
+              messages: [],
+              diagnostics: ['Root container not found']
+            };
+          }
+
+          // Helper to parse WhatsApp timestamp strings
           function parseWaTime(timeStr, index) {
             if (!timeStr) return now - (index * 20 * 60 * 1000);
             const lower = timeStr.toLowerCase().trim();
@@ -301,22 +560,34 @@ ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) =>
             return now - (index * 25 * 60 * 1000);
           }
 
-          // A. Scrape all Channel & Chat Preview Snippets from WhatsApp list items
-          const listItems = document.querySelectorAll(
-            'div[role="listitem"], div[data-testid="cell-frame-container"], div[data-testid="newsletter-list"] > div, #pane-side > div > div > div > div'
-          );
+          // A. Scrape all Channel & Chat Preview Snippets from WhatsApp list items with micro-delays
+          const listSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.chatListItems)};
+          const listItems = document.querySelectorAll(listSels.join(', '));
 
-          listItems.forEach((item, index) => {
+          if (listItems.length === 0) {
+            diagnostics.push('WhatsApp chatListItems selector returned 0 items.');
+          }
+
+          const titleSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.chatListTitle)};
+          const snippetSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.chatListPreviewSnippet)};
+          const timeSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.chatListTimestamp)};
+
+          for (let index = 0; index < listItems.length; index++) {
+            const item = listItems[index];
+            if (index > 0 && index % 3 === 0) {
+              await delay(35 + Math.floor(Math.random() * 70));
+            }
+
             // Find title / channel name
-            const titleEl = item.querySelector('span[data-testid="cell-frame-title"], span[data-testid="chat-title"], span[dir="auto"], span[title]');
+            const titleEl = item.querySelector(titleSels.join(', '));
             const channelName = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent || '').trim() : '';
 
             // Find last message preview snippet
-            const snippetEl = item.querySelector('span[title]:not([data-testid="cell-frame-title"]), span.x1rg5ohu, span[data-testid="last-msg-status"] + span, div._ak8k span, div._ak8l span');
+            const snippetEl = item.querySelector(snippetSels.join(', '));
             const previewText = snippetEl ? snippetEl.innerText.trim() : '';
 
             // Find time element
-            const timeEl = item.querySelector('div[data-testid="cell-frame-meta"] span, div._ak8i, span[dir="auto"]');
+            const timeEl = item.querySelector(timeSels.join(', '));
             const timeStr = timeEl ? timeEl.textContent.trim() : '';
             const msgTime = parseWaTime(timeStr, index);
 
@@ -338,20 +609,31 @@ ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) =>
                 timestampMs: msgTime
               });
             }
-          });
+          }
 
           // B. Scrape deep messages from the currently active opened conversation (if any)
-          const msgEls = document.querySelectorAll('div.message-in, div.message-out, div[data-testid="msg-container"], div._amk4');
-          const headerEl = document.querySelector('header span[data-testid="conversation-info-header-chat-title"], header span[title]');
+          const msgSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.activeConversationMessages)};
+          const msgEls = document.querySelectorAll(msgSels.join(', '));
+
+          const headerSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.activeConversationHeader)};
+          const headerEl = document.querySelector(headerSels.join(', '));
           const currentChatName = headerEl ? (headerEl.getAttribute('title') || headerEl.textContent || 'WhatsApp Chat').trim() : 'WhatsApp Group';
 
-          msgEls.forEach((el, index) => {
-            const textEl = el.querySelector('.selectable-text, span._ao3e, div.copyable-text');
+          const textSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.activeConversationText)};
+          const timeMetaSels = ${JSON.stringify(SCRAPER_SELECTORS.whatsapp.activeConversationTime)};
+
+          for (let index = 0; index < msgEls.length; index++) {
+            const el = msgEls[index];
+            if (index > 0 && index % 4 === 0) {
+              await delay(30 + Math.floor(Math.random() * 50));
+            }
+
+            const textEl = el.querySelector(textSels.join(', '));
             const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
 
             if (text && text.length > 25 && !seen.has(text.substring(0, 60).toLowerCase())) {
               seen.add(text.substring(0, 60).toLowerCase());
-              const timeEl = el.querySelector('span[data-testid="msg-meta"], div[data-pre-plain-text]');
+              const timeEl = el.querySelector(timeMetaSels.join(', '));
               let msgTime = now - (index * 15 * 60 * 1000);
 
               if (timeEl && timeEl.getAttribute('data-pre-plain-text')) {
@@ -371,14 +653,26 @@ ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) =>
                 timestampMs: msgTime
               });
             }
-          });
+          }
 
-          return results;
+          return { circuitBreakerTripped: false, messages: results, diagnostics };
         })()
       `);
 
-      if (Array.isArray(waMessages)) {
-        intercepted.push(...waMessages.filter(m => m.timestampMs >= cutoffTime));
+      if (waResult?.circuitBreakerTripped) {
+        return {
+          circuitBreakerTripped: true,
+          reason: waResult.reason,
+          platform: 'whatsapp',
+          messages: []
+        };
+      }
+
+      if (Array.isArray(waResult?.messages)) {
+        intercepted.push(...waResult.messages.filter(m => m.timestampMs >= cutoffTime));
+      }
+      if (Array.isArray(waResult?.diagnostics)) {
+        diagnostics.push(...waResult.diagnostics);
       }
     } catch (e) {
       console.error('Error intercepting WhatsApp messages:', e);
@@ -388,19 +682,67 @@ ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) =>
   // 2. Scrape message text elements & list previews from active Telegram Web window
   if (telegramWindow && !telegramWindow.isDestroyed()) {
     try {
-      const tgMessages = await telegramWindow.webContents.executeJavaScript(`
-        (() => {
+      const tgResult = await telegramWindow.webContents.executeJavaScript(`
+        (async () => {
           const results = [];
           const seen = new Set();
+          const diagnostics = [];
           const now = Date.now();
+          const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-          // A. Scrape chat list previews
-          const chatItems = document.querySelectorAll('.chatlist-chat, .ListItem, .chat-item');
-          chatItems.forEach((item, index) => {
-            const titleEl = item.querySelector('.peer-title, .title, .ListItem-title, .chat-title');
+          // 1. Pre-flight Circuit Breaker / Health Check
+          const challengeSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.challengeOrLoginIndicators)};
+          for (const sel of challengeSels) {
+            if (document.querySelector(sel)) {
+              return {
+                circuitBreakerTripped: true,
+                reason: 'Telegram Web presented login/OTP screen (' + sel + ').',
+                platform: 'telegram',
+                messages: [],
+                diagnostics: ['Challenge screen detected via ' + sel]
+              };
+            }
+          }
+
+          const rootSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.rootContainer)};
+          let rootFound = false;
+          for (const sel of rootSels) {
+            if (document.querySelector(sel)) {
+              rootFound = true;
+              break;
+            }
+          }
+          if (!rootFound) {
+            return {
+              circuitBreakerTripped: true,
+              reason: 'Telegram Web root chatlist is absent from DOM.',
+              platform: 'telegram',
+              messages: [],
+              diagnostics: ['Root container not found']
+            };
+          }
+
+          // A. Scrape chat list previews with micro-delays
+          const listSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.chatListItems)};
+          const chatItems = document.querySelectorAll(listSels.join(', '));
+
+          if (chatItems.length === 0) {
+            diagnostics.push('Telegram chatListItems selector returned 0 items.');
+          }
+
+          const titleSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.chatListTitle)};
+          const snippetSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.chatListPreviewSnippet)};
+
+          for (let index = 0; index < chatItems.length; index++) {
+            const item = chatItems[index];
+            if (index > 0 && index % 3 === 0) {
+              await delay(35 + Math.floor(Math.random() * 70));
+            }
+
+            const titleEl = item.querySelector(titleSels.join(', '));
             const channelName = titleEl ? titleEl.textContent.trim() : '';
 
-            const subEl = item.querySelector('.subtitle, .dialog-subtitle, .ListItem-subtitle, .last-message, .message');
+            const subEl = item.querySelector(snippetSels.join(', '));
             const previewText = subEl ? subEl.innerText.trim() : '';
 
             if (channelName && previewText && previewText.length > 20 && !seen.has(previewText.substring(0, 60).toLowerCase())) {
@@ -414,15 +756,24 @@ ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) =>
                 timestampMs: msgTime
               });
             }
-          });
+          }
 
           // B. Scrape open conversation bubbles
-          const headerEl = document.querySelector('.chat-info .title, .topbar .peer-title, .user-caption .dialog-title');
+          const headerSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.activeConversationHeader)};
+          const headerEl = document.querySelector(headerSels.join(', '));
           const currentChatName = headerEl ? headerEl.textContent.trim() : 'Telegram Channel';
 
-          const msgEls = document.querySelectorAll('.message, .Message, .bubble, .im_message_body');
-          msgEls.forEach((el, index) => {
-            const textEl = el.querySelector('.text-content, .message-content, .copyable-area, .im_message_text');
+          const msgSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.activeConversationMessages)};
+          const msgEls = document.querySelectorAll(msgSels.join(', '));
+          const textSels = ${JSON.stringify(SCRAPER_SELECTORS.telegram.activeConversationText)};
+
+          for (let index = 0; index < msgEls.length; index++) {
+            const el = msgEls[index];
+            if (index > 0 && index % 4 === 0) {
+              await delay(30 + Math.floor(Math.random() * 50));
+            }
+
+            const textEl = el.querySelector(textSels.join(', '));
             const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
 
             if (text && text.length > 25 && !seen.has(text.substring(0, 60).toLowerCase())) {
@@ -436,21 +787,37 @@ ipcMain.handle('intercept-channel-messages', async (_event, { daysBack = 7 }) =>
                 timestampMs: msgTime
               });
             }
-          });
+          }
 
-          return results;
+          return { circuitBreakerTripped: false, messages: results, diagnostics };
         })()
       `);
 
-      if (Array.isArray(tgMessages)) {
-        intercepted.push(...tgMessages.filter(m => m.timestampMs >= cutoffTime));
+      if (tgResult?.circuitBreakerTripped) {
+        return {
+          circuitBreakerTripped: true,
+          reason: tgResult.reason,
+          platform: 'telegram',
+          messages: []
+        };
+      }
+
+      if (Array.isArray(tgResult?.messages)) {
+        intercepted.push(...tgResult.messages.filter(m => m.timestampMs >= cutoffTime));
+      }
+      if (Array.isArray(tgResult?.diagnostics)) {
+        diagnostics.push(...tgResult.diagnostics);
       }
     } catch (e) {
       console.error('Error intercepting Telegram messages:', e);
     }
   }
 
-  return intercepted;
+  return {
+    circuitBreakerTripped: false,
+    messages: intercepted,
+    diagnostics
+  };
 });
 
 // IPC Handler: Open External URL safely
