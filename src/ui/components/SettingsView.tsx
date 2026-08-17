@@ -553,27 +553,58 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
 
       {/* ── 4. API KEYS TAB ── */}
       {activeTab === 'api' && (
-        <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-6 space-y-4 shadow-2xl">
-          <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider">Cloud AI & Telegram Bot Keys</h3>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            JobRadar contains built-in zero-latency heuristic extractors and scoring models that run offline.
-            You can optionally provide Anthropic Claude or Telegram Bot tokens for live cloud scraping enrichment.
-          </p>
+        <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-6 space-y-5 shadow-2xl">
+          <div>
+            <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Key className="w-4 h-4 text-purple-400" /> Cloud LLM & AI Keys (OpenRouter / Anthropic)
+            </h3>
+            <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+              JobRadar operates completely offline with built-in heuristic extractors. Providing an OpenRouter or Anthropic API key unlocks real-time LLM reasoning for deep interview prep and customized cover letters.
+            </p>
+          </div>
 
-          <div className="space-y-3 pt-2">
-            <div>
-              <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">Anthropic / OpenRouter API Key (Optional)</label>
-              <input
-                type="password"
-                placeholder="sk-ant-api03-... or sk-or-v1-..."
-                value={profile.apiKey || ''}
-                onChange={(e) => {
-                  const updated = { ...profile, apiKey: e.target.value };
-                  setProfile(updated);
-                  store.saveProfile(updated);
-                }}
-                className="w-full px-3.5 py-2.5 bg-[#18181b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-zinc-400 font-mono"
-              />
+          <div className="space-y-4 pt-1">
+            <div className="p-4 bg-[#18181b] border border-[#27272a] rounded-2xl space-y-3">
+              <label className="block text-[11px] font-mono text-zinc-300 uppercase font-bold">
+                OpenRouter / Anthropic Claude API Key
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  placeholder="sk-or-v1-... or sk-ant-api03-..."
+                  value={profile.apiKey || ''}
+                  onChange={(e) => {
+                    const updated = { ...profile, apiKey: e.target.value };
+                    setProfile(updated);
+                    store.saveProfile(updated);
+                  }}
+                  className="flex-1 px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!profile.apiKey) {
+                      setSaveMsg('Please enter an API key to test.');
+                      setTimeout(() => setSaveMsg(''), 3000);
+                      return;
+                    }
+                    setSaveMsg('Testing API Key connection...');
+                    const res = await (await import('../../app-core/llmClient')).llmClient.testApiKey(profile.apiKey);
+                    if (res.valid) {
+                      setSaveMsg(`✓ Connected successfully to ${res.model || 'OpenRouter / Claude AI'}!`);
+                    } else {
+                      setSaveMsg(`✕ Connection failed: ${res.message}`);
+                    }
+                    setTimeout(() => setSaveMsg(''), 5000);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition shadow shrink-0"
+                >
+                  Test Connection
+                </button>
+              </div>
+              <p className="text-[11px] text-zinc-500">
+                Supports OpenRouter keys (<code className="text-zinc-400">sk-or-v1-...</code>) and Anthropic Claude keys (<code className="text-zinc-400">sk-ant-...</code>).
+              </p>
             </div>
 
             <div>

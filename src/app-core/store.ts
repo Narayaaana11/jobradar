@@ -546,6 +546,17 @@ class AppStore {
     this.saveJobs();
   }
 
+  public updateJob(id: string, updates: Partial<IJob>): IJob | undefined {
+    const job = this.jobs.find((j) => j.id === id);
+    if (job) {
+      Object.assign(job, updates);
+      job.updatedAt = new Date().toISOString();
+      this.saveJobs();
+      return job;
+    }
+    return undefined;
+  }
+
   public updateApproval(jobId: string, status: 'pending' | 'approved' | 'rejected'): IJob | undefined {
     const job = this.jobs.find((j) => j.id === jobId);
     if (job) {
