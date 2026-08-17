@@ -110,8 +110,65 @@ export interface IJob {
   resumeNotes?: string;
   resumePdfDataUri?: string;
   appliedAt?: string | null;
+  aiCouncil?: IAiCouncilVerdict;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IAiCouncilMemberVote {
+  role: 'Technical Screener' | 'Hiring Manager' | 'ATS Strategist';
+  modelUsed: string;
+  score: number; // 0 - 100
+  verdict: 'Strong Fit' | 'Moderate Fit' | 'Borderline' | 'Reject';
+  reasoning: string;
+  keyFindings: string[];
+}
+
+export interface IAiCouncilVerdict {
+  consensusScore: number; // 0 - 100
+  consensusRubricTier: string;
+  consensusRecommendation: 'auto' | 'borderline' | 'low_match';
+  chairModelUsed: string;
+  chairSynthesis: string;
+  memberVotes: IAiCouncilMemberVote[];
+  reconciledGaps: string[];
+  tailoredStrategy: string;
+  evaluatedAt: string;
+}
+
+export interface IChannelSource {
+  id: string;
+  platform: 'whatsapp' | 'telegram';
+  type: 'group' | 'channel';
+  name: string;
+  avatarUrl?: string;
+  memberCount?: number;
+  enabled: boolean;
+  lastActiveAt?: string;
+  totalCaptured: number;
+}
+
+export interface IWatcherConfig {
+  whatsappConnected: boolean;
+  whatsappPhone?: string;
+  whatsappQr?: string;
+  telegramConnected: boolean;
+  telegramPhone?: string;
+  clipboardWatcherEnabled: boolean;
+  minMatchScoreForToast: number;
+  monitoredChannels: IChannelSource[];
+}
+
+export interface IRadarFeedItem {
+  id: string;
+  platform: 'whatsapp' | 'telegram' | 'clipboard';
+  channelName: string;
+  rawText: string;
+  status: 'noise_dropped' | 'duplicate_skipped' | 'extracted' | 'council_approved' | 'low_match';
+  extractedCompany?: string;
+  extractedRole?: string;
+  matchScore?: number;
+  timestamp: string;
 }
 
 export interface IRawQueueItem {

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw } from 'lucide-react';
+import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw, Radio } from 'lucide-react';
 import { RadarLogoBadge } from './RadarLogo';
 import { s3Cloud, S3SyncStatus } from '../../app-core/s3Client';
 
 interface NavbarProps {
-  currentTab: 'feed' | 'queue' | 'analytics' | 'settings';
-  setCurrentTab: (tab: 'feed' | 'queue' | 'analytics' | 'settings') => void;
+  currentTab: 'feed' | 'watcher' | 'queue' | 'analytics' | 'settings';
+  setCurrentTab: (tab: 'feed' | 'watcher' | 'queue' | 'analytics' | 'settings') => void;
   onOpenIngestModal: () => void;
 }
 
@@ -47,6 +47,16 @@ export function Navbar({ currentTab, setCurrentTab, onOpenIngestModal }: NavbarP
         >
           <LayoutGrid className="w-3.5 h-3.5" />
           <span>Job Feed</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentTab('watcher')}
+          className={`flex items-center space-x-1.5 text-xs font-bold px-4 py-1.5 rounded-full transition ${
+            currentTab === 'watcher' ? 'bg-emerald-500 text-black shadow-md' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+          }`}
+        >
+          <Radio className="w-3.5 h-3.5" />
+          <span>Radar Watcher</span>
         </button>
 
         <button

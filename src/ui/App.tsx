@@ -11,6 +11,7 @@ import { QueueHealth } from './components/QueueHealth';
 import { AnalyticsView } from './components/AnalyticsView';
 import { SettingsView } from './components/SettingsView';
 import { OnboardingWizard } from './components/OnboardingWizard';
+import { RadarWatcherDashboard } from './components/RadarWatcherDashboard';
 import { Search, List, LayoutGrid, MessageSquare, RefreshCw, Sparkles, Filter } from 'lucide-react';
 
 export default function App() {
@@ -18,7 +19,7 @@ export default function App() {
   const [profile, setProfile] = useState<IProfile>(store.getProfile());
   const [stats, setStats] = useState<IStats>(store.getStats());
 
-  const [currentTab, setCurrentTab] = useState<'feed' | 'queue' | 'analytics' | 'settings'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'watcher' | 'queue' | 'analytics' | 'settings'>('feed');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [selectedJob, setSelectedJob] = useState<IJob | null>(null);
   const [isIngestModalOpen, setIsIngestModalOpen] = useState(false);
@@ -205,7 +206,20 @@ export default function App() {
           </div>
         )}
 
-        {/* ── 2. PIPELINE & QUEUE HEALTH TAB ── */}
+        {/* ── 2. AUTONOMOUS RADAR WATCHER & LIVE FEED TAB ── */}
+        {currentTab === 'watcher' && (
+          <div className="animate-in fade-in-50 duration-200">
+            <RadarWatcherDashboard
+              profile={profile}
+              onOpenJob={(jobId) => {
+                const j = store.getJobById(jobId);
+                if (j) setSelectedJob(j);
+              }}
+            />
+          </div>
+        )}
+
+        {/* ── 3. PIPELINE & QUEUE HEALTH TAB ── */}
         {currentTab === 'queue' && (
           <div className="animate-in fade-in-50 duration-200">
             <QueueHealth stats={stats} onRefresh={() => setStats(store.getStats())} />
