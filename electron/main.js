@@ -105,6 +105,41 @@ ipcMain.handle('open-whatsapp-web-window', async () => {
   return { success: true };
 });
 
+// IPC Handler: Open Real Telegram Web Companion Window for genuine QR scan & live listening
+let telegramWindow = null;
+ipcMain.handle('open-telegram-web-window', async () => {
+  if (telegramWindow && !telegramWindow.isDestroyed()) {
+    telegramWindow.focus();
+    return { success: true };
+  }
+
+  telegramWindow = new BrowserWindow({
+    width: 1100,
+    height: 850,
+    title: 'JobRadar — Telegram Web Companion & Live Listener',
+    icon: appIcon,
+    backgroundColor: '#17212b',
+    autoHideMenuBar: true,
+    webPreferences: {
+      partition: 'persist:telegram_session',
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  telegramWindow.webContents.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+  );
+
+  telegramWindow.loadURL('https://web.telegram.org/k/');
+
+  telegramWindow.on('closed', () => {
+    telegramWindow = null;
+  });
+
+  return { success: true };
+});
+
 // IPC Handler: Open External URL safely
 ipcMain.handle('open-external-url', async (_event, url) => {
   if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:'))) {

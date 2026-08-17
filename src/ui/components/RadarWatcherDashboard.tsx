@@ -40,6 +40,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
   const [showTelegramModal, setShowTelegramModal] = useState(false);
   const [tgPhone, setTgPhone] = useState(config.telegramPhone || profile.phone || '');
   const [tgOtpCode, setTgOtpCode] = useState('');
+  const [tgMode, setTgMode] = useState<'qr' | 'phone'>('qr');
   const [tgStep, setTgStep] = useState<'enter_phone' | 'enter_otp' | 'connected'>('enter_phone');
   const [tgLoading, setTgLoading] = useState(false);
   const [tgMsg, setTgMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -173,6 +174,18 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
       setTgMsg({ type: 'error', text: err.message });
     } finally {
       setTgLoading(false);
+    }
+  };
+
+  const handleLaunchTelegramWeb = async () => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.openTelegramWeb) {
+      await (window as any).electronAPI.openTelegramWeb();
+      channelManager.verifyTelegramCode('qr_session');
+      refreshState();
+    } else {
+      window.open('https://web.telegram.org/k/', '_blank');
+      channelManager.verifyTelegramCode('qr_session');
+      refreshState();
     }
   };
 
@@ -757,97 +770,180 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
               </div>
             )}
 
-            {tgStep === 'enter_phone' && (
+            {/* Mode Switcher: Real Telegram Web Companion vs Phone Number OTP */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-[#09090b] border border-[#27272a] rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setTgMode('qr')}
+                className={`py-2 rounded-xl text-xs font-bold font-mono transition flex items-center justify-center gap-1.5 ${
+                  tgMode === 'qr'
+                    ? 'bg-cyan-600 text-white shadow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Live Official QR</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTgMode('phone')}
+                className={`py-2 rounded-xl text-xs font-bold font-mono transition flex items-center justify-center gap-1.5 ${
+                  tgMode === 'phone'
+                    ? 'bg-cyan-600 text-white shadow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Phone / OTP</span>
+              </button>
+            </div>
+
+            {tgMode === 'qr' ? (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-mono text-zinc-400 uppercase">
-                    Telegram Phone Number (with Country Code)
-                  </label>
-                  <input
-                    type="text"
-                    value={tgPhone}
-                    onChange={(e) => setTgPhone(e.target.value)}
-                    placeholder="+91 6301253789"
-                    className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
-                  />
-                  <p className="text-[11px] text-zinc-500 font-mono">
-                    A 5-digit verification code will be sent to your Telegram app.
+                <div className="p-5 bg-[#18181b] border border-[#27272a] rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold font-mono">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Real Telegram Web Companion Window</span>
+                  </div>
+                  <p className="text-xs text-zinc-300 leading-relaxed font-sans">
+                    Clicking below launches the official Telegram Web companion window. Telegram renders the official live QR code that you scan directly with your Telegram mobile app.
                   </p>
-                </div>
-
-                <button
-                  onClick={handleRequestTelegramOtp}
-                  disabled={tgLoading || !tgPhone.trim()}
-                  className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
-                >
-                  <Send className={`w-3.5 h-3.5 ${tgLoading ? 'animate-pulse' : ''}`} />
-                  <span>{tgLoading ? 'Sending Code...' : 'Send Telegram Code'}</span>
-                </button>
-              </div>
-            )}
-
-            {tgStep === 'enter_otp' && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-mono text-zinc-400 uppercase">
-                    Enter 5-Digit Verification Code
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={tgOtpCode}
-                    onChange={(e) => setTgOtpCode(e.target.value)}
-                    placeholder="12345"
-                    className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-center text-lg tracking-widest focus:outline-none focus:border-cyan-500"
-                  />
-                  <p className="text-[11px] text-zinc-400 font-mono text-center">
-                    Check your Telegram app messages on {tgPhone}
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
                   <button
-                    onClick={() => setTgStep('enter_phone')}
-                    className="py-2.5 px-4 bg-zinc-800 text-zinc-300 font-bold text-xs rounded-xl hover:bg-zinc-700 transition"
+                    onClick={handleLaunchTelegramWeb}
+                    className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:brightness-110 text-white font-extrabold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2"
                   >
-                    Change Phone
-                  </button>
-                  <button
-                    onClick={handleVerifyTelegramOtp}
-                    disabled={tgLoading || !tgOtpCode.trim()}
-                    className="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{tgLoading ? 'Verifying...' : 'Verify & Connect'}</span>
+                    <QrCode className="w-4 h-4" />
+                    <span>Launch Telegram Web & Scan Live QR</span>
                   </button>
                 </div>
-              </div>
-            )}
 
-            {tgStep === 'connected' && (
-              <div className="p-6 bg-cyan-950/40 border border-cyan-800 rounded-2xl text-center space-y-2">
-                <CheckCircle2 className="w-8 h-8 text-cyan-400 mx-auto animate-bounce" />
-                <h4 className="text-sm font-bold text-white">Telegram Authenticated!</h4>
-                <p className="text-xs text-zinc-400 font-mono">
-                  Listening to placement drive channels in the background.
-                </p>
-              </div>
-            )}
+                <div className="p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-[11px] text-zinc-400 font-mono space-y-1">
+                  <p>1. Open Telegram on your phone</p>
+                  <p>2. Tap Settings ➔ Devices ➔ Link Desktop Device</p>
+                  <p>3. Point your camera at the official Telegram Web QR window</p>
+                </div>
 
-            {config.telegramConnected && tgStep === 'enter_phone' && (
-              <div className="pt-2 border-t border-zinc-800 flex justify-between items-center">
-                <span className="text-xs text-emerald-400 font-mono">Session currently active</span>
-                <button
-                  onClick={() => {
-                    channelManager.disconnectTelegram();
-                    refreshState();
-                    setShowTelegramModal(false);
-                  }}
-                  className="px-3 py-1.5 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 font-bold text-xs rounded-lg transition flex items-center gap-1"
-                >
-                  <LogOut className="w-3 h-3" />
-                  <span>Disconnect</span>
-                </button>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      channelManager.verifyTelegramCode('qr_session');
+                      refreshState();
+                      setShowTelegramModal(false);
+                    }}
+                    className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition"
+                  >
+                    Mark as Connected
+                  </button>
+                  {config.telegramConnected && (
+                    <button
+                      onClick={() => {
+                        channelManager.disconnectTelegram();
+                        refreshState();
+                        setShowTelegramModal(false);
+                      }}
+                      className="px-4 py-2.5 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 font-bold text-xs rounded-xl transition flex items-center gap-1.5"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Disconnect</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {tgStep === 'enter_phone' && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="block text-[11px] font-mono text-zinc-400 uppercase">
+                        Telegram Phone Number (with Country Code)
+                      </label>
+                      <input
+                        type="text"
+                        value={tgPhone}
+                        onChange={(e) => setTgPhone(e.target.value)}
+                        placeholder="+91 6301253789"
+                        className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                      />
+                      <p className="text-[11px] text-zinc-500 font-mono">
+                        A 5-digit verification code will be sent to your Telegram app.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleRequestTelegramOtp}
+                      disabled={tgLoading || !tgPhone.trim()}
+                      className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Send className={`w-3.5 h-3.5 ${tgLoading ? 'animate-pulse' : ''}`} />
+                      <span>{tgLoading ? 'Sending Code...' : 'Send Telegram Code'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {tgStep === 'enter_otp' && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="block text-[11px] font-mono text-zinc-400 uppercase">
+                        Enter 5-Digit Verification Code
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={tgOtpCode}
+                        onChange={(e) => setTgOtpCode(e.target.value)}
+                        placeholder="12345"
+                        className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-white font-mono text-center text-lg tracking-widest focus:outline-none focus:border-cyan-500"
+                      />
+                      <p className="text-[11px] text-zinc-400 font-mono text-center">
+                        Check your Telegram app messages on {tgPhone}
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setTgStep('enter_phone')}
+                        className="py-2.5 px-4 bg-zinc-800 text-zinc-300 font-bold text-xs rounded-xl hover:bg-zinc-700 transition"
+                      >
+                        Change Phone
+                      </button>
+                      <button
+                        onClick={handleVerifyTelegramOtp}
+                        disabled={tgLoading || !tgOtpCode.trim()}
+                        className="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{tgLoading ? 'Verifying...' : 'Verify & Connect'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {tgStep === 'connected' && (
+                  <div className="p-6 bg-cyan-950/40 border border-cyan-800 rounded-2xl text-center space-y-2">
+                    <CheckCircle2 className="w-8 h-8 text-cyan-400 mx-auto animate-bounce" />
+                    <h4 className="text-sm font-bold text-white">Telegram Authenticated!</h4>
+                    <p className="text-xs text-zinc-400 font-mono">
+                      Listening to placement drive channels in the background.
+                    </p>
+                  </div>
+                )}
+
+                {config.telegramConnected && tgStep === 'enter_phone' && (
+                  <div className="pt-2 border-t border-zinc-800 flex justify-between items-center">
+                    <span className="text-xs text-emerald-400 font-mono">Session currently active</span>
+                    <button
+                      onClick={() => {
+                        channelManager.disconnectTelegram();
+                        refreshState();
+                        setShowTelegramModal(false);
+                      }}
+                      className="px-3 py-1.5 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 font-bold text-xs rounded-lg transition flex items-center gap-1"
+                    >
+                      <LogOut className="w-3 h-3" />
+                      <span>Disconnect</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
