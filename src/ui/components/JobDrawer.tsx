@@ -8,7 +8,7 @@ import { generateResumePdfDataUri, downloadResumePdfFile, cleanFilenameSlug } fr
 import {
   X, Check, Trash2, ExternalLink, MapPin, Building, AlertCircle,
   Copy, FileText, CheckCircle2, XCircle, Sparkles, Mail, Download,
-  UserCheck, Linkedin, Eye, Send, Award, RefreshCw, Bot, Key
+  UserCheck, Linkedin, Eye, Send, Award, RefreshCw, Bot, Key, Wand2
 } from 'lucide-react';
 
 interface JobDrawerProps {
@@ -28,9 +28,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
-  // Real LLM Generation State
-  const [isGeneratingAiPrep, setIsGeneratingAiPrep] = useState(false);
-  const [isGeneratingAiLetter, setIsGeneratingAiLetter] = useState(false);
+  // AI Loading & Execution States
+  const [isLlmRunning, setIsLlmRunning] = useState(false);
+  const [aiActionLabel, setAiActionLabel] = useState('');
   const [aiModelUsed, setAiModelUsed] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
 
@@ -73,7 +73,83 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     }
   };
 
-  // Trigger Real AI Interview Prep with Claude / OpenRouter
+  // 1. AI Re-Scorer Agent (Claude / OpenRouter)
+  const handleAiReScore = async () => {
+    const key = profile.apiKey;
+    if (!key) {
+      setAiError('Please configure your OpenRouter / Anthropic API Key in Settings to run real LLM reasoning.');
+      setTimeout(() => setAiError(null), 5000);
+      return;
+    }
+
+    setIsLlmRunning(true);
+    setAiActionLabel('Evaluating Fit Score & 5-Tier Rubric with LLM...');
+    setAiError(null);
+    try {
+      const res = await llmClient.scoreJobWithLlm(job, profile, key);
+      if (res.success && res.data) {
+        const d = res.data;
+        const updates: Partial<IJob> = {
+          matchScore: d.matchScore,
+          matchConfidence: d.matchConfidence,
+          gapAnalysis: d.gapAnalysis,
+          fitBreakdown: d.fitBreakdown,
+          rubricScores: d.rubricScores,
+          scoreFlag: d.scoreFlag,
+          skillMatched: d.skillMatched,
+        };
+        store.updateJob(job.id, updates);
+        setAiModelUsed(res.modelUsed || 'Claude 3.5 Sonnet');
+        setSaveSuccessMsg(`Fit score & rubric evaluated by ${res.modelUsed || 'Claude 3.5 Sonnet'}!`);
+        setTimeout(() => setSaveSuccessMsg(''), 4000);
+      } else {
+        setAiError(res.error || 'Failed to score job with LLM');
+      }
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
+  // 2. AI Resume Bullet Tailor Agent (Claude / OpenRouter)
+  const handleAiTailorResume = async () => {
+    const key = profile.apiKey;
+    if (!key) {
+      setAiError('Please configure your OpenRouter / Anthropic API Key in Settings to run real LLM reasoning.');
+      setTimeout(() => setAiError(null), 5000);
+      return;
+    }
+
+    setIsLlmRunning(true);
+    setAiActionLabel('Customizing Project Highlights with LLM...');
+    setAiError(null);
+    try {
+      const res = await llmClient.tailorResumeBulletsWithLlm(job, profile, key);
+      if (res.success && res.data) {
+        const notes = `ATS Optimized for ${job.companyName}: ${res.data.summary}`;
+        store.updateJob(job.id, { resumeNotes: notes });
+        setAiModelUsed(res.modelUsed || 'Claude 3.5 Sonnet');
+        setSaveSuccessMsg(`Project highlights tailored by ${res.modelUsed || 'Claude 3.5 Sonnet'}!`);
+        // Refresh PDF preview
+        try {
+          const uri = generateResumePdfDataUri(job, profile);
+          setPdfDataUri(uri);
+        } catch (e) {}
+        setTimeout(() => setSaveSuccessMsg(''), 4000);
+      } else {
+        setAiError(res.error || 'Failed to tailor resume with LLM');
+      }
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
+  // 3. AI Interview Prep Agent (Claude / OpenRouter)
   const handleGenerateRealAiPrep = async () => {
     const key = profile.apiKey;
     if (!key) {
@@ -82,7 +158,8 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
       return;
     }
 
-    setIsGeneratingAiPrep(true);
+    setIsLlmRunning(true);
+    setAiActionLabel('Generating Role-Specific Interview Questions with LLM...');
     setAiError(null);
     try {
       const res = await llmClient.generateAiInterviewPrep(job, profile, key);
@@ -98,11 +175,12 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     } catch (err: any) {
       setAiError(err.message);
     } finally {
-      setIsGeneratingAiPrep(false);
+      setIsLlmRunning(false);
+      setAiActionLabel('');
     }
   };
 
-  // Trigger Real AI Cover Letter with Claude / OpenRouter
+  // 4. AI Cover Letter Agent (Claude / OpenRouter)
   const handleGenerateRealAiLetter = async () => {
     const key = profile.apiKey;
     if (!key) {
@@ -111,7 +189,8 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
       return;
     }
 
-    setIsGeneratingAiLetter(true);
+    setIsLlmRunning(true);
+    setAiActionLabel('Drafting Personalized Pitch Letter with LLM...');
     setAiError(null);
     try {
       const res = await llmClient.generateAiCoverLetter(job, profile, key);
@@ -127,7 +206,8 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     } catch (err: any) {
       setAiError(err.message);
     } finally {
-      setIsGeneratingAiLetter(false);
+      setIsLlmRunning(false);
+      setAiActionLabel('');
     }
   };
 
@@ -244,7 +324,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
             <button
               onClick={() => setActiveTab('interview')}
               className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
-                activeTab === 'interview' ? 'border-white text-white' : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                activeTab === 'interview' ? 'border-amber-400 text-amber-400 font-extrabold' : 'border-transparent text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
@@ -254,7 +334,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
             <button
               onClick={() => setActiveTab('coverletter')}
               className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
-                activeTab === 'coverletter' ? 'border-white text-white' : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                activeTab === 'coverletter' ? 'border-cyan-400 text-cyan-400 font-extrabold' : 'border-transparent text-zinc-400 hover:text-zinc-200'
               }`}
             >
               <Mail className="w-3.5 h-3.5" />
@@ -283,6 +363,28 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
           {/* ── 1. OVERVIEW TAB ── */}
           {activeTab === 'overview' && (
             <>
+              {/* AI Re-Score Banner */}
+              <div className="p-4 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[20px] flex items-center justify-between gap-4 shadow">
+                <div className="space-y-0.5">
+                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>AI Match & Rubric Scorer</span>
+                  </h4>
+                  <p className="text-[11px] text-zinc-400">
+                    Run LLM reasoning to evaluate candidate fit and compute 5-tier career-ops rubric.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAiReScore}
+                  disabled={isLlmRunning}
+                  className="px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                  <span>{isLlmRunning ? 'Evaluating...' : '⚡ AI Re-Score'}</span>
+                </button>
+              </div>
+
               {/* Application Lifecycle Stage Switcher */}
               <div className="p-4 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2">
                 <label className="text-[11px] font-mono font-bold text-zinc-400 uppercase tracking-wider block">
@@ -416,7 +518,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
             </>
           )}
 
-          {/* ── 2. RESUME TAB (Pure Client-Side PDF) ── */}
+          {/* ── 2. RESUME TAB (Client PDF + AI Tailor) ── */}
           {activeTab === 'resume' && (
             <div className="space-y-5">
               <div className="p-6 bg-[#121215] border border-[#27272a] rounded-[24px] space-y-5 shadow-2xl">
@@ -432,9 +534,15 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-zinc-900 text-zinc-300 border border-zinc-800">
-                    Client PDF Engine
-                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAiTailorResume}
+                    disabled={isLlmRunning}
+                    className="px-3.5 py-1.5 rounded-full bg-purple-950 border border-purple-800 text-purple-300 hover:bg-purple-900 font-bold text-xs flex items-center gap-1 transition disabled:opacity-50"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" />
+                    <span>⚡ AI Tailor Bullets</span>
+                  </button>
                 </div>
 
                 {/* Tailoring Strategy */}
@@ -577,11 +685,11 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 <button
                   type="button"
                   onClick={handleGenerateRealAiPrep}
-                  disabled={isGeneratingAiPrep}
+                  disabled={isLlmRunning}
                   className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingAiPrep ? 'animate-spin' : ''}`} />
-                  <span>{isGeneratingAiPrep ? 'Reasoning with LLM...' : '⚡ Enhance with Claude / OpenRouter'}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                  <span>{isLlmRunning ? 'Reasoning with LLM...' : '⚡ Enhance with Claude / OpenRouter'}</span>
                 </button>
               </div>
 
@@ -660,11 +768,11 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 <button
                   type="button"
                   onClick={handleGenerateRealAiLetter}
-                  disabled={isGeneratingAiLetter}
+                  disabled={isLlmRunning}
                   className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-cyan-500 via-teal-500 to-cyan-600 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingAiLetter ? 'animate-spin' : ''}`} />
-                  <span>{isGeneratingAiLetter ? 'Writing Cover Letter...' : '⚡ Generate with Claude AI'}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                  <span>{isLlmRunning ? 'Writing Cover Letter...' : '⚡ Generate with Claude AI'}</span>
                 </button>
               </div>
 

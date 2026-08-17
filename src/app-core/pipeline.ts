@@ -7,6 +7,7 @@ import { analyzeAtsCompliance } from './atsMatcher';
 import { generateReferralContacts } from './referralGenerator';
 import { generateInterviewPrep } from './interviewPrep';
 import { generateCoverLetter } from './coverLetterGenerator';
+import { llmClient } from './llmClient';
 
 export interface IngestionResult {
   totalExtracted: number;
@@ -17,7 +18,8 @@ export interface IngestionResult {
 export async function processIngestion(
   input: string,
   channelName: string = 'WhatsApp Ingest',
-  platform: IJobSource['platform'] = 'whatsapp'
+  platform: IJobSource['platform'] = 'whatsapp',
+  useLlm: boolean = false
 ): Promise<IngestionResult> {
   const profile = store.getProfile();
   const chunks = splitBulkChatText(input);
@@ -39,23 +41,47 @@ export async function processIngestion(
     queueIds.push(queueItem.id);
 
     try {
-      // 2. Extract structured JD
-      const extracted = extractJobDetails(rawPost);
+      // 2. Extract structured JD (LLM or Heuristic)
+      let extracted = extractJobDetails(rawPost);
+      if (useLlm && profile.apiKey) {
+        const llmExtracted = await llmClient.extractJobWithLlm(rawPost, profile.apiKey);
+        if (llmExtracted.success && llmExtracted.data) {
+          extracted = llmExtracted.data;
+        }
+      }
 
-      // 3. Score against candidate profile
-      const scoreResult = scoreJobAgainstProfile(extracted, profile);
+      // 3. Score against candidate profile (LLM or Heuristic)
+      let scoreResult = scoreJobAgainstProfile(extracted, profile);
+      if (useLlm && profile.apiKey) {
+        const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, profile.apiKey);
+        if (llmScore.success && llmScore.data) {
+          scoreResult = llmScore.data;
+        }
+      }
 
       // 4. ATS compliance analysis
       const atsResult = analyzeAtsCompliance(extracted, profile);
 
-      // 5. Generate 10 employee referrals
+      // 5. Generate employee referral personas & search queries
       const referrals = generateReferralContacts(extracted, profile);
 
-      // 6. Generate AI interview prep
-      const interviewPrep = generateInterviewPrep(extracted, profile);
+      // 6. Generate AI interview prep (LLM or Heuristic)
+      let interviewPrep = generateInterviewPrep(extracted, profile);
+      if (useLlm && profile.apiKey) {
+        const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, profile.apiKey);
+        if (llmPrep.success && llmPrep.data) {
+          interviewPrep = llmPrep.data;
+        }
+      }
 
-      // 7. Generate tailored cover letter
-      const coverLetter = generateCoverLetter(extracted, profile);
+      // 7. Generate tailored cover letter (LLM or Heuristic)
+      let coverLetter = generateCoverLetter(extracted, profile);
+      if (useLlm && profile.apiKey) {
+        const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, profile.apiKey);
+        if (llmLetter.success && llmLetter.data) {
+          coverLetter = llmLetter.data;
+        }
+      }
 
       const jobId = `job-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 

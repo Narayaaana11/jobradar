@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { processIngestion } from '../../app-core/pipeline';
-import { Sparkles, X, MessageSquare, Globe, CheckCircle2, Loader2 } from 'lucide-react';
+import { store } from '../../app-core/store';
+import { Sparkles, X, MessageSquare, Globe, CheckCircle2, Loader2, Bot, Zap } from 'lucide-react';
 
 interface IngestModalProps {
   isOpen: boolean;
@@ -35,9 +36,11 @@ const sampleWhatsAppDump = `*Amazon Recruitment 2026 Drive* 🔥
 *Skills:* MERN Stack, React, TypeScript, Next.js, Redux, Microservices.`;
 
 export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
+  const profile = store.getProfile();
   const [ingestMode, setIngestMode] = useState<'whatsapp' | 'single'>('whatsapp');
+  const [useAiDeepExtraction, setUseAiDeepExtraction] = useState(Boolean(profile.apiKey));
   const [inputText, setInputText] = useState('');
-  const [channelName, setChannelName] = useState('WhatsApp Hyderabad Jobs');
+  const [channelName, setChannelName] = useState('WhatsApp Hyderabad Tech Jobs');
   const [processing, setProcessing] = useState(false);
   const [resultMsg, setResultMsg] = useState('');
 
@@ -51,7 +54,7 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
     setResultMsg('');
     try {
       const platform = ingestMode === 'whatsapp' ? 'whatsapp' : 'web';
-      const result = await processIngestion(inputText, channelName, platform);
+      const result = await processIngestion(inputText, channelName, platform, useAiDeepExtraction);
 
       setResultMsg(`Successfully parsed & queued ${result.totalExtracted} job postings with AI scoring!`);
       setInputText('');
@@ -78,10 +81,15 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
       <div className="bg-[#121215] border border-[#27272a] rounded-[24px] w-full max-w-2xl p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-150">
         {/* Modal Header */}
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-emerald-400" />
-            <span>AI Job Ingestion Engine</span>
-          </h3>
+          <div className="flex items-center space-x-2">
+            <span className="p-2 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400">
+              <Sparkles className="w-5 h-5" />
+            </span>
+            <div>
+              <h3 className="text-base font-extrabold text-white">AI Job Ingestion & Extraction Engine</h3>
+              <p className="text-xs text-zinc-400">Ingest WhatsApp / Telegram dumps or single JDs with automatic pipeline processing.</p>
+            </div>
+          </div>
           <button
             onClick={onClose}
             className="p-1.5 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800 transition"
@@ -111,6 +119,42 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
           >
             <Globe className="w-4 h-4 text-blue-500" />
             <span>Single Job Description / URL</span>
+          </button>
+        </div>
+
+        {/* AI Mode Selector Toggle */}
+        <div className="p-3 bg-[#18181b] border border-[#27272a] rounded-2xl flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <span className={`p-1.5 rounded-lg border text-xs ${useAiDeepExtraction ? 'bg-purple-950/60 border-purple-800 text-purple-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
+              <Bot className="w-4 h-4" />
+            </span>
+            <div>
+              <p className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                <span>AI Deep Extraction & Reasoning</span>
+                {profile.apiKey && (
+                  <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                    API Key Active
+                  </span>
+                )}
+              </p>
+              <p className="text-[11px] text-zinc-400">
+                {useAiDeepExtraction
+                  ? 'Runs Claude / OpenRouter LLM for zero-shot parsing, scoring, and interview prep.'
+                  : 'Runs lightning-fast offline heuristic regex splitter & career rubric calculator.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUseAiDeepExtraction(!useAiDeepExtraction)}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1 border ${
+              useAiDeepExtraction
+                ? 'bg-purple-600 text-white border-purple-500 shadow'
+                : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-white'
+            }`}
+          >
+            <Zap className="w-3 h-3" />
+            <span>{useAiDeepExtraction ? 'LLM Mode ON' : 'Fast Mode'}</span>
           </button>
         </div>
 
@@ -149,7 +193,7 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
             </label>
             <textarea
               required
-              rows={8}
+              rows={7}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={
@@ -181,10 +225,10 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
             <button
               type="submit"
               disabled={processing || !inputText.trim()}
-              className="flex items-center space-x-2 px-6 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white font-extrabold text-xs transition hover:brightness-110 shadow-lg disabled:opacity-50"
+              className="flex items-center space-x-2 px-6 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-black font-extrabold text-xs transition hover:brightness-110 shadow-lg disabled:opacity-50"
             >
               {processing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>{processing ? 'Splitting & Extracting...' : 'Run Ingestion Pipeline'}</span>
+              <span>{processing ? 'Processing AI Pipeline...' : 'Run Ingestion Pipeline'}</span>
             </button>
           </div>
         </form>

@@ -1,5 +1,6 @@
-import { IJob, IProfile, IInterviewPrep, IInterviewQuestion } from './types';
+import { IJob, IProfile, IInterviewPrep, IRubricScores } from './types';
 import { IExtractedJD } from './extractor';
+import { IScoreResult } from './scorer';
 
 export interface ILlmResponse<T> {
   success: boolean;
@@ -10,7 +11,7 @@ export interface ILlmResponse<T> {
 
 export class LlmClientService {
   /**
-   * Calls OpenRouter or Anthropic Claude directly via standard fetch
+   * Universal fetch caller for OpenRouter or direct Anthropic Claude API
    */
   public async callLlm(
     prompt: string,
@@ -41,7 +42,7 @@ export class LlmClientService {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },
           ],
-          temperature: 0.3,
+          temperature: 0.2,
         }),
       });
 
@@ -54,7 +55,7 @@ export class LlmClientService {
       const content = data.choices?.[0]?.message?.content || '';
       return { text: content, model: data.model || modelName };
     } else {
-      // Anthropic Direct Messages API (via proxy or direct fetch)
+      // Anthropic Direct Messages API
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -68,7 +69,7 @@ export class LlmClientService {
           max_tokens: 2500,
           system: systemPrompt,
           messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
+          temperature: 0.2,
         }),
       });
 
@@ -84,7 +85,160 @@ export class LlmClientService {
   }
 
   /**
-   * Generates REAL LLM-powered dynamic interview preparation tailored to the JD and candidate
+   * 1. EXTRACTOR AGENT (LLM Mode):
+   * Extracts structured JD metadata from unstructured text dumps.
+   */
+  public async extractJobWithLlm(rawText: string, apiKey: string): Promise<ILlmResponse<IExtractedJD>> {
+    try {
+      const systemPrompt = `You are a Technical Recruitment Parser. Extract structured metadata from this job posting text. Return strictly valid JSON matching the requested schema with no markdown formatting.`;
+      const prompt = `Extract all details from this job posting into JSON:
+POSTING TEXT:
+${rawText}
+
+SCHEMA:
+{
+  "companyName": "Exact Company Name",
+  "jobTitle": "Exact Job Title",
+  "jobType": "Full-Time | Internship | Contract | null",
+  "location": "City or Remote",
+  "isRemote": true or false or null,
+  "ctcMentioned": true or false,
+  "ctcRange": "e.g. ₹12 - 18 LPA or null",
+  "applicationLink": "Valid application URL or null",
+  "applicationDeadline": "Deadline or null",
+  "skillsRequired": ["Skill 1", "Skill 2", "Skill 3"],
+  "experienceRequired": "e.g. Freshers / 0-2 years or null"
+}`;
+
+      const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
+      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const result: IExtractedJD = {
+        companyName: parsed.companyName || 'Unknown Company',
+        jobTitle: parsed.jobTitle || 'Software Engineer',
+        jobType: parsed.jobType || 'Full-Time',
+        location: parsed.location || 'India',
+        isRemote: parsed.isRemote ?? false,
+        ctcMentioned: parsed.ctcMentioned ?? false,
+        ctcRange: parsed.ctcRange || null,
+        applicationLink: parsed.applicationLink || null,
+        applicationDeadline: parsed.applicationDeadline || null,
+        skillsRequired: Array.isArray(parsed.skillsRequired) ? parsed.skillsRequired : ['React', 'JavaScript'],
+        experienceRequired: parsed.experienceRequired || 'Freshers / 2026 Batch',
+        rawDescription: rawText,
+        dedupHash: `${parsed.companyName || ''}-${parsed.jobTitle || ''}`.toLowerCase().replace(/[^a-z0-9]/g, ''),
+      };
+
+      return { success: true, data: result, modelUsed: model };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * 2. SCORER & RUBRIC AGENT (LLM Mode):
+   * Evaluates candidate fit and calculates 5-tier career-ops rubric with deep reasoning.
+   */
+  public async scoreJobWithLlm(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile,
+    apiKey: string
+  ): Promise<ILlmResponse<IScoreResult>> {
+    try {
+      const systemPrompt = `You are a Principal Engineering Hiring Evaluator. Assess the candidate fit for this opening using a 0-100 score and 1.0-5.0 rubric ratings across skills, tech stack, experience, and location. Return strictly valid JSON.`;
+      const prompt = `EVALUATE CANDIDATE FIT:
+JOB:
+Company: ${job.companyName}
+Title: ${job.jobTitle}
+Skills Required: ${(job.skillsRequired || []).join(', ')}
+Location: ${job.location}
+
+CANDIDATE PROFILE:
+Name: ${profile.name}
+Degree: ${profile.education}
+Primary Skills: ${profile.primarySkills.join(', ')}
+Experience: ${profile.experience}
+Projects: AUSVMS (Visitor Management MERN), Guard Hub (Security Roster MERN), Matrix Library Management System (MERN, Python NLP)
+
+SCHEMA:
+{
+  "matchScore": 88,
+  "matchConfidence": "high | medium | low",
+  "gapAnalysis": {
+    "missingSkills": ["Skills mentioned in JD not in profile"],
+    "strongMatches": ["Skills candidate excels in"]
+  },
+  "fitBreakdown": {
+    "techFitScore": 90,
+    "experienceFitScore": 85,
+    "locationFitScore": 90
+  },
+  "rubricScores": {
+    "skillsScore": 4.8,
+    "techStackScore": 4.7,
+    "experienceScore": 4.5,
+    "locationScore": 4.5,
+    "overallRubricRating": 4.6
+  },
+  "skillMatched": true
+}`;
+
+      const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
+      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed: IScoreResult = JSON.parse(cleaned);
+      parsed.scoreFlag = parsed.matchScore >= 80 ? 'auto' : parsed.matchScore >= 60 ? 'borderline' : 'low_match';
+
+      return { success: true, data: parsed, modelUsed: model };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * 3. RESUME TAILORING AGENT (LLM Mode):
+   * Customizes candidate project highlights for maximum ATS keyword alignment.
+   */
+  public async tailorResumeBulletsWithLlm(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile,
+    apiKey: string
+  ): Promise<ILlmResponse<{ summary: string; customizedBullets: string[] }>> {
+    try {
+      const systemPrompt = `You are an ATS Resume Optimization Engineer at FAANG. Rewrite candidate project bullets to prominently showcase relevant technologies requested in the target Job Description while retaining technical veracity. Return strictly valid JSON.`;
+      const prompt = `TAILOR RESUME BULLETS FOR:
+Target Company: ${job.companyName}
+Target Role: ${job.jobTitle}
+Key JD Skills: ${(job.skillsRequired || []).join(', ')}
+
+Candidate Profile:
+Name: ${profile.name}
+Degree: ${profile.education}
+Projects: AUSVMS (Visitor Management MERN), Guard Hub (Security Roster MERN), Matrix Library Management System (MERN, NLP Python)
+
+SCHEMA:
+{
+  "summary": "1 concise tailored ATS summary for ${job.companyName}",
+  "customizedBullets": [
+    "AUSVMS: Built role-based access control with real-time Socket.io and MongoDB pipelines...",
+    "Guard Hub: Engineered automated shift collision detection engine in React and Node.js...",
+    "Matrix Library: Integrated NLP query assistant and stateful real-time book checkout..."
+  ]
+}`;
+
+      const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
+      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      return { success: true, data: parsed, modelUsed: model };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * 4. INTERVIEW PREP AGENT (LLM Mode):
+   * Generates dynamic role-specific questions and STAR answers.
    */
   public async generateAiInterviewPrep(
     job: Partial<IJob | IExtractedJD>,
@@ -159,7 +313,8 @@ Return JSON in this EXACT schema:
   }
 
   /**
-   * Generates REAL LLM-powered tailored Cover Letter
+   * 5. COVER LETTER AGENT (LLM Mode):
+   * Generates high-converting tailored cover letter.
    */
   public async generateAiCoverLetter(
     job: Partial<IJob | IExtractedJD>,
@@ -200,6 +355,29 @@ Write a 3-4 paragraph impactful cover letter with zero fluff, formatted in clean
         success: false,
         error: err.message,
       };
+    }
+  }
+
+  /**
+   * 6. REFERRAL OUTREACH AGENT (LLM Mode):
+   * Generates a tailored referral outreach message for a specific employee persona.
+   */
+  public async generateAiReferralMessage(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile,
+    personaTitle: string,
+    apiKey: string
+  ): Promise<ILlmResponse<string>> {
+    try {
+      const systemPrompt = `You are a Career Networking Expert. Write a warm, polite, and persuasive 3-sentence LinkedIn connection / referral outreach message that highlights relevant skills and links without being pushy.`;
+      const prompt = `Write a referral outreach request to an employee at ${job.companyName} who works as a "${personaTitle}".
+ROLE APPLIED FOR: ${job.jobTitle}
+CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfolio: ${profile.portfolio}, GitHub: ${profile.github}.`;
+
+      const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
+      return { success: true, data: text.trim(), modelUsed: model };
+    } catch (err: any) {
+      return { success: false, error: err.message };
     }
   }
 
