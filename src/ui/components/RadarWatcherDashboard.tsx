@@ -28,6 +28,10 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
   const [discoverSearch, setDiscoverSearch] = useState('');
   const [discoverFilter, setDiscoverFilter] = useState<'all' | 'whatsapp' | 'telegram'>('all');
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const [discoveredList, setDiscoveredList] = useState<Array<Omit<IChannelSource, 'id' | 'totalCaptured'>>>(
+    channelManager.getDiscoveredSocialChannels()
+  );
+  const [isScanningLive, setIsScanningLive] = useState(false);
 
   // Add Single Custom Channel Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -94,9 +98,23 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
     refreshState();
   };
 
-  // ── Multi-Channel Selection & Discovery Handlers ──
-  const discoveredList = channelManager.getDiscoveredSocialChannels();
+  // ── Multi-Channel Selection & Live Discovery Handlers ──
   const existingChannelNames = new Set(config.monitoredChannels.map((c) => c.name.toLowerCase()));
+
+  const handleScanLiveSocials = async () => {
+    setIsScanningLive(true);
+    try {
+      const live = await channelManager.fetchLiveSocialChats();
+      setDiscoveredList(live);
+    } finally {
+      setIsScanningLive(false);
+    }
+  };
+
+  const handleOpenDiscoverModal = () => {
+    setShowDiscoverModal(true);
+    handleScanLiveSocials();
+  };
 
   const filteredDiscovered = discoveredList.filter((ch) => {
     const matchesFilter = discoverFilter === 'all' || ch.platform === discoverFilter;
@@ -273,7 +291,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
           </button>
 
           <button
-            onClick={() => setShowDiscoverModal(true)}
+            onClick={handleOpenDiscoverModal}
             className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 text-white rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 shadow"
           >
             <Users className="w-4 h-4" />
@@ -430,7 +448,7 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
                     </p>
                   </div>
                   <button
-                    onClick={() => setShowDiscoverModal(true)}
+                    onClick={handleOpenDiscoverModal}
                     className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:brightness-110 text-white rounded-xl text-xs font-bold font-mono transition inline-flex items-center gap-1.5 shadow"
                   >
                     <Users className="w-3.5 h-3.5" />
@@ -713,17 +731,30 @@ export function RadarWatcherDashboard({ profile, onOpenJob }: RadarWatcherDashbo
               </div>
             </div>
 
-            {/* Select All / Deselect Toolbar */}
+            {/* Select All / Deselect & Live Rescan Toolbar */}
             <div className="flex items-center justify-between text-xs font-mono px-1">
               <span className="text-zinc-400">
                 {selectedChannels.length} channel(s) selected
               </span>
-              <button
-                onClick={handleSelectAllDiscovered}
-                className="text-purple-400 hover:text-purple-300 font-bold"
-              >
-                Select All Unmonitored
-              </button>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleScanLiveSocials}
+                  disabled={isScanningLive}
+                  className="text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1 transition"
+                  title="Query active Telegram & WhatsApp companion windows for live chats"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isScanningLive ? 'animate-spin' : ''}`} />
+                  <span>{isScanningLive ? 'Scanning Windows...' : 'Scan Open Windows'}</span>
+                </button>
+
+                <button
+                  onClick={handleSelectAllDiscovered}
+                  className="text-purple-400 hover:text-purple-300 font-bold"
+                >
+                  Select All Unmonitored
+                </button>
+              </div>
             </div>
 
             {/* Discovered Channels List */}

@@ -140,6 +140,111 @@ ipcMain.handle('open-telegram-web-window', async () => {
   return { success: true };
 });
 
+// IPC Handler: Scrape live chat/group/channel titles directly from active WhatsApp & Telegram sessions
+ipcMain.handle('scrape-social-chats', async () => {
+  const discovered = [];
+
+  // 1. Live scrape from Telegram Web window if open
+  if (telegramWindow && !telegramWindow.isDestroyed()) {
+    try {
+      const tgChats = await telegramWindow.webContents.executeJavaScript(`
+        (() => {
+          const chats = [];
+          const seen = new Set();
+          
+          // Telegram Web K & A selectors
+          const selectors = [
+            '.chatlist-chat .peer-title',
+            '.ListItem .ListItem-title',
+            '.chat-item .title',
+            '.user-caption .dialog-title',
+            '.chat-title',
+            '.ListItem-button .title',
+            'a.chatlist-chat'
+          ];
+
+          document.querySelectorAll(selectors.join(', ')).forEach((el) => {
+            const name = el.textContent ? el.textContent.trim() : '';
+            if (name && name.length > 1 && !seen.has(name.toLowerCase())) {
+              seen.add(name.toLowerCase());
+              const isChannel =
+                name.toLowerCase().includes('channel') ||
+                name.toLowerCase().includes('updates') ||
+                name.toLowerCase().includes('jobs') ||
+                name.toLowerCase().includes('campus') ||
+                name.toLowerCase().includes('hunt') ||
+                name.toLowerCase().includes('careers');
+
+              chats.push({
+                platform: 'telegram',
+                type: isChannel ? 'channel' : 'group',
+                name: name,
+                enabled: true
+              });
+            }
+          });
+
+          return chats;
+        })()
+      `);
+
+      if (Array.isArray(tgChats) && tgChats.length > 0) {
+        discovered.push(...tgChats);
+      }
+    } catch (e) {
+      console.error('Error scraping live Telegram session:', e);
+    }
+  }
+
+  // 2. Live scrape from WhatsApp Web window if open
+  if (whatsappWindow && !whatsappWindow.isDestroyed()) {
+    try {
+      const waChats = await whatsappWindow.webContents.executeJavaScript(`
+        (() => {
+          const chats = [];
+          const seen = new Set();
+
+          // WhatsApp Web chat list selectors
+          const selectors = [
+            'span[data-testid="cell-frame-title"]',
+            'span[data-testid="chat-title"]',
+            'div[data-testid="cell-frame-container"] span[title]',
+            '#pane-side span[title]'
+          ];
+
+          document.querySelectorAll(selectors.join(', ')).forEach((el) => {
+            const name = (el.getAttribute('title') || el.textContent || '').trim();
+            if (name && name.length > 1 && !seen.has(name.toLowerCase())) {
+              seen.add(name.toLowerCase());
+              const isChannel =
+                name.toLowerCase().includes('channel') ||
+                name.toLowerCase().includes('drive') ||
+                name.toLowerCase().includes('alerts');
+
+              chats.push({
+                platform: 'whatsapp',
+                type: isChannel ? 'channel' : 'group',
+                name: name,
+                enabled: true
+              });
+            }
+          });
+
+          return chats;
+        })()
+      `);
+
+      if (Array.isArray(waChats) && waChats.length > 0) {
+        discovered.push(...waChats);
+      }
+    } catch (e) {
+      console.error('Error scraping live WhatsApp session:', e);
+    }
+  }
+
+  return discovered;
+});
+
 // IPC Handler: Open External URL safely
 ipcMain.handle('open-external-url', async (_event, url) => {
   if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:'))) {

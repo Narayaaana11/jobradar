@@ -150,7 +150,33 @@ export class ChannelManagerService {
     this.saveToStorage();
   }
 
+  public async fetchLiveSocialChats(): Promise<Array<Omit<IChannelSource, 'id' | 'totalCaptured'>>> {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.scrapeSocialChats) {
+      try {
+        const liveScraped = await (window as any).electronAPI.scrapeSocialChats();
+        if (Array.isArray(liveScraped) && liveScraped.length > 0) {
+          const merged = [...liveScraped];
+          localStorage.setItem('jobradar_discovered_channels_v1', JSON.stringify(merged));
+          return merged;
+        }
+      } catch (e) {
+        console.error('Failed to scrape live social sessions:', e);
+      }
+    }
+    return this.getDiscoveredSocialChannels();
+  }
+
   public getDiscoveredSocialChannels(): Array<Omit<IChannelSource, 'id' | 'totalCaptured'>> {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('jobradar_discovered_channels_v1');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+
     return [
       // Real Telegram Channels from User's Account
       {
