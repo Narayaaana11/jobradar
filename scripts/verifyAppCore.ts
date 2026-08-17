@@ -190,7 +190,7 @@ const s3Status = s3Cloud.getStatus();
 console.log(`✓ S3 Sync State: ${s3Status.status}`);
 
 // ── TEST 7: CLOUD LLM CLIENT INTERFACE & FAILOVER ──
-console.log('\n--- [Module 7/7] Cloud LLM Engine (OpenRouter & Anthropic Multi-Model Failover) ---');
+console.log('\n--- [Module 7/7] Cloud LLM Engine (OpenRouter Autonomous Free Model Rotation & Failover) ---');
 if (typeof llmClient.callLlm !== 'function') throw new Error('Missing callLlm');
 if (typeof llmClient.extractJobWithLlm !== 'function') throw new Error('Missing extractJobWithLlm');
 if (typeof llmClient.scoreJobWithLlm !== 'function') throw new Error('Missing scoreJobWithLlm');

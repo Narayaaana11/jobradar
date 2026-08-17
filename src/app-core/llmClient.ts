@@ -9,25 +9,83 @@ export interface ILlmResponse<T> {
   modelUsed?: string;
 }
 
-const OPENROUTER_ACTIVE_FREE_MODELS = [
+// Resilient fallback seed list if offline or network fetch fails
+const SEED_FREE_MODELS = [
   'google/gemma-4-26b-a4b-it:free',
   'google/gemma-4-31b-it:free',
   'openai/gpt-oss-20b:free',
-  'nvidia/nemotron-3-nano-30b-a3b:free',
   'liquid/lfm-2.5-2.6b:free',
+  'nvidia/nemotron-3-nano-30b-a3b:free',
+  'nvidia/nemotron-3.5-lightning:free',
   'z-ai/glm-5.2:free',
+  'openrouter/free',
 ];
 
-const OPENROUTER_PAID_MODELS = [
-  'anthropic/claude-3.5-sonnet',
-  'openai/gpt-4o-mini',
-  'deepseek/deepseek-chat',
-];
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export class LlmClientService {
+  private cachedFreeModels: string[] = [...SEED_FREE_MODELS];
+  private lastModelsFetchTime = 0;
+  private roundRobinCounter = 0;
+
   /**
-   * Universal fetch caller supporting Electron Native IPC Bridge (Zero CORS)
-   * and clean browser fetch fallback with automatic multi-model failover.
+   * Fetches the LIVE list of 100% free models from OpenRouter's public API
+   * and caches the result for 1 hour.
+   */
+  public async getLiveFreeModels(): Promise<string[]> {
+    const now = Date.now();
+    if (this.cachedFreeModels.length > 0 && now - this.lastModelsFetchTime < CACHE_TTL_MS) {
+      return this.cachedFreeModels;
+    }
+
+    try {
+      const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
+      let data: any = null;
+
+      if (electronApi?.callLlmApi) {
+        const res = await electronApi.callLlmApi({
+          endpoint: 'https://openrouter.ai/api/v1/models',
+          headers: {},
+          method: 'GET',
+        });
+        if (res.success && res.data?.data) {
+          data = res.data;
+        }
+      } else {
+        const res = await fetch('https://openrouter.ai/api/v1/models', { method: 'GET' });
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+
+      if (data?.data && Array.isArray(data.data)) {
+        // Filter for models with 0 prompt and 0 completion cost
+        const liveFree = data.data
+          .filter((m: any) => {
+            const isZeroCost = m.pricing && m.pricing.prompt === '0' && m.pricing.completion === '0';
+            const isFreeId = m.id && (m.id.endsWith(':free') || m.id === 'openrouter/free');
+            // Filter out non-chat / audio / safety-only utility models
+            const isExcluded = m.id.includes('safety') || m.id.includes('lyria') || m.id.includes('clip');
+            return (isZeroCost || isFreeId) && !isExcluded;
+          })
+          .map((m: any) => m.id);
+
+        if (liveFree.length > 0) {
+          this.cachedFreeModels = liveFree;
+          this.lastModelsFetchTime = now;
+          return this.cachedFreeModels;
+        }
+      }
+    } catch {
+      // Gracefully retain seed list if network fetch fails
+    }
+
+    return this.cachedFreeModels;
+  }
+
+  /**
+   * Universal OpenRouter fetch caller with True Load-Balanced Rotation
+   * and Automatic Failover Cascade across all free models.
    */
   public async callLlm(
     prompt: string,
@@ -36,116 +94,83 @@ export class LlmClientService {
     preferredModel?: string
   ): Promise<{ text: string; model: string }> {
     if (!apiKey || !apiKey.trim()) {
-      throw new Error('No API key provided. Please configure your OpenRouter or Anthropic API key in Settings.');
+      throw new Error('No API key provided. Please configure your OpenRouter API key in Settings.');
     }
 
     const key = apiKey.trim();
-    const isOpenRouter = key.startsWith('sk-or-') || !key.startsWith('sk-ant-');
     const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
+    const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+    };
 
-    if (isOpenRouter) {
-      const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-      const headers = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      };
+    const freeModels = await this.getLiveFreeModels();
 
-      // Model trial sequence: preferred model -> free active models -> paid models
-      const baseList = preferredModel
-        ? [preferredModel, ...OPENROUTER_ACTIVE_FREE_MODELS.filter((m) => m !== preferredModel), ...OPENROUTER_PAID_MODELS]
-        : [...OPENROUTER_ACTIVE_FREE_MODELS, ...OPENROUTER_PAID_MODELS];
+    // Construct ordered trial list starting with rotated index
+    let orderedModels: string[];
+    if (preferredModel) {
+      orderedModels = [preferredModel, ...freeModels.filter((m) => m !== preferredModel)];
+    } else {
+      const startIndex = this.roundRobinCounter % freeModels.length;
+      this.roundRobinCounter++;
+      orderedModels = [
+        ...freeModels.slice(startIndex),
+        ...freeModels.slice(0, startIndex),
+      ];
+    }
 
-      const modelsToTry = Array.from(new Set(baseList));
+    let lastError = '';
 
-      let lastError = '';
+    for (let i = 0; i < orderedModels.length; i++) {
+      const model = orderedModels[i];
+      try {
+        const body = {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.2,
+        };
 
-      for (const model of modelsToTry) {
-        try {
-          const body = {
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: prompt },
-            ],
-            temperature: 0.2,
-          };
+        if (electronApi?.callLlmApi) {
+          const res = await electronApi.callLlmApi({ endpoint, headers, body, method: 'POST' });
+          if (res.success && res.data?.choices?.[0]?.message?.content) {
+            return {
+              text: res.data.choices[0].message.content,
+              model: res.data.model || model,
+            };
+          }
+          lastError = res.error || `HTTP ${res.status || 'unknown'}`;
+        } else {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+          });
 
-          if (electronApi?.callLlmApi) {
-            // Native Electron IPC Request
-            const res = await electronApi.callLlmApi({ endpoint, headers, body, method: 'POST' });
-            if (res.success && res.data?.choices?.[0]?.message?.content) {
-              return {
-                text: res.data.choices[0].message.content,
-                model: res.data.model || model,
-              };
+          if (res.ok) {
+            const data = await res.json();
+            const content = data.choices?.[0]?.message?.content;
+            if (content) {
+              return { text: content, model: data.model || model };
             }
-            lastError = res.error || `HTTP ${res.status || 'unknown'}`;
           } else {
-            // Clean Browser Fetch Fallback
-            const res = await fetch(endpoint, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(body),
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              const content = data.choices?.[0]?.message?.content;
-              if (content) {
-                return { text: content, model: data.model || model };
-              }
-            } else {
-              const errData = await res.json().catch(() => ({}));
-              lastError = errData?.error?.message || `HTTP ${res.status}`;
+            const errData = await res.json().catch(() => ({}));
+            lastError = errData?.error?.message || `HTTP ${res.status}`;
+            // If rate-limited (429) or model temporarily unavailable (503), cascade to next model
+            if (res.status === 429 || res.status === 503) {
+              continue;
             }
           }
-        } catch (err: any) {
-          lastError = err.message;
         }
-      }
-
-      throw new Error(lastError || 'OpenRouter request failed across all model endpoints.');
-    } else {
-      // Anthropic Direct Messages API
-      const endpoint = 'https://api.anthropic.com/v1/messages';
-      const headers = {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      };
-      const body = {
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 2500,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-      };
-
-      if (electronApi?.callLlmApi) {
-        const res = await electronApi.callLlmApi({ endpoint, headers, body, method: 'POST' });
-        if (!res.success) {
-          throw new Error(res.error || `Anthropic request failed (Status: ${res.status || 'unknown'})`);
-        }
-        const content = res.data?.content?.[0]?.text || '';
-        return { text: content, model: res.data?.model || 'claude-3-5-sonnet-20241022' };
-      } else {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `Anthropic request failed with HTTP ${res.status}`);
-        }
-
-        const data = await res.json();
-        const content = data.content?.[0]?.text || '';
-        return { text: content, model: data.model || 'claude-3-5-sonnet-20241022' };
+      } catch (err: any) {
+        lastError = err.message;
       }
     }
+
+    throw new Error(lastError || 'OpenRouter request failed across all free model endpoints.');
   }
 
   /**
@@ -210,7 +235,7 @@ SCHEMA:
     apiKey: string
   ): Promise<ILlmResponse<IScoreResult>> {
     try {
-      const systemPrompt = `You are a Principal Engineering Hiring Evaluator. Assess the candidate fit for this opening using a 0-100 score and 1.0-5.0 rubric ratings across skills, tech stack, experience, and location. Return strictly valid JSON.`;
+      const systemPrompt = `You are a Principal Engineering Hiring Evaluator. Assess candidate fit for this opening using a 0-100 score and 1.0-5.0 rubric ratings across skills, tech stack, experience, and location. Return strictly valid JSON.`;
       const prompt = `EVALUATE CANDIDATE FIT:
 JOB:
 Company: ${job.companyName}
@@ -446,66 +471,54 @@ CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfo
   }
 
   /**
-   * Validates if an API Key is active using OpenRouter's official Auth Check API
-   * or direct message probe for Anthropic.
+   * Validates if an API Key is active using OpenRouter's official Auth Check API.
    */
   public async testApiKey(apiKey: string): Promise<{ valid: boolean; message: string; model?: string }> {
     if (!apiKey || !apiKey.trim()) {
-      return { valid: false, message: 'Please provide an API key.' };
+      return { valid: false, message: 'Please provide an OpenRouter API key.' };
     }
 
     const key = apiKey.trim();
-    const isOpenRouter = key.startsWith('sk-or-') || !key.startsWith('sk-ant-');
     const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
-    if (isOpenRouter) {
-      try {
-        const endpoint = 'https://openrouter.ai/api/v1/auth/key';
-        const headers = { Authorization: `Bearer ${key}` };
+    try {
+      const endpoint = 'https://openrouter.ai/api/v1/auth/key';
+      const headers = { Authorization: `Bearer ${key}` };
 
-        if (electronApi?.callLlmApi) {
-          try {
-            const res = await electronApi.callLlmApi({ endpoint, headers, method: 'GET' });
-            if (res.success && res.data?.data) {
-              const info = res.data.data;
-              const statusTag = info.is_free_tier ? 'Free Tier' : 'Active Account';
-              return {
-                valid: true,
-                message: `OpenRouter key verified (${statusTag})!`,
-                model: 'OpenRouter Unified API',
-              };
-            }
-          } catch {
-            // Fall through to direct fetch
+      if (electronApi?.callLlmApi) {
+        try {
+          const res = await electronApi.callLlmApi({ endpoint, headers, method: 'GET' });
+          if (res.success && res.data?.data) {
+            const info = res.data.data;
+            const statusTag = info.is_free_tier ? 'Free Tier' : 'Active Account';
+            return {
+              valid: true,
+              message: `OpenRouter key verified (${statusTag})!`,
+              model: 'OpenRouter Unified API',
+            };
           }
+        } catch {
+          // Fall through to direct fetch
         }
+      }
 
-        // Direct Browser/Node fetch fallback
-        const res = await fetch(endpoint, { method: 'GET', headers });
-        if (res.ok) {
-          const data = await res.json();
-          const info = data?.data;
-          const statusTag = info?.is_free_tier ? 'Free Tier' : 'Active Account';
-          return {
-            valid: true,
-            message: `OpenRouter key verified (${statusTag})!`,
-            model: 'OpenRouter Unified API',
-          };
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          return { valid: false, message: errData?.error?.message || `HTTP ${res.status}: Invalid key` };
-        }
-      } catch (err: any) {
-        return { valid: false, message: err.message };
+      // Direct Browser/Node fetch fallback
+      const res = await fetch(endpoint, { method: 'GET', headers });
+      if (res.ok) {
+        const data = await res.json();
+        const info = data?.data;
+        const statusTag = info?.is_free_tier ? 'Free Tier' : 'Active Account';
+        return {
+          valid: true,
+          message: `OpenRouter key verified (${statusTag})!`,
+          model: 'OpenRouter Unified API',
+        };
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        return { valid: false, message: errData?.error?.message || `HTTP ${res.status}: Invalid key` };
       }
-    } else {
-      // Anthropic direct test
-      try {
-        const { model } = await this.callLlm('Reply with "OK"', 'You are a test ping bot.', key);
-        return { valid: true, message: 'Anthropic Claude API connected!', model };
-      } catch (err: any) {
-        return { valid: false, message: err.message };
-      }
+    } catch (err: any) {
+      return { valid: false, message: err.message };
     }
   }
 }

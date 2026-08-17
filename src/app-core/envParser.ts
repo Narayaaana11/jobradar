@@ -7,7 +7,6 @@ export interface IParsedEnvConfig {
   awsSecretAccessKey?: string;
   awsBucket?: string;
   openrouterApiKey?: string;
-  anthropicApiKey?: string;
   telegramBotToken?: string;
   raw: Record<string, string>;
 }
@@ -38,7 +37,6 @@ export function parseEnvContent(envText: string): IParsedEnvConfig {
     awsSecretAccessKey: result['AWS_SECRET_ACCESS_KEY'] || result['AWS_SECRET'],
     awsBucket: result['AWS_S3_BUCKET'] || result['S3_BUCKET'] || result['BUCKET'],
     openrouterApiKey: result['OPENROUTER_API_KEY'],
-    anthropicApiKey: result['ANTHROPIC_API_KEY'],
     telegramBotToken: result['TELEGRAM_BOT_TOKEN'],
     raw: result,
   };

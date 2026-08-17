@@ -80,10 +80,10 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
     s3Cloud.saveConfig(updatedS3);
     setS3Config(s3Cloud.getConfig());
 
-    if (parsed.openrouterApiKey || parsed.anthropicApiKey || parsed.telegramBotToken) {
+    if (parsed.openrouterApiKey || parsed.telegramBotToken) {
       const updatedProfile = {
         ...profile,
-        apiKey: parsed.openrouterApiKey || parsed.anthropicApiKey || profile.apiKey,
+        apiKey: parsed.openrouterApiKey || profile.apiKey,
         telegramToken: parsed.telegramBotToken || profile.telegramToken,
       };
       store.saveProfile(updatedProfile);
@@ -565,22 +565,22 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
         <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-6 space-y-5 shadow-2xl">
           <div>
             <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Key className="w-4 h-4 text-purple-400" /> Cloud LLM & AI Keys (OpenRouter / Anthropic)
+              <Key className="w-4 h-4 text-purple-400" /> Cloud LLM & AI Engine (OpenRouter)
             </h3>
             <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-              JobRadar operates completely offline with built-in heuristic extractors. Providing an OpenRouter or Anthropic API key unlocks real-time LLM reasoning for deep interview prep and customized cover letters.
+              JobRadar operates completely offline with built-in heuristic extractors. Providing an OpenRouter API key unlocks real-time LLM reasoning across 20+ free and open-source models with automated rotation and zero cost.
             </p>
           </div>
 
           <div className="space-y-4 pt-1">
             <div className="p-4 bg-[#18181b] border border-[#27272a] rounded-2xl space-y-3">
               <label className="block text-[11px] font-mono text-zinc-300 uppercase font-bold">
-                OpenRouter / Anthropic Claude API Key
+                OpenRouter API Key
               </label>
               <div className="flex items-center gap-2">
                 <input
                   type="password"
-                  placeholder="sk-or-v1-... or sk-ant-api03-..."
+                  placeholder="sk-or-v1-..."
                   value={profile.apiKey || ''}
                   onChange={(e) => {
                     const updated = { ...profile, apiKey: e.target.value };
@@ -594,16 +594,16 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
                   disabled={testingApiKey}
                   onClick={async () => {
                     if (!profile.apiKey) {
-                      setSaveMsg('Please enter an API key to test.');
+                      setSaveMsg('Please enter an OpenRouter API key to test.');
                       setTimeout(() => setSaveMsg(''), 3000);
                       return;
                     }
                     setTestingApiKey(true);
-                    setSaveMsg('Testing API Key connection via Native IPC...');
+                    setSaveMsg('Testing OpenRouter connection via Native IPC...');
                     try {
                       const res = await (await import('../../app-core/llmClient')).llmClient.testApiKey(profile.apiKey);
                       if (res.valid) {
-                        setSaveMsg(`✓ Connected successfully to ${res.model || 'OpenRouter / Claude AI'}!`);
+                        setSaveMsg(`✓ Connected successfully to ${res.model || 'OpenRouter Unified API'}!`);
                       } else {
                         setSaveMsg(`✕ Connection failed: ${res.message}`);
                       }
@@ -621,7 +621,7 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
                 </button>
               </div>
               <p className="text-[11px] text-zinc-500">
-                Supports OpenRouter keys (<code className="text-zinc-400">sk-or-v1-...</code>) and Anthropic Claude keys (<code className="text-zinc-400">sk-ant-...</code>).
+                Enter your OpenRouter key (<code className="text-zinc-400">sk-or-v1-...</code>). All generations leverage rotated free models with zero billing required.
               </p>
             </div>
 
