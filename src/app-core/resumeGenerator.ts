@@ -3,16 +3,6 @@ import { IJob, IProfile } from './types';
 import { IExtractedJD } from './extractor';
 import { s3Cloud } from './s3Client';
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      savePdfFile: (options: { filename: string; base64Data: string }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
-      saveTextFile?: (options: { filename: string; content: string; extension?: string; filterName?: string }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
-      openExternal: (url: string) => Promise<boolean>;
-      isDesktop?: boolean;
-    };
-  }
-}
 
 export function cleanFilenameSlug(str: string): string {
   return str.replace(/[^\w]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');

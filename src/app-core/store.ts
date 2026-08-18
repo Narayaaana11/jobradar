@@ -1,10 +1,86 @@
-import { IJob, IRawQueueItem, IProfile, IStats } from './types';
+import { IJob, IRawQueueItem, IProfile, IStats, ICareerWatchlistSite } from './types';
 import { s3Cloud } from './s3Client';
 
 const JOBS_KEY = 'jobradar_jobs_v1';
 const QUEUE_KEY = 'jobradar_queue_v1';
 const PROFILE_KEY = 'jobradar_profile_v1';
 const RESUME_KEY = 'jobradar_master_resume_v1';
+const CAREER_WATCHLIST_KEY = 'jobradar_career_watchlist_v1';
+
+export const DEFAULT_CAREER_WATCHLIST: ICareerWatchlistSite[] = [
+  {
+    id: 'site-amazon',
+    companyName: 'Amazon',
+    careerUrl: 'https://amazon.jobs/en/search?base_query=software+development+engineer&loc_query=India',
+    category: 'Tier 1 Tech',
+    enabled: true,
+    searchKeywords: ['Software Development Engineer', 'SDE', 'Full Stack', 'Frontend', 'Fresher', 'Graduate'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-google',
+    companyName: 'Google',
+    careerUrl: 'https://careers.google.com/jobs/results/?distance=50&location=India&q=Software%20Engineer',
+    category: 'Tier 1 Tech',
+    enabled: true,
+    searchKeywords: ['Software Engineer', 'Web Developer', 'Full Stack', 'React', 'Early Career'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-microsoft',
+    companyName: 'Microsoft',
+    careerUrl: 'https://careers.microsoft.com/professionals/us/en/search-results?q=software%20engineer&lc=India',
+    category: 'Tier 1 Tech',
+    enabled: true,
+    searchKeywords: ['Software Engineer', 'Full Stack', 'React', 'Node', 'Graduate'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-swiggy',
+    companyName: 'Swiggy',
+    careerUrl: 'https://careers.swiggy.com/#/jobs?department=Engineering',
+    category: 'High-Growth Startup',
+    enabled: true,
+    searchKeywords: ['Software Engineer', 'Frontend', 'Fullstack', 'MERN', 'React'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-deloitte',
+    companyName: 'Deloitte',
+    careerUrl: 'https://jobs2.deloitte.com/in/en/search-results?keywords=developer',
+    category: 'MNC / IT Services',
+    enabled: true,
+    searchKeywords: ['Associate Analyst', 'Developer', 'Full Stack', 'Cloud', 'Freshers'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-razorpay',
+    companyName: 'Razorpay',
+    careerUrl: 'https://razorpay.com/jobs/?dept=Engineering',
+    category: 'FinTech / E-Commerce',
+    enabled: true,
+    searchKeywords: ['Software Engineer', 'Frontend', 'Backend', 'Fullstack', 'React'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-flipkart',
+    companyName: 'Flipkart',
+    careerUrl: 'https://www.flipkartcareers.com/#!/joblist',
+    category: 'FinTech / E-Commerce',
+    enabled: true,
+    searchKeywords: ['Software Development Engineer', 'UI Engineer', 'Full Stack', 'Fresher'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-zoho',
+    companyName: 'Zoho',
+    careerUrl: 'https://www.zoho.com/careers/jobdetails/?job_id=45789',
+    category: 'Tier 1 Tech',
+    enabled: true,
+    searchKeywords: ['Software Developer', 'Web Developer', 'Java', 'JavaScript', 'Fresher'],
+    createdAt: new Date().toISOString(),
+  },
+];
 
 export const defaultProfile: IProfile = {
   name: 'Veera Venkata Naga Satyanarayana Thota',
@@ -70,7 +146,7 @@ export const defaultProfile: IProfile = {
         'Integrated an NLP chatbot in Python to process natural language queries for book titles and locations.',
       ],
     },
-  ],
+  apiKey: (typeof process !== 'undefined' && process.env?.OPENROUTER_API_KEY) || '',
 };
 
 export const defaultMasterResume = `# Veera Venkata Naga Satyanarayana Thota
@@ -440,10 +516,12 @@ class AppStore {
   private queue: IRawQueueItem[] = [];
   private profile: IProfile = defaultProfile;
   private masterResume: string = defaultMasterResume;
+  private careerWatchlist: ICareerWatchlistSite[] = DEFAULT_CAREER_WATCHLIST;
   private listeners: Set<() => void> = new Set();
 
   constructor() {
     this.loadFromStorage();
+    this.syncWithS3Debounced();
   }
 
   private loadFromStorage() {
@@ -453,21 +531,29 @@ class AppStore {
         const storedQueue = localStorage.getItem(QUEUE_KEY);
         const storedProfile = localStorage.getItem(PROFILE_KEY);
         const storedResume = localStorage.getItem(RESUME_KEY);
+        const storedWatchlist = localStorage.getItem(CAREER_WATCHLIST_KEY);
 
         this.jobs = storedJobs ? JSON.parse(storedJobs) : initialSeedJobs;
         this.queue = storedQueue ? JSON.parse(storedQueue) : [];
-        this.profile = storedProfile ? JSON.parse(storedProfile) : defaultProfile;
+        this.profile = storedProfile ? { ...defaultProfile, ...JSON.parse(storedProfile) } : defaultProfile;
+        if (!this.profile.apiKey) {
+          this.profile.apiKey = defaultProfile.apiKey;
+        }
         this.masterResume = storedResume || defaultMasterResume;
+        this.careerWatchlist = storedWatchlist ? JSON.parse(storedWatchlist) : DEFAULT_CAREER_WATCHLIST;
 
         if (!storedJobs) this.saveJobs();
-        if (!storedProfile) this.saveProfile(defaultProfile);
+        if (!storedProfile) this.saveProfile(this.profile);
         if (!storedResume) this.saveMasterResume(defaultMasterResume);
+        if (!storedWatchlist) this.saveCareerWatchlist();
       } else {
         this.jobs = initialSeedJobs;
+        this.careerWatchlist = DEFAULT_CAREER_WATCHLIST;
       }
     } catch (err) {
       console.error('Error loading store from localStorage:', err);
       this.jobs = initialSeedJobs;
+      this.careerWatchlist = DEFAULT_CAREER_WATCHLIST;
     }
   }
 
@@ -475,7 +561,7 @@ class AppStore {
     if (typeof window !== 'undefined') {
       try {
         if (s3Cloud.getConfig().autoSync) {
-          s3Cloud.syncAllToS3(this.jobs, this.queue, this.profile, this.masterResume).catch((err) => {
+          s3Cloud.syncAllToS3(this.jobs, this.queue, this.profile, this.masterResume, this.careerWatchlist).catch((err) => {
             console.warn('[Store] S3 background auto-sync warning:', err);
           });
         }
@@ -649,6 +735,73 @@ class AppStore {
     }
     this.notify();
     this.syncWithS3Debounced();
+  }
+
+  // --- Career Watchlist Operations ---
+  public getCareerWatchlist(): ICareerWatchlistSite[] {
+    return [...this.careerWatchlist];
+  }
+
+  public getCareerSiteById(id: string): ICareerWatchlistSite | undefined {
+    return this.careerWatchlist.find((s) => s.id === id);
+  }
+
+  private saveCareerWatchlist(): void {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(CAREER_WATCHLIST_KEY, JSON.stringify(this.careerWatchlist));
+    }
+    this.notify();
+    this.syncWithS3Debounced();
+  }
+
+  public addCareerSite(site: Omit<ICareerWatchlistSite, 'id' | 'createdAt'>): ICareerWatchlistSite {
+    const newSite: ICareerWatchlistSite = {
+      ...site,
+      id: `site-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      createdAt: new Date().toISOString(),
+      lastSyncStatus: 'idle',
+      lastJobsFound: 0,
+    };
+    this.careerWatchlist.unshift(newSite);
+    this.saveCareerWatchlist();
+    return newSite;
+  }
+
+  public updateCareerSite(id: string, updates: Partial<ICareerWatchlistSite>): void {
+    const idx = this.careerWatchlist.findIndex((s) => s.id === id);
+    if (idx >= 0) {
+      this.careerWatchlist[idx] = { ...this.careerWatchlist[idx], ...updates };
+      this.saveCareerWatchlist();
+    }
+  }
+
+  public deleteCareerSite(id: string): void {
+    this.careerWatchlist = this.careerWatchlist.filter((s) => s.id !== id);
+    this.saveCareerWatchlist();
+  }
+
+  public toggleCareerSite(id: string): void {
+    const site = this.careerWatchlist.find((s) => s.id === id);
+    if (site) {
+      site.enabled = !site.enabled;
+      this.saveCareerWatchlist();
+    }
+  }
+
+  public setCareerSiteSyncStatus(
+    id: string,
+    status: 'idle' | 'syncing' | 'success' | 'error',
+    jobsFound?: number,
+    error?: string
+  ): void {
+    const site = this.careerWatchlist.find((s) => s.id === id);
+    if (site) {
+      site.lastSyncStatus = status;
+      site.lastSyncedAt = new Date().toISOString();
+      if (typeof jobsFound === 'number') site.lastJobsFound = jobsFound;
+      if (error !== undefined) site.lastError = error;
+      this.saveCareerWatchlist();
+    }
   }
 
   // --- Stats Calculation ---

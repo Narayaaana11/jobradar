@@ -1,3 +1,26 @@
+export interface IElectronApi {
+  savePdfFile?: (options: { filename: string; base64Data: string }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+  saveTextFile?: (options: { filename: string; content: string; extension?: string; filterName?: string }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+  openExternal?: (url: string) => Promise<boolean>;
+  openWhatsAppWeb?: () => Promise<{ success: boolean }>;
+  openTelegramWeb?: () => Promise<{ success: boolean }>;
+  scrapeSocialChats?: () => Promise<any>;
+  interceptChannelMessages?: (options?: any) => Promise<any>;
+  callLlmApi?: (options: { endpoint: string; headers?: Record<string, string>; body?: any; method?: string }) => Promise<any>;
+  fetchWebPage?: (options: { url: string }) => Promise<{ success: boolean; data?: string; error?: string; status?: number }>;
+  s3PutObject?: (options: any) => Promise<any>;
+  s3SyncAll?: (options: any) => Promise<any>;
+  s3PullAll?: (options: any) => Promise<any>;
+  isDesktop?: boolean;
+  [key: string]: any;
+}
+
+declare global {
+  interface Window {
+    electronAPI?: IElectronApi;
+  }
+}
+
 export interface IJobSource {
   platform: 'telegram' | 'whatsapp' | 'web' | 'manual';
   channelName: string;
@@ -111,8 +134,116 @@ export interface IJob {
   resumePdfDataUri?: string;
   appliedAt?: string | null;
   aiCouncil?: IAiCouncilVerdict;
+  outreachSuite?: IColdOutreachSuite;
+  interviewMasterGuide?: IInterviewMasterGuide;
+  webIntelligence?: IWebScrapingIntelligence;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ICorporateEmailPattern {
+  pattern: string;
+  example: string;
+  confidence: 'High' | 'Medium' | 'Estimated';
+  domain: string;
+}
+
+export interface ICadenceStep {
+  stepNumber: number;
+  dayLabel: string;
+  triggerCondition: string;
+  subject: string;
+  body: string;
+  channel: 'Email' | 'LinkedIn InMail' | 'Twitter DM';
+}
+
+export interface IColdOutreachSuite {
+  companyDomain: string;
+  emailPatterns: ICorporateEmailPattern[];
+  cadenceSequence: ICadenceStep[];
+  linkedInNotes: {
+    connectionRequestNote300Char: string;
+    recruiterDirectPitch: string;
+    alumniWarmIntroduction: string;
+  };
+}
+
+export interface IDsaChallenge {
+  title: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  topic: string;
+  companyFrequency: string; // e.g. "Asked 8x at Amazon SDE-1"
+  problemStatement: string;
+  starterCode: string;
+  solutionCode: string;
+  timeComplexity: string;
+  spaceComplexity: string;
+  keyInsights: string[];
+}
+
+export interface ISystemDesignBlueprint {
+  title: string;
+  architectureSummary: string;
+  mermaidDiagram: string;
+  keyComponents: string[];
+  scalingBottlenecksAndFixes: string[];
+  candidateProjectMapping: string; // e.g. "Map AUSVMS Redis queue to Swiggy order processing"
+}
+
+export interface ISkillGapCramSheet {
+  missingSkills: string[];
+  crashCourseModules: {
+    skill: string;
+    oneLinerConcept: string;
+    essentialCodeSnippet: string;
+    commonInterviewPitfall: string;
+    winningTalkingPoint: string;
+  }[];
+}
+
+export interface ISalaryBenchmark {
+  tierClassification: string;
+  minLpa: string;
+  maxLpa: string;
+  medianLpa: string;
+  variablePayPct?: string;
+  leveragePoints: string[];
+  negotiationScript: string;
+  counterOfferTemplate: string;
+}
+
+export interface ICompanyCultureAudit {
+  workLifeBalanceScore: number; // 1-10
+  techStackModernityScore: number; // 1-10
+  layOffRisk: 'Low' | 'Moderate' | 'Elevated';
+  greenFlags: string[];
+  redFlags: string[];
+  interviewFormatTips: string[];
+  insiderAdvice: string;
+}
+
+export interface IInterviewMasterGuide {
+  generatedAt: string;
+  dsaChallenges: IDsaChallenge[];
+  systemDesign: ISystemDesignBlueprint;
+  skillGapCramSheet: ISkillGapCramSheet;
+  salaryBenchmark: ISalaryBenchmark;
+  companyCultureAudit: ICompanyCultureAudit;
+}
+
+export interface IWebScrapingIntelligence {
+  isVerifiedLive: boolean;
+  scrapedAt: string;
+  companyCareerUrl: string;
+  activeOpeningsSummary: string;
+  verifiedTechStack: string[];
+  liveSources: {
+    title: string;
+    url: string;
+    snippet: string;
+  }[];
+  interviewQuestionsFromWeb: string[];
+  recentCompanyNewsOrTechBlogs: string[];
 }
 
 export interface IAiCouncilMemberVote {
@@ -247,3 +378,36 @@ export interface IStats {
   responseRatePct: number;
   highMatchCount: number;
 }
+
+export type CareerSiteCategory = 'Tier 1 Tech' | 'MNC / IT Services' | 'High-Growth Startup' | 'FinTech / E-Commerce' | 'Custom';
+
+export interface ICareerWatchlistSite {
+  id: string;
+  companyName: string;
+  careerUrl: string;
+  category: CareerSiteCategory;
+  enabled: boolean;
+  searchKeywords: string[];
+  lastSyncedAt?: string | null;
+  lastSyncStatus?: 'idle' | 'syncing' | 'success' | 'error';
+  lastJobsFound?: number;
+  lastError?: string | null;
+  createdAt: string;
+}
+
+export interface ICareerSyncReport {
+  totalSitesCrawled: number;
+  totalJobsDiscovered: number;
+  suitableJobsAdded: number;
+  durationMs: number;
+  syncedAt: string;
+  siteResults: Array<{
+    siteId: string;
+    companyName: string;
+    status: 'success' | 'error';
+    jobsFound: number;
+    suitableAdded: number;
+    error?: string;
+  }>;
+}
+

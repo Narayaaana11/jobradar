@@ -15,10 +15,17 @@ import {
   X, Check, Trash2, ExternalLink, MapPin, Building, AlertCircle,
   Copy, FileText, CheckCircle2, XCircle, Sparkles, Mail, Download,
   UserCheck, Linkedin, Eye, Send, Award, RefreshCw, Bot, Key, Wand2, Users,
-  Code, Maximize2, Minimize2
+  Code, Maximize2, Minimize2, Brain, ShieldCheck, Globe, BookOpen,
+  Terminal, DollarSign, ShieldAlert, Zap, Layers, Clock, CheckSquare
 } from 'lucide-react';
 
 import { aiCouncil } from '../../app-core/aiCouncil';
+import { ragAugmentor } from '../../app-core/rag/ragAugmentor';
+import { getCompanyCareerPortal } from '../../app-core/extractor';
+import { generateOutreachSuite } from '../../app-core/outreachAgent';
+import { generateInterviewMasterGuide } from '../../app-core/interviewMasterGuide';
+import { webScrapingAuditor } from '../../app-core/webScrapingAuditor';
+import { IColdOutreachSuite, IInterviewMasterGuide, IWebScrapingIntelligence } from '../../app-core/types';
 
 interface JobDrawerProps {
   job: IJob | null;
@@ -26,11 +33,13 @@ interface JobDrawerProps {
   onClose: () => void;
   onUpdateApproval: (jobId: string, status: 'pending' | 'approved' | 'rejected') => void;
   onUpdateApplication: (jobId: string, status: 'not_applied' | 'applied' | 'interview' | 'offer' | 'rejected') => void;
+  onDeleteJob?: (jobId: string) => void;
 }
 
-export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApplication }: JobDrawerProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'council' | 'resume' | 'referral' | 'interview' | 'coverletter'>('overview');
+export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApplication, onDeleteJob }: JobDrawerProps) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'masterguide' | 'outreach' | 'webintel' | 'council' | 'resume' | 'referral' | 'interview' | 'coverletter'>('overview');
   const [resumeSubTab, setResumeSubTab] = useState<'pdf' | 'latex'>('pdf');
+  const [guideSubTab, setGuideSubTab] = useState<'dsa' | 'systemdesign' | 'cramsheet' | 'salary' | 'culture'>('dsa');
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [copiedText, setCopiedText] = useState(false);
   const [copiedLatex, setCopiedLatex] = useState(false);
@@ -40,6 +49,22 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
   const [downloadingLatex, setDownloadingLatex] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [isMaximized, setIsMaximized] = useState(false);
+
+  // New Agents State
+  const [outreachData, setOutreachData] = useState<IColdOutreachSuite | null>(null);
+  const [masterGuideData, setMasterGuideData] = useState<IInterviewMasterGuide | null>(null);
+  const [webIntelData, setWebIntelData] = useState<IWebScrapingIntelligence | null>(null);
+  const [isScrapingLive, setIsScrapingLive] = useState(false);
+
+  useEffect(() => {
+    if (job) {
+      const out = job.outreachSuite || generateOutreachSuite(job, profile);
+      const mg = job.interviewMasterGuide || generateInterviewMasterGuide(job, profile);
+      setOutreachData(out);
+      setMasterGuideData(mg);
+      setWebIntelData(job.webIntelligence || null);
+    }
+  }, [job, profile]);
 
   // AI Loading & Execution States
   const [isLlmRunning, setIsLlmRunning] = useState(false);
@@ -316,7 +341,88 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     }
   };
 
+  // 7. Live Web Scraping Auditor Agent
+  const handleRunLiveScraper = async () => {
+    if (!job) return;
+    setIsScrapingLive(true);
+    setSaveSuccessMsg('');
+    setAiError(null);
+    try {
+      const intel = await webScrapingAuditor.auditJobWithLiveWebScraping(job, profile);
+      setWebIntelData(intel);
+      job.webIntelligence = intel;
+      store.updateJob(job.id, { webIntelligence: intel });
+      setSaveSuccessMsg(`Live Web Scraping completed for ${job.companyName} portal!`);
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err: any) {
+      setAiError(`Web scraper error: ${err.message}`);
+    } finally {
+      setIsScrapingLive(false);
+    }
+  };
+
+  // 8. AI Cold Outreach Suite Generator (OpenRouter)
+  const handleGenerateAiOutreach = async () => {
+    if (!job) return;
+    const key = profile.apiKey;
+    if (!key) {
+      setAiError('Please configure your OpenRouter API Key in Settings to run AI Outreach reasoning.');
+      setTimeout(() => setAiError(null), 5000);
+      return;
+    }
+
+    setIsLlmRunning(true);
+    setAiActionLabel('Synthesizing Tailored Cold Email & Cadence with OpenRouter LLM...');
+    setAiError(null);
+    try {
+      const res = await llmClient.generateAiOutreachSuite(job, profile, key);
+      if (res.success && res.data) {
+        setOutreachData(res.data);
+        job.outreachSuite = res.data;
+        store.updateJob(job.id, { outreachSuite: res.data });
+        setSaveSuccessMsg(`Outreach suite synthesized via ${res.modelUsed || 'OpenRouter LLM'}!`);
+        setTimeout(() => setSaveSuccessMsg(''), 4000);
+      }
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
+  // 9. AI Master Prep Guide Generator (OpenRouter)
+  const handleGenerateAiMasterGuide = async () => {
+    if (!job) return;
+    const key = profile.apiKey;
+    if (!key) {
+      setAiError('Please configure your OpenRouter API Key in Settings to run AI Prep Guide reasoning.');
+      setTimeout(() => setAiError(null), 5000);
+      return;
+    }
+
+    setIsLlmRunning(true);
+    setAiActionLabel('Synthesizing Company DSA Challenges & System Design with OpenRouter LLM...');
+    setAiError(null);
+    try {
+      const res = await llmClient.generateAiInterviewMasterGuide(job, profile, key);
+      if (res.success && res.data) {
+        setMasterGuideData(res.data);
+        job.interviewMasterGuide = res.data;
+        store.updateJob(job.id, { interviewMasterGuide: res.data });
+        setSaveSuccessMsg(`Master Prep Guide synthesized via ${res.modelUsed || 'OpenRouter LLM'}!`);
+        setTimeout(() => setSaveSuccessMsg(''), 4000);
+      }
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
   const applyLink = job.applicationLink;
+  const companyCareerUrl = job.companyPageUrl || getCompanyCareerPortal(job.companyName, job.applicationLink);
   const cleanCompany = cleanFilenameSlug(job.companyName || 'Company');
   const cleanRole = cleanFilenameSlug(job.jobTitle || 'Role');
   const pdfFileName = `Narayana_Thota_${cleanRole}_${cleanCompany}.pdf`;
@@ -356,10 +462,17 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
               </div>
               <div className="flex items-center gap-2 truncate">
                 <h2 className="text-lg lg:text-xl font-black text-white tracking-tight truncate">{job.jobTitle}</h2>
-                <span className="text-sm font-semibold text-zinc-400 flex items-center gap-1 shrink-0">
-                  <Building className="w-3.5 h-3.5 text-zinc-500" />
-                  {job.companyName}
-                </span>
+                <a
+                  href={companyCareerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-semibold text-zinc-400 hover:text-white transition flex items-center gap-1 shrink-0 group"
+                  title={`Open ${job.companyName} Careers Portal`}
+                >
+                  <Building className="w-3.5 h-3.5 text-zinc-500 group-hover:text-emerald-400 transition" />
+                  <span className="group-hover:underline underline-offset-2">{job.companyName}</span>
+                  <ExternalLink className="w-3 h-3 opacity-50 group-hover:opacity-100 transition" />
+                </a>
               </div>
             </div>
           </div>
@@ -396,6 +509,21 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
             </div>
 
             <div className="flex items-center space-x-1 pl-2 border-l border-zinc-800">
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Are you sure you want to permanently delete "${job.jobTitle}" from your job feed?`)) {
+                    if (onDeleteJob) {
+                      onDeleteJob(job.id);
+                    }
+                    onClose();
+                  }
+                }}
+                className="p-2 rounded-full hover:bg-red-950 text-zinc-500 hover:text-red-400 transition"
+                title="Delete Job Posting"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
               <button
                 onClick={() => setIsMaximized(!isMaximized)}
                 className="p-2 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
@@ -531,23 +659,42 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
               </div>
             </div>
 
-            {/* Official Apply Link Button */}
-            {applyLink ? (
+            {/* Dual Link Actions: Direct Role Apply + Company Career Portal */}
+            <div className="space-y-2 shrink-0">
+              {applyLink ? (
+                <a
+                  href={applyLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-gradient-to-r from-white via-zinc-100 to-zinc-300 text-black font-extrabold text-xs transition hover:brightness-95 shadow shrink-0"
+                >
+                  <span>Open Job Application Link</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              ) : (
+                <a
+                  href={`https://www.google.com/search?q=${encodeURIComponent(`${job.companyName} ${job.jobTitle} apply online`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-xs border border-zinc-800 transition shrink-0"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Search Job Application Link</span>
+                </a>
+              )}
+
+              {/* Company Career Page Button */}
               <a
-                href={applyLink}
+                href={companyCareerUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-gradient-to-r from-white via-zinc-100 to-zinc-300 text-black font-extrabold text-xs transition hover:brightness-95 shadow shrink-0"
+                className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-[#18181b] hover:bg-[#202024] text-zinc-300 hover:text-white font-semibold text-xs border border-zinc-800 hover:border-zinc-700 transition shrink-0"
               >
-                <span>Open Application Portal</span>
-                <ExternalLink className="w-3.5 h-3.5" />
+                <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Visit {job.companyName} Career Portal</span>
+                <ExternalLink className="w-3 h-3 text-zinc-500" />
               </a>
-            ) : (
-              <div className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-zinc-900 text-zinc-500 font-bold text-xs border border-zinc-800 shrink-0">
-                <AlertCircle className="w-3.5 h-3.5" />
-                <span>Apply via Referral / LinkedIn</span>
-              </div>
-            )}
+            </div>
           </div>
 
           {/* ── RIGHT PANEL: Multi-Tab Deep Workspace (65% width) ── */}
@@ -561,6 +708,42 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <span>AI Match & Rubric</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('masterguide')}
+                className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
+                  activeTab === 'masterguide'
+                    ? 'border-amber-400 text-amber-400 font-extrabold'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+                <span>🚀 Master Prep Guide</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('outreach')}
+                className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
+                  activeTab === 'outreach'
+                    ? 'border-cyan-400 text-cyan-400 font-extrabold'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5 text-cyan-400" />
+                <span>📧 Cold Email & Cadence</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('webintel')}
+                className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
+                  activeTab === 'webintel'
+                    ? 'border-emerald-400 text-emerald-400 font-extrabold'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                <span>🌐 Web Intelligence</span>
               </button>
 
               <button
@@ -591,16 +774,6 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
               >
                 <UserCheck className="w-3.5 h-3.5" />
                 <span>Referrals ({job.referralContacts?.length || 6})</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('interview')}
-                className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
-                  activeTab === 'interview' ? 'border-amber-400 text-amber-400 font-extrabold' : 'border-transparent text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>AI Interview Prep</span>
               </button>
 
               <button
@@ -710,6 +883,83 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       </div>
                     </div>
                   </div>
+
+                  {/* RAG Candidate Knowledge Evidence & Domain Fit Card */}
+                  {(() => {
+                    const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 3 });
+                    const isDomainMismatch = ragContext.confidenceScore < 0.25;
+
+                    return (
+                      <div className={`p-5 rounded-[22px] border space-y-3 shadow-xl ${
+                        isDomainMismatch
+                          ? 'bg-amber-950/20 border-amber-800/60'
+                          : 'bg-emerald-950/20 border-emerald-800/60'
+                      }`}>
+                        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className={`p-1.5 rounded-lg border ${
+                              isDomainMismatch
+                                ? 'bg-amber-950 border-amber-700 text-amber-400'
+                                : 'bg-emerald-950 border-emerald-700 text-emerald-400'
+                            }`}>
+                              <Brain className="w-4 h-4" />
+                            </span>
+                            <div>
+                              <h4 className="text-xs font-black text-white flex items-center gap-2">
+                                <span>RAG Knowledge Vault Grounding</span>
+                                <span className={`text-[10px] font-mono px-2 py-0.2 rounded-full border font-bold ${
+                                  isDomainMismatch
+                                    ? 'bg-amber-950/80 text-amber-300 border-amber-800'
+                                    : 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+                                }`}>
+                                  {isDomainMismatch ? '⚠️ Domain Mismatch' : '✓ Verified Candidate Fit'}
+                                </span>
+                              </h4>
+                              <p className="text-[11px] text-zinc-400">
+                                {isDomainMismatch
+                                  ? 'Target job domain has low overlap with candidate software engineering vault.'
+                                  : 'Grounded by real candidate project case studies and STAR stories from vault.'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-right font-mono">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-bold">Vector Similarity</span>
+                            <span className={`text-base font-black ${
+                              isDomainMismatch ? 'text-amber-400' : 'text-emerald-400'
+                            }`}>
+                              {Math.round(ragContext.confidenceScore * 100)}%
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Retrieved Chunks Preview */}
+                        <div className="space-y-2 pt-1">
+                          <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-wider">
+                            Retrieved Evidence Sources ({ragContext.retrievedChunks.length}):
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {ragContext.retrievedChunks.map((res, rIdx) => (
+                              <div
+                                key={rIdx}
+                                className="p-2.5 bg-black/40 border border-zinc-800/80 rounded-xl text-[11px] space-y-1"
+                              >
+                                <div className="flex items-center justify-between font-bold text-white text-[11px]">
+                                  <span className="truncate">{res.chunk.documentTitle}</span>
+                                  <span className="text-[10px] text-emerald-400 font-mono">
+                                    {Math.round(res.similarityScore * 100)}%
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-zinc-400 line-clamp-2 italic font-mono">
+                                  "{res.contextSnippet}"
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -929,6 +1179,631 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* ── 🔥 2. MASTER PREP GUIDE TAB (DSA, SYSTEM DESIGN, CRAM SHEET, SALARY, CULTURE) ── */}
+              {activeTab === 'masterguide' && masterGuideData && (
+                <div className="space-y-5 animate-in fade-in-50 duration-200">
+                  {/* AI Regenerate Banner */}
+                  <div className="p-4 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[20px] flex flex-wrap items-center justify-between gap-4 shadow">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="p-1 rounded bg-amber-950/60 border border-amber-800/60 text-amber-400">
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </span>
+                        <h4 className="text-xs font-extrabold text-white">
+                          AI Master Prep Guide Generator (OpenRouter API)
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        Synthesizes company-specific DSA challenges, system design architectures, and 48-hr cram sheets using OpenRouter LLM.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleGenerateAiMasterGuide}
+                      disabled={isLlmRunning}
+                      className="px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                      <span>{isLlmRunning ? 'Synthesizing with AI...' : '⚡ AI Re-Generate Prep Guide'}</span>
+                    </button>
+                  </div>
+
+                  {/* Master Guide Sub-Nav Pills */}
+                  <div className="p-1.5 bg-[#121215] border border-zinc-800 rounded-2xl flex items-center gap-1 overflow-x-auto">
+                    {[
+                      { key: 'dsa', label: '💻 DSA & Coding Challenges', icon: Code },
+                      { key: 'systemdesign', label: '🏗️ System Design Blueprint', icon: Layers },
+                      { key: 'cramsheet', label: '⏱️ 48-Hour Cram Sheet', icon: Zap },
+                      { key: 'salary', label: '💰 Salary & Negotiation Levers', icon: DollarSign },
+                      { key: 'culture', label: '🚨 Culture & Red-Flag Audit', icon: ShieldAlert },
+                    ].map((st) => (
+                      <button
+                        key={st.key}
+                        onClick={() => setGuideSubTab(st.key as any)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
+                          guideSubTab === st.key
+                            ? 'bg-amber-500 text-black font-extrabold shadow-md'
+                            : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                        }`}
+                      >
+                        <span>{st.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* SUB-VIEW 1: DSA Challenges */}
+                  {guideSubTab === 'dsa' && (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-[#121215] border border-[#27272a] rounded-2xl flex items-center justify-between">
+                        <div>
+                          <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider">
+                            Company-Specific DSA & Machine Coding Challenges
+                          </h4>
+                          <p className="text-xs text-zinc-400 mt-0.5">
+                            Tailored coding rounds & data structures asked in {job.companyName} technical screens.
+                          </p>
+                        </div>
+                        <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                          {masterGuideData.dsaChallenges.length} Challenges Ready
+                        </span>
+                      </div>
+
+                      {masterGuideData.dsaChallenges.map((ch, idx) => (
+                        <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[22px] space-y-3.5 shadow-lg">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase ${
+                                  ch.difficulty === 'Easy' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                                  ch.difficulty === 'Medium' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
+                                  'bg-red-950 text-red-300 border border-red-800'
+                                }`}>
+                                  {ch.difficulty}
+                                </span>
+                                <span className="text-xs font-mono text-zinc-400">{ch.topic}</span>
+                              </div>
+                              <h3 className="text-sm font-extrabold text-white mt-1">{ch.title}</h3>
+                              <p className="text-[11px] font-mono text-amber-400 mt-0.5">🔥 {ch.companyFrequency}</p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(ch.starterCode, idx + 100)}
+                              className="text-xs font-bold px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center gap-1.5 transition shrink-0"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>{copiedIdx === idx + 100 ? 'Copied Code!' : 'Copy Starter Code'}</span>
+                            </button>
+                          </div>
+
+                          <p className="text-xs text-zinc-300 leading-relaxed font-sans bg-[#09090b] p-3.5 rounded-xl border border-zinc-800/80">
+                            {ch.problemStatement}
+                          </p>
+
+                          {/* Code Block */}
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
+                              Interactive Starter Template:
+                            </span>
+                            <pre className="p-4 bg-[#070709] border border-zinc-800/80 rounded-xl text-xs font-mono text-emerald-300 overflow-x-auto leading-relaxed">
+                              {ch.starterCode}
+                            </pre>
+                          </div>
+
+                          {/* Key Insights */}
+                          <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-1.5">
+                            <span className="text-[11px] font-mono font-bold text-zinc-300 uppercase">
+                              💡 Optimal Strategy & Complexity:
+                            </span>
+                            <div className="flex flex-wrap gap-3 text-xs font-mono text-zinc-400">
+                              <span><strong className="text-amber-400">Time:</strong> {ch.timeComplexity}</span>
+                              <span><strong className="text-amber-400">Space:</strong> {ch.spaceComplexity}</span>
+                            </div>
+                            <ul className="list-disc list-inside text-xs text-zinc-400 space-y-1 pt-1">
+                              {ch.keyInsights.map((insight, i) => (
+                                <li key={i}>{insight}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* SUB-VIEW 2: System Design Blueprint */}
+                  {guideSubTab === 'systemdesign' && (
+                    <div className="space-y-4">
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[22px] space-y-3 shadow-lg">
+                        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                          <div>
+                            <h4 className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider">
+                              Target Architecture Blueprint
+                            </h4>
+                            <h3 className="text-sm font-extrabold text-white mt-1">
+                              {masterGuideData.systemDesign.title}
+                            </h3>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(masterGuideData.systemDesign.mermaidDiagram)}
+                            className="text-xs font-bold px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center gap-1.5 transition shrink-0"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Copy Mermaid Syntax
+                          </button>
+                        </div>
+
+                        <p className="text-xs text-zinc-300 leading-relaxed font-sans">
+                          {masterGuideData.systemDesign.architectureSummary}
+                        </p>
+
+                        {/* Architecture Flow Diagram */}
+                        <div className="p-4 bg-[#070709] border border-zinc-800/80 rounded-xl space-y-2">
+                          <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
+                            System Flow Diagram:
+                          </span>
+                          <pre className="text-xs font-mono text-cyan-300 overflow-x-auto leading-relaxed p-2">
+                            {masterGuideData.systemDesign.mermaidDiagram}
+                          </pre>
+                        </div>
+
+                        {/* Key Architectural Components */}
+                        <div className="space-y-2 pt-2">
+                          <h5 className="text-xs font-mono font-bold text-zinc-300 uppercase">
+                            Key Architectural Components:
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {masterGuideData.systemDesign.keyComponents.map((comp, i) => (
+                              <div key={i} className="p-3 bg-[#09090b] border border-zinc-800/80 rounded-xl text-xs text-zinc-300 font-mono">
+                                • {comp}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Resume Project Mapping */}
+                        <div className="p-4 bg-emerald-950/40 border border-emerald-800/60 rounded-xl space-y-1">
+                          <span className="text-xs font-mono font-bold text-emerald-400 uppercase flex items-center gap-1.5">
+                            <Award className="w-3.5 h-3.5" /> Candidate Project Talking Point:
+                          </span>
+                          <p className="text-xs text-emerald-200 font-sans leading-relaxed">
+                            {masterGuideData.systemDesign.candidateProjectMapping}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUB-VIEW 3: 48-Hour Cram Sheet */}
+                  {guideSubTab === 'cramsheet' && (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-gradient-to-r from-amber-950/40 via-zinc-900 to-amber-950/40 border border-amber-800/60 rounded-2xl flex items-center justify-between">
+                        <div>
+                          <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider">
+                            48-Hour Skill Gap Crash Course
+                          </h4>
+                          <p className="text-xs text-zinc-300 mt-0.5">
+                            Condensed concepts and interview talking points to bridge all detected requirements.
+                          </p>
+                        </div>
+                        <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-amber-500 text-black">
+                          {masterGuideData.skillGapCramSheet.crashCourseModules.length} Skill Modules
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {masterGuideData.skillGapCramSheet.crashCourseModules.map((mod, i) => (
+                          <div key={i} className="p-4 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2.5 shadow">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                                {mod.skill}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-500">Module #{i + 1}</span>
+                            </div>
+
+                            <p className="text-xs font-bold text-white leading-relaxed">
+                              {mod.oneLinerConcept}
+                            </p>
+
+                            <pre className="p-2.5 bg-[#09090b] border border-zinc-800 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto">
+                              {mod.essentialCodeSnippet}
+                            </pre>
+
+                            <div className="p-2.5 bg-red-950/30 border border-red-800/40 rounded-lg text-[11px] text-red-300 font-mono">
+                              ⚠️ <strong>Pitfall:</strong> {mod.commonInterviewPitfall}
+                            </div>
+
+                            <div className="p-2.5 bg-emerald-950/30 border border-emerald-800/40 rounded-lg text-[11px] text-emerald-300 font-mono">
+                              💡 <strong>Say this:</strong> {mod.winningTalkingPoint}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUB-VIEW 4: Salary & Negotiation Levers */}
+                  {guideSubTab === 'salary' && (
+                    <div className="space-y-4">
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[22px] space-y-4 shadow-lg">
+                        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                          <div>
+                            <span className="text-[10px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
+                              CTC Market Intelligence
+                            </span>
+                            <h3 className="text-sm font-extrabold text-white mt-0.5">
+                              {masterGuideData.salaryBenchmark.tierClassification}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-3 py-1 bg-emerald-950 text-emerald-300 border border-emerald-800 rounded-full text-xs font-mono font-black">
+                              {masterGuideData.salaryBenchmark.minLpa} – {masterGuideData.salaryBenchmark.maxLpa}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Negotiation Leverage Points */}
+                        <div className="space-y-2">
+                          <h5 className="text-xs font-mono font-bold text-zinc-300 uppercase">
+                            Your Negotiation Leverage Points:
+                          </h5>
+                          <div className="space-y-1.5">
+                            {masterGuideData.salaryBenchmark.leveragePoints.map((pt, i) => (
+                              <div key={i} className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl text-xs text-zinc-300 flex items-start gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                                <span>{pt}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Negotiation Scripts */}
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-center justify-between">
+                            <h5 className="text-xs font-mono font-bold text-amber-400 uppercase">
+                              Verbal Negotiation Counter-Offer Script:
+                            </h5>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(masterGuideData.salaryBenchmark.negotiationScript)}
+                              className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition"
+                            >
+                              <Copy className="w-3 h-3" /> Copy Script
+                            </button>
+                          </div>
+                          <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono leading-relaxed">
+                            {masterGuideData.salaryBenchmark.negotiationScript}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2">
+                            <h5 className="text-xs font-mono font-bold text-cyan-400 uppercase">
+                              Written Counter-Offer Email Template:
+                            </h5>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(masterGuideData.salaryBenchmark.counterOfferTemplate)}
+                              className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition"
+                            >
+                              <Copy className="w-3 h-3" /> Copy Email Template
+                            </button>
+                          </div>
+                          <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono whitespace-pre-wrap leading-relaxed">
+                            {masterGuideData.salaryBenchmark.counterOfferTemplate}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUB-VIEW 5: Culture & Red-Flag Audit */}
+                  {guideSubTab === 'culture' && (
+                    <div className="space-y-4">
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[22px] space-y-4 shadow-lg">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1 text-center">
+                            <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase">Work-Life Balance</span>
+                            <div className="text-xl font-black text-emerald-400 font-mono">
+                              ★ {masterGuideData.companyCultureAudit.workLifeBalanceScore} / 10
+                            </div>
+                          </div>
+                          <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1 text-center">
+                            <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase">Tech Modernity</span>
+                            <div className="text-xl font-black text-cyan-400 font-mono">
+                              ★ {masterGuideData.companyCultureAudit.techStackModernityScore} / 10
+                            </div>
+                          </div>
+                          <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1 text-center">
+                            <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase">Layoff Risk Indicator</span>
+                            <div className="text-xl font-black text-emerald-400 font-mono">
+                              {masterGuideData.companyCultureAudit.layOffRisk}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Green Flags & Red Flags */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                          <div className="p-4 bg-emerald-950/20 border border-emerald-800/40 rounded-xl space-y-2">
+                            <h5 className="text-xs font-mono font-bold text-emerald-400 uppercase flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Verified Green Flags
+                            </h5>
+                            <ul className="text-xs text-emerald-200 space-y-1.5 font-sans">
+                              {masterGuideData.companyCultureAudit.greenFlags.map((flag, i) => (
+                                <li key={i}>• {flag}</li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div className="p-4 bg-amber-950/20 border border-amber-800/40 rounded-xl space-y-2">
+                            <h5 className="text-xs font-mono font-bold text-amber-400 uppercase flex items-center gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5" /> Watch Out / Questions to Ask
+                            </h5>
+                            <ul className="text-xs text-amber-200 space-y-1.5 font-sans">
+                              {masterGuideData.companyCultureAudit.redFlags.map((flag, i) => (
+                                <li key={i}>• {flag}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {/* Insider Advice */}
+                        <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl space-y-1">
+                          <span className="text-xs font-mono font-bold text-zinc-300 uppercase">
+                            💡 Insider Interview Format Advice:
+                          </span>
+                          <p className="text-xs text-zinc-300 font-sans leading-relaxed">
+                            {masterGuideData.companyCultureAudit.insiderAdvice}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── 🔥 3. COLD EMAIL & 3-STEP CADENCE TAB ── */}
+              {activeTab === 'outreach' && outreachData && (
+                <div className="space-y-5 animate-in fade-in-50 duration-200">
+                  {/* AI Regenerate Banner */}
+                  <div className="p-4 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[20px] flex flex-wrap items-center justify-between gap-4 shadow">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="p-1 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-400">
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </span>
+                        <h4 className="text-xs font-extrabold text-white">
+                          AI Outreach & Follow-Up Sequence Generator (OpenRouter API)
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        Drafts high-converting 3-step cadence emails and LinkedIn InMails tailored to hiring managers using OpenRouter LLM.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleGenerateAiOutreach}
+                      disabled={isLlmRunning}
+                      className="px-4 py-2 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                      <span>{isLlmRunning ? 'Synthesizing with AI...' : '⚡ AI Re-Generate Cadence'}</span>
+                    </button>
+                  </div>
+
+                  {/* Corporate Email Predictor Header */}
+                  <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] space-y-3 shadow-xl">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="p-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800/60 text-cyan-400">
+                          <Mail className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-extrabold text-white">Corporate Email Hunter & Pattern Predictor</h3>
+                          <p className="text-xs text-zinc-400">Estimated Domain: @{outreachData.companyDomain}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">
+                        {outreachData.emailPatterns.length} Patterns Found
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                      {outreachData.emailPatterns.map((pat, i) => (
+                        <div key={i} className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono font-bold text-zinc-400">{pat.pattern}</span>
+                            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                              pat.confidence === 'High' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-zinc-800 text-zinc-400'
+                            }`}>
+                              {pat.confidence}
+                            </span>
+                          </div>
+                          <p className="text-xs font-mono font-bold text-white truncate">{pat.example}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 3-Step Cadence Sequence */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-cyan-400" /> Automated 3-Step Outreach Cadence Sequence
+                    </h4>
+
+                    {outreachData.cadenceSequence.map((step, idx) => (
+                      <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow-lg">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-extrabold px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">
+                              Step #{step.stepNumber}
+                            </span>
+                            <h4 className="text-xs font-bold text-white">{step.dayLabel}</h4>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-zinc-500">{step.triggerCondition}</span>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(`Subject: ${step.subject}\n\n${step.body}`, idx + 300)}
+                              className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow shrink-0"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>{copiedIdx === idx + 300 ? 'Copied!' : 'Copy Step'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-mono font-bold text-zinc-400">Subject: {step.subject}</span>
+                          <textarea
+                            readOnly
+                            value={step.body}
+                            className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* LinkedIn InMail & Connection Pitch */}
+                  <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3">
+                    <h4 className="text-xs font-mono font-bold text-[#0a66c2] uppercase tracking-wider flex items-center gap-1.5">
+                      <Linkedin className="w-4 h-4" /> LinkedIn Direct Pitches & InMail
+                    </h4>
+
+                    <div className="space-y-3">
+                      <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-mono font-bold text-zinc-300">
+                            300-Char Connection Note (Max Acceptance Rate):
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(outreachData.linkedInNotes.connectionRequestNote300Char)}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                          >
+                            Copy Note
+                          </button>
+                        </div>
+                        <p className="text-xs font-mono text-zinc-400">{outreachData.linkedInNotes.connectionRequestNote300Char}</p>
+                      </div>
+
+                      <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-mono font-bold text-zinc-300">
+                            Recruiter Direct Pitch (InMail):
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(outreachData.linkedInNotes.recruiterDirectPitch)}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                          >
+                            Copy InMail
+                          </button>
+                        </div>
+                        <p className="text-xs font-mono text-zinc-400">{outreachData.linkedInNotes.recruiterDirectPitch}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── 🔥 4. LIVE WEB INTELLIGENCE AGENT TAB ── */}
+              {activeTab === 'webintel' && (
+                <div className="space-y-5 animate-in fade-in-50 duration-200">
+                  <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex flex-wrap items-center justify-between gap-4 shadow-xl">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="p-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400">
+                          <Globe className="w-4 h-4" />
+                        </span>
+                        <h3 className="text-sm font-extrabold text-white">Live Web Scraping & Grounding Agent</h3>
+                      </div>
+                      <p className="text-xs text-zinc-400">
+                        Scrapes {job.companyName} official careers portal and engineering pages to verify live hiring state.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleRunLiveScraper}
+                      disabled={isScrapingLive}
+                      className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isScrapingLive ? 'animate-spin' : ''}`} />
+                      <span>{isScrapingLive ? 'Scraping Live Web...' : '⚡ Run Live Web Audit'}</span>
+                    </button>
+                  </div>
+
+                  {webIntelData ? (
+                    <div className="space-y-4">
+                      {/* Live Status Overview */}
+                      <div className="p-4 bg-[#121215] border border-[#27272a] rounded-2xl flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-xs font-mono font-bold text-white">
+                            {webIntelData.isVerifiedLive ? 'Portal Verified Live' : 'Verified Engineering Standards'}
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-mono text-zinc-500">
+                          Last Scraped: {new Date(webIntelData.scrapedAt).toLocaleTimeString()}
+                        </span>
+                      </div>
+
+                      {/* Verified Tech Stack Tags */}
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2.5">
+                        <h4 className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Verified Active Tech Stack (From Live HTML)
+                        </h4>
+                        <div className="flex flex-wrap gap-1.5">
+                          {webIntelData.verifiedTechStack.map((tech, i) => (
+                            <span key={i} className="px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs font-mono font-bold">
+                              {tech}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Live Sources & Citations */}
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3">
+                        <h4 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <ExternalLink className="w-3.5 h-3.5 text-zinc-400" /> Scraped Sources & Citations
+                        </h4>
+                        <div className="space-y-2">
+                          {webIntelData.liveSources.map((src, i) => (
+                            <div key={i} className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1">
+                              <a href={src.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-cyan-400 hover:underline flex items-center gap-1">
+                                {src.title} <ExternalLink className="w-3 h-3" />
+                              </a>
+                              <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">{src.snippet}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Reported Questions from Web */}
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2.5">
+                        <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider">
+                          🔥 Top Technical Questions Reported from {job.companyName} Rounds
+                        </h4>
+                        <div className="space-y-1.5">
+                          {webIntelData.interviewQuestionsFromWeb.map((q, i) => (
+                            <div key={i} className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono">
+                              • {q}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-8 bg-[#121215] border border-dashed border-zinc-800 rounded-2xl text-center space-y-3">
+                      <Globe className="w-8 h-8 text-zinc-600 mx-auto" />
+                      <p className="text-xs text-zinc-400">Click &quot;Run Live Web Audit&quot; above to scrape {job.companyName}&apos;s career portal in real-time.</p>
+                    </div>
+                  )}
                 </div>
               )}
 

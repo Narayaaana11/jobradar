@@ -2,16 +2,19 @@ import React, { useState } from 'react';
 import { IJob } from '../../app-core/types';
 import { ScoreBadge } from './ScoreBadge';
 import { StatusBadge } from './StatusBadge';
-import { Building, MapPin, ArrowRight, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Building, MapPin, ArrowRight, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Trash2, CheckSquare, Square } from 'lucide-react';
 
 interface JobTableProps {
   jobs: IJob[];
   onSelectJob: (job: IJob) => void;
+  onDeleteJob?: (jobId: string) => void;
+  onDeleteMultipleJobs?: (jobIds: string[]) => void;
 }
 
-export function JobTable({ jobs, onSelectJob }: JobTableProps) {
+export function JobTable({ jobs, onSelectJob, onDeleteJob, onDeleteMultipleJobs }: JobTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(10);
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
 
   if (jobs.length === 0) {
     return (
@@ -30,80 +33,205 @@ export function JobTable({ jobs, onSelectJob }: JobTableProps) {
   const startIndex = (validPage - 1) * pageSize;
   const paginatedJobs = jobs.slice(startIndex, startIndex + pageSize);
 
+  const toggleSelectJob = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllPage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const allPageIds = paginatedJobs.map((j) => j.id);
+    const allSelected = allPageIds.every((id) => selectedJobIds.has(id));
+
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allPageIds.forEach((id) => next.delete(id));
+      } else {
+        allPageIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteSingle = (id: string, jobTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Are you sure you want to delete "${jobTitle}" from your job feed?`)) {
+      if (onDeleteJob) {
+        onDeleteJob(id);
+      }
+      setSelectedJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    const ids = Array.from(selectedJobIds);
+    if (ids.length === 0) return;
+    if (confirm(`Are you sure you want to delete ${ids.length} selected job posting(s)?`)) {
+      if (onDeleteMultipleJobs) {
+        onDeleteMultipleJobs(ids);
+      } else if (onDeleteJob) {
+        ids.forEach((id) => onDeleteJob(id));
+      }
+      setSelectedJobIds(new Set());
+    }
+  };
+
+  const allOnPageSelected = paginatedJobs.length > 0 && paginatedJobs.every((j) => selectedJobIds.has(j.id));
+
   return (
-    <div className="bg-[#121215] border border-[#27272a] rounded-[22px] overflow-hidden shadow-2xl flex flex-col">
+    <div className="bg-[#121215] border border-[#27272a] rounded-[22px] overflow-hidden shadow-2xl flex flex-col space-y-0">
+      {/* Batch Actions Bar (when 1 or more jobs selected) */}
+      {selectedJobIds.size > 0 && (
+        <div className="bg-red-950/40 border-b border-red-900/60 px-6 py-3 flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center space-x-2 text-xs font-mono text-red-300 font-bold">
+            <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+            <span>{selectedJobIds.size} job(s) selected</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setSelectedJobIds(new Set())}
+              className="px-3 py-1 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-bold transition border border-zinc-800"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteSelected}
+              className="flex items-center space-x-1.5 px-4 py-1 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-black transition shadow-lg"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedJobIds.size})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-[#27272a] bg-[#18181b] text-[11px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
-              <th className="py-4 px-6 min-w-[240px]">Role & Target Company</th>
-              <th className="py-4 px-6 min-w-[150px]">Location</th>
-              <th className="py-4 px-6 min-w-[150px] whitespace-nowrap">Fit & Rubric Rating</th>
-              <th className="py-4 px-6 min-w-[140px] whitespace-nowrap">Stage</th>
-              <th className="py-4 px-6 min-w-[140px] whitespace-nowrap">Human Approval</th>
-              <th className="py-4 px-6 text-right min-w-[120px]">Inspect</th>
+              <th className="py-4 px-4 w-10 text-center">
+                <button
+                  type="button"
+                  onClick={toggleSelectAllPage}
+                  className="text-zinc-500 hover:text-white transition"
+                  title="Select all on this page"
+                >
+                  {allOnPageSelected ? (
+                    <CheckSquare className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <Square className="w-4 h-4 text-zinc-600" />
+                  )}
+                </button>
+              </th>
+              <th className="py-4 px-4 min-w-[240px]">Role & Target Company</th>
+              <th className="py-4 px-4 min-w-[140px]">Location</th>
+              <th className="py-4 px-4 min-w-[140px] whitespace-nowrap">Fit & Rubric Rating</th>
+              <th className="py-4 px-4 min-w-[130px] whitespace-nowrap">Stage</th>
+              <th className="py-4 px-4 min-w-[130px] whitespace-nowrap">Human Approval</th>
+              <th className="py-4 px-6 text-right min-w-[160px]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-900/80 text-sm">
-            {paginatedJobs.map((job) => (
-              <tr
-                key={job.id}
-                onClick={() => onSelectJob(job)}
-                className="hover:bg-[#1a1a1e] cursor-pointer transition group"
-              >
-                {/* Role & Company */}
-                <td className="py-5 px-6">
-                  <div className="font-extrabold text-white text-base group-hover:text-zinc-200 transition">
-                    {job.jobTitle}
-                  </div>
-                  <div className="text-xs text-zinc-400 flex items-center space-x-1.5 mt-1 font-medium">
-                    <Building className="w-3.5 h-3.5 text-zinc-500" />
-                    <span>{job.companyName}</span>
-                    {job.ctcRange && (
-                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 ml-2">
-                        {job.ctcRange}
+            {paginatedJobs.map((job) => {
+              const isSelected = selectedJobIds.has(job.id);
+
+              return (
+                <tr
+                  key={job.id}
+                  onClick={() => onSelectJob(job)}
+                  className={`hover:bg-[#1a1a1e] cursor-pointer transition group ${
+                    isSelected ? 'bg-red-950/10' : ''
+                  }`}
+                >
+                  {/* Selection Checkbox */}
+                  <td className="py-5 px-4 text-center" onClick={(e) => toggleSelectJob(job.id, e)}>
+                    <button type="button" className="text-zinc-500 hover:text-white transition">
+                      {isSelected ? (
+                        <CheckSquare className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Square className="w-4 h-4 text-zinc-700 group-hover:text-zinc-400" />
+                      )}
+                    </button>
+                  </td>
+
+                  {/* Role & Company */}
+                  <td className="py-5 px-4">
+                    <div className="font-extrabold text-white text-base group-hover:text-zinc-200 transition">
+                      {job.jobTitle}
+                    </div>
+                    <div className="text-xs text-zinc-400 flex items-center space-x-1.5 mt-1 font-medium">
+                      <Building className="w-3.5 h-3.5 text-zinc-500" />
+                      <span>{job.companyName}</span>
+                      {job.ctcRange && (
+                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 ml-2">
+                          {job.ctcRange}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Location */}
+                  <td className="py-5 px-4 text-zinc-300">
+                    <div className="flex items-center space-x-1.5 text-xs font-medium text-zinc-400">
+                      <MapPin className="w-3.5 h-3.5 text-zinc-500" />
+                      <span>{job.location || 'Remote / Pan India'}</span>
+                    </div>
+                  </td>
+
+                  {/* Fit Score & 5-tier Rubric */}
+                  <td className="py-5 px-4 whitespace-nowrap">
+                    <div className="flex items-center space-x-2">
+                      <ScoreBadge score={job.matchScore || 0} />
+                      <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-900/40">
+                        ⭐ {job.rubricScores?.overallRubricRating || '4.0'}
                       </span>
-                    )}
-                  </div>
-                </td>
+                    </div>
+                  </td>
 
-                {/* Location */}
-                <td className="py-5 px-6 text-zinc-300">
-                  <div className="flex items-center space-x-1.5 text-xs font-medium text-zinc-400">
-                    <MapPin className="w-3.5 h-3.5 text-zinc-500" />
-                    <span>{job.location || 'Remote / Pan India'}</span>
-                  </div>
-                </td>
+                  {/* Stage */}
+                  <td className="py-5 px-4 whitespace-nowrap">
+                    <StatusBadge type="application" status={job.applicationStatus || job.stage} />
+                  </td>
 
-                {/* Fit Score & 5-tier Rubric */}
-                <td className="py-5 px-6 whitespace-nowrap">
-                  <div className="flex items-center space-x-2">
-                    <ScoreBadge score={job.matchScore || 0} />
-                    <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-900/40">
-                      ⭐ {job.rubricScores?.overallRubricRating || '4.0'}
-                    </span>
-                  </div>
-                </td>
+                  {/* Approval */}
+                  <td className="py-5 px-4 whitespace-nowrap">
+                    <StatusBadge type="approval" status={job.approvalStatus} />
+                  </td>
 
-                {/* Stage */}
-                <td className="py-5 px-6 whitespace-nowrap">
-                  <StatusBadge type="application" status={job.applicationStatus || job.stage} />
-                </td>
+                  {/* Action Buttons: Inspect + Delete */}
+                  <td className="py-5 px-6 text-right whitespace-nowrap">
+                    <div className="flex items-center justify-end space-x-2">
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteSingle(job.id, job.jobTitle, e)}
+                        className="p-1.5 rounded-full bg-zinc-900/80 hover:bg-red-950 text-zinc-500 hover:text-red-400 border border-zinc-800 hover:border-red-800/60 transition shadow-sm"
+                        title="Delete this job posting"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
 
-                {/* Approval */}
-                <td className="py-5 px-6 whitespace-nowrap">
-                  <StatusBadge type="approval" status={job.approvalStatus} />
-                </td>
-
-                {/* Action button */}
-                <td className="py-5 px-6 text-right whitespace-nowrap">
-                  <span className="inline-flex items-center space-x-1 text-xs font-bold px-3.5 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 group-hover:bg-white group-hover:text-black transition shadow-sm">
-                    <span>Inspect</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </span>
-                </td>
-              </tr>
-            ))}
+                      <span className="inline-flex items-center space-x-1 text-xs font-bold px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 group-hover:bg-white group-hover:text-black transition shadow-sm">
+                        <span>Inspect</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -140,3 +268,4 @@ export function JobTable({ jobs, onSelectJob }: JobTableProps) {
     </div>
   );
 }
+

@@ -22,6 +22,8 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
   const [saveMsg, setSaveMsg] = useState('');
   const [activeTab, setActiveTab] = useState<'profile' | 'latex' | 's3' | 'api' | 'backup'>('profile');
   const [s3Syncing, setS3Syncing] = useState(false);
+  const [testingS3, setTestingS3] = useState(false);
+  const [s3TestResult, setS3TestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [testingApiKey, setTestingApiKey] = useState(false);
   const [envPasteModal, setEnvPasteModal] = useState(false);
   const [rawEnvText, setRawEnvText] = useState('');
@@ -96,10 +98,23 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
     setTimeout(() => setSaveMsg(''), 3000);
   };
 
+  const handleTestS3Connection = async () => {
+    setTestingS3(true);
+    setS3TestResult(null);
+    try {
+      const res = await s3Cloud.testConnection(s3Config);
+      setS3TestResult(res);
+    } catch (err: any) {
+      setS3TestResult({ success: false, message: `Error: ${err.message}` });
+    } finally {
+      setTestingS3(false);
+    }
+  };
+
   const handleSaveS3Config = (e: React.FormEvent) => {
     e.preventDefault();
     s3Cloud.saveConfig(s3Config);
-    setSaveMsg('AWS S3 credentials and sync settings saved!');
+    setSaveMsg(`AWS S3 bucket '${s3Config.bucket}' and credentials saved!`);
     setTimeout(() => setSaveMsg(''), 3000);
   };
 
@@ -546,7 +561,42 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
                 </label>
               </div>
 
-              <div className="flex justify-end pt-2">
+              {/* Test S3 Connection Result Alert */}
+              {s3TestResult && (
+                <div className={`p-3.5 rounded-xl border text-xs font-mono flex items-center justify-between gap-3 animate-in fade-in ${
+                  s3TestResult.success
+                    ? 'bg-emerald-950/70 border-emerald-800/80 text-emerald-300'
+                    : 'bg-red-950/70 border-red-800/80 text-red-300'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {s3TestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    )}
+                    <span>{s3TestResult.message}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setS3TestResult(null)}
+                    className="text-zinc-400 hover:text-white"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={handleTestS3Connection}
+                  disabled={testingS3}
+                  className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-200 hover:text-white hover:bg-zinc-800 text-xs font-bold transition disabled:opacity-50"
+                >
+                  <ShieldCheck className={`w-4 h-4 text-cyan-400 ${testingS3 ? 'animate-spin' : ''}`} />
+                  <span>{testingS3 ? 'Testing AWS Bucket...' : '🧪 Test S3 Connection'}</span>
+                </button>
+
                 <button
                   type="submit"
                   className="flex items-center space-x-2 px-6 py-2.5 rounded-full bg-white text-black font-extrabold text-xs hover:bg-zinc-200 transition shadow-lg"

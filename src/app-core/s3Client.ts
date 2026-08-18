@@ -39,7 +39,15 @@ class S3CloudService {
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem(S3_CONFIG_KEY);
         if (stored) {
-          this.config = { ...defaultS3Config, ...JSON.parse(stored) };
+          const parsed = JSON.parse(stored);
+          this.config = {
+            ...defaultS3Config,
+            ...parsed,
+            accessKeyId: parsed.accessKeyId || defaultS3Config.accessKeyId,
+            secretAccessKey: parsed.secretAccessKey || defaultS3Config.secretAccessKey,
+            bucket: parsed.bucket || defaultS3Config.bucket,
+            autoSync: parsed.autoSync !== undefined ? parsed.autoSync : true,
+          };
         } else {
           this.config = defaultS3Config;
           localStorage.setItem(S3_CONFIG_KEY, JSON.stringify(defaultS3Config));
@@ -144,10 +152,16 @@ class S3CloudService {
   }
 
   /**
-   * Syncs all JobRadar data (jobs, queue, profile, master resume, and full archive) to S3.
+   * Syncs all JobRadar data (jobs, queue, profile, master resume, watchlist, and full archive) to S3.
    * Utilizes Electron native bridge for Zero-CORS reliability.
    */
-  public async syncAllToS3(jobs: IJob[], queue: IRawQueueItem[], profile: IProfile, masterResume: string): Promise<boolean> {
+  public async syncAllToS3(
+    jobs: IJob[],
+    queue: IRawQueueItem[],
+    profile: IProfile,
+    masterResume: string,
+    careerWatchlist?: any[]
+  ): Promise<boolean> {
     this.setStatus('syncing');
     try {
       const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
@@ -159,6 +173,7 @@ class S3CloudService {
           queue,
           profile,
           masterResume,
+          careerWatchlist: careerWatchlist || [],
         });
 
         if (!res.success) {
@@ -220,6 +235,60 @@ class S3CloudService {
       console.error('[S3Sync] Error syncing data to S3:', errMsg);
       this.setStatus('error', errMsg);
       return false;
+    }
+  }
+
+  /**
+   * Tests connection and write permissions to an AWS S3 bucket.
+   * Enables SaaS users to test their own custom bucket name and credentials in 1 click.
+   */
+  public async testConnection(customConfig?: Partial<IS3Config>): Promise<{ success: boolean; message: string }> {
+    const configToTest: IS3Config = { ...this.config, ...customConfig };
+    if (!configToTest.bucket || !configToTest.accessKeyId || !configToTest.secretAccessKey) {
+      return { success: false, message: 'Please enter Bucket Name, Access Key ID, and Secret Access Key.' };
+    }
+
+    try {
+      const payload = {
+        test: true,
+        timestamp: new Date().toISOString(),
+        testedBucket: configToTest.bucket,
+        app: 'JobRadar SaaS Engine',
+      };
+
+      const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
+      if (electronApi?.s3PutObject) {
+        const res = await electronApi.s3PutObject({
+          config: configToTest,
+          key: 'data/connection_test.json',
+          body: JSON.stringify(payload, null, 2),
+          contentType: 'application/json',
+        });
+        if (res.success) {
+          return { success: true, message: `Successfully connected and verified write permissions for S3 bucket '${configToTest.bucket}'!` };
+        }
+        return { success: false, message: res.error || 'Connection failed.' };
+      }
+
+      const tempClient = new S3Client({
+        region: configToTest.region || 'us-east-1',
+        credentials: {
+          accessKeyId: configToTest.accessKeyId,
+          secretAccessKey: configToTest.secretAccessKey,
+        },
+      });
+
+      const command = new PutObjectCommand({
+        Bucket: configToTest.bucket,
+        Key: 'data/connection_test.json',
+        Body: new TextEncoder().encode(JSON.stringify(payload, null, 2)),
+        ContentType: 'application/json',
+      });
+
+      await tempClient.send(command);
+      return { success: true, message: `Successfully connected and verified write permissions for S3 bucket '${configToTest.bucket}'!` };
+    } catch (err: any) {
+      return { success: false, message: `S3 Error: ${err.message}` };
     }
   }
 

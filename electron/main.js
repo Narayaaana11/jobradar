@@ -917,6 +917,41 @@ ipcMain.handle('call-llm-api', async (_event, { endpoint, headers, body, method 
   }
 });
 
+// IPC Handler: Native Zero-CORS Live Web Page Scraping Fetcher
+ipcMain.handle('fetch-web-page', async (_event, { url }) => {
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+      },
+    });
+
+    if (!res.ok) {
+      return {
+        success: false,
+        status: res.status,
+        error: `HTTP ${res.status}: Failed to fetch web page from ${url}`,
+      };
+    }
+
+    const html = await res.text();
+    return {
+      success: true,
+      status: res.status,
+      data: html,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message || 'Native web page fetch failed',
+    };
+  }
+});
+
 // IPC Handler: Native Zero-CORS S3 PutObject
 ipcMain.handle('s3-put-object', async (_event, { config, key, body, contentType }) => {
   try {
@@ -951,7 +986,7 @@ ipcMain.handle('s3-put-object', async (_event, { config, key, body, contentType 
 });
 
 // IPC Handler: Native Zero-CORS S3 Sync All
-ipcMain.handle('s3-sync-all', async (_event, { config, jobs, queue, profile, masterResume }) => {
+ipcMain.handle('s3-sync-all', async (_event, { config, jobs, queue, profile, masterResume, careerWatchlist }) => {
   try {
     const client = new S3Client({
       region: config.region || 'us-east-1',
@@ -992,12 +1027,23 @@ ipcMain.handle('s3-sync-all', async (_event, { config, jobs, queue, profile, mas
       ContentType: 'text/markdown',
     }));
 
-    // 4. data/backup_latest.json
+    // 4. data/career_watchlist.json
+    if (careerWatchlist) {
+      await client.send(new PutObjectCommand({
+        Bucket: config.bucket,
+        Key: 'data/career_watchlist.json',
+        Body: Buffer.from(JSON.stringify(careerWatchlist, null, 2), 'utf-8'),
+        ContentType: 'application/json',
+      }));
+    }
+
+    // 5. data/backup_latest.json
     const backupPayload = {
       jobs,
       queue,
       profile,
       masterResume,
+      careerWatchlist: careerWatchlist || [],
       syncedAt: new Date().toISOString(),
     };
     await client.send(new PutObjectCommand({

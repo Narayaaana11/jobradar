@@ -12,6 +12,8 @@ import { AnalyticsView } from './components/AnalyticsView';
 import { SettingsView } from './components/SettingsView';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { RadarWatcherDashboard } from './components/RadarWatcherDashboard';
+import { RagVaultView } from './components/RagVaultView';
+import { CareerSitesView } from './components/CareerSitesView';
 import { Search, List, LayoutGrid, MessageSquare, RefreshCw, Sparkles, Filter } from 'lucide-react';
 
 export default function App() {
@@ -19,7 +21,7 @@ export default function App() {
   const [profile, setProfile] = useState<IProfile>(store.getProfile());
   const [stats, setStats] = useState<IStats>(store.getStats());
 
-  const [currentTab, setCurrentTab] = useState<'feed' | 'watcher' | 'queue' | 'analytics' | 'settings'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'watcher' | 'careers' | 'rag' | 'queue' | 'analytics' | 'settings'>('feed');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [selectedJob, setSelectedJob] = useState<IJob | null>(null);
   const [isIngestModalOpen, setIsIngestModalOpen] = useState(false);
@@ -75,6 +77,24 @@ export default function App() {
       setSelectedJob(updated);
     }
   };
+
+  const handleDeleteJob = useCallback((jobId: string) => {
+    store.deleteJob(jobId);
+    setJobs(store.getJobs());
+    setStats(store.getStats());
+    if (selectedJob?.id === jobId) {
+      setSelectedJob(null);
+    }
+  }, [selectedJob]);
+
+  const handleDeleteMultipleJobs = useCallback((jobIds: string[]) => {
+    jobIds.forEach((id) => store.deleteJob(id));
+    setJobs(store.getJobs());
+    setStats(store.getStats());
+    if (selectedJob && jobIds.includes(selectedJob.id)) {
+      setSelectedJob(null);
+    }
+  }, [selectedJob]);
 
   // Filtered jobs list
   const filteredJobs = useMemo(() => {
@@ -194,13 +214,19 @@ export default function App() {
 
             {/* Main Feed Content View */}
             {viewMode === 'table' ? (
-              <JobTable jobs={filteredJobs} onSelectJob={(j) => setSelectedJob(j)} />
+              <JobTable
+                jobs={filteredJobs}
+                onSelectJob={(j) => setSelectedJob(j)}
+                onDeleteJob={handleDeleteJob}
+                onDeleteMultipleJobs={handleDeleteMultipleJobs}
+              />
             ) : (
               <KanbanBoard
                 jobs={filteredJobs}
                 onSelectJob={(j) => setSelectedJob(j)}
                 onUpdateApproval={handleUpdateApproval}
                 onUpdateApplication={handleUpdateApplication}
+                onDeleteJob={handleDeleteJob}
               />
             )}
           </div>
@@ -222,7 +248,33 @@ export default function App() {
           </div>
         )}
 
-        {/* ── 3. PIPELINE & QUEUE HEALTH TAB ── */}
+        {/* ── 3. TARGET CAREER SITES & MULTI-PORTAL CRAWLER TAB ── */}
+        {currentTab === 'careers' && (
+          <div className="animate-in fade-in-50 duration-200">
+            <CareerSitesView
+              profile={profile}
+              onOpenJob={(jobId) => {
+                const j = store.getJobById(jobId);
+                if (j) {
+                  setSelectedJob(j);
+                  setCurrentTab('feed');
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* ── 4. CAREER KNOWLEDGE VAULT & RAG COPILOT TAB ── */}
+        {currentTab === 'rag' && (
+          <div className="animate-in fade-in-50 duration-200">
+            <RagVaultView
+              profile={profile}
+              onOpenSettings={() => setCurrentTab('settings')}
+            />
+          </div>
+        )}
+
+        {/* ── 4. PIPELINE & QUEUE HEALTH TAB ── */}
         {currentTab === 'queue' && (
           <div className="animate-in fade-in-50 duration-200">
             <QueueHealth stats={stats} onRefresh={() => setStats(store.getStats())} />
@@ -262,6 +314,7 @@ export default function App() {
         onClose={() => setSelectedJob(null)}
         onUpdateApproval={handleUpdateApproval}
         onUpdateApplication={handleUpdateApplication}
+        onDeleteJob={handleDeleteJob}
       />
 
       {/* Bulk WhatsApp & Job Ingestion Modal */}

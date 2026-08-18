@@ -1,11 +1,13 @@
 import { IJob, IProfile, IAiCouncilVerdict, IAiCouncilMemberVote } from './types';
 import { IExtractedJD } from './extractor';
 import { llmClient, ILlmResponse } from './llmClient';
+import { ragAugmentor } from './rag/ragAugmentor';
 
 export class AiCouncilService {
   /**
    * Convenes the multi-model AI Council:
    * 3 distinct free OpenRouter models deliberate from specialized perspectives,
+   * grounded by RETRIEVED KNOWLEDGE VAULT EVIDENCE,
    * followed by a 4th Chair model that synthesizes the final consensus verdict.
    */
   public async conveneAiCouncil(
@@ -21,6 +23,7 @@ export class AiCouncilService {
     }
 
     try {
+      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
       const liveModels = await llmClient.getLiveFreeModels();
       if (liveModels.length < 3) {
         return {
@@ -38,19 +41,22 @@ export class AiCouncilService {
       // ── 1. MEMBER 1: TECHNICAL SCREENER ──
       const techPromise = (async (): Promise<IAiCouncilMemberVote> => {
         const systemPrompt = `You are Member #1 of the AI Hiring Council: The Principal Technical Screener. 
-Evaluate purely on technical competency, MERN stack depth, DSA/system architecture requirements, and modern web frameworks. 
+Evaluate purely on technical competency, MERN stack depth, DSA/system architecture requirements, and modern web frameworks.
+Ground your evaluation in the candidate's actual projects, case studies, and evidence retrieved from their knowledge base. 
 Return strictly valid JSON:
 {
   "score": 85,
   "verdict": "Strong Fit | Moderate Fit | Borderline | Reject",
-  "reasoning": "2-3 concise sentences on technical code & stack alignment",
+  "reasoning": "2-3 concise sentences on technical code & stack alignment citing retrieved evidence",
   "keyFindings": ["Point 1", "Point 2"]
 }`;
         const prompt = `EVALUATE TECHNICAL COMPETENCY FOR:
 Target: ${job.companyName} — ${job.jobTitle}
 Skills Needed: ${(job.skillsRequired || []).join(', ')}
 Candidate Skills: ${profile.primarySkills.join(', ')}
-Projects: AUSVMS (Visitor Management MERN), Guard Hub (Security Roster MERN), Matrix Library (MERN, Python NLP)`;
+
+RETRIEVED CANDIDATE KNOWLEDGE VAULT EVIDENCE:
+${ragContext.formattedContext || 'AUSVMS, Guard Hub, Matrix Library, JobRadar projects.'}`;
 
         try {
           const res = await llmClient.callLlm(prompt, systemPrompt, apiKey, techModel);

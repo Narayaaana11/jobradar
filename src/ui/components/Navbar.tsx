@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw, Radio } from 'lucide-react';
+import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw, Radio, Brain, Globe } from 'lucide-react';
 import { RadarLogoBadge } from './RadarLogo';
 import { s3Cloud, S3SyncStatus } from '../../app-core/s3Client';
 
 interface NavbarProps {
-  currentTab: 'feed' | 'watcher' | 'queue' | 'analytics' | 'settings';
-  setCurrentTab: (tab: 'feed' | 'watcher' | 'queue' | 'analytics' | 'settings') => void;
+  currentTab: 'feed' | 'watcher' | 'careers' | 'queue' | 'analytics' | 'settings' | 'rag';
+  setCurrentTab: (tab: 'feed' | 'watcher' | 'careers' | 'queue' | 'analytics' | 'settings' | 'rag') => void;
   onOpenIngestModal: () => void;
 }
 
@@ -56,7 +56,31 @@ export function Navbar({ currentTab, setCurrentTab, onOpenIngestModal }: NavbarP
           }`}
         >
           <Radio className="w-3.5 h-3.5" />
-          <span>Radar Watcher</span>
+          <span>Social Radar</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentTab('careers')}
+          className={`flex items-center space-x-1.5 text-xs font-bold px-4 py-1.5 rounded-full transition ${
+            currentTab === 'careers'
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black shadow-md shadow-emerald-500/20'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+          }`}
+        >
+          <Globe className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Career Sites</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentTab('rag')}
+          className={`flex items-center space-x-1.5 text-xs font-bold px-4 py-1.5 rounded-full transition ${
+            currentTab === 'rag'
+              ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-md'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+          }`}
+        >
+          <Brain className="w-3.5 h-3.5 text-purple-400" />
+          <span>Career Vault & RAG</span>
         </button>
 
         <button

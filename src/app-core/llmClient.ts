@@ -1,6 +1,10 @@
-import { IJob, IProfile, IInterviewPrep } from './types';
+import { IJob, IProfile, IInterviewPrep, IColdOutreachSuite, IInterviewMasterGuide } from './types';
 import { IExtractedJD } from './extractor';
 import { IScoreResult } from './scorer';
+import { ragAugmentor } from './rag/ragAugmentor';
+import { IRagCitation, IRagChatMessage } from './rag/types';
+import { generateOutreachSuite } from './outreachAgent';
+import { generateInterviewMasterGuide } from './interviewMasterGuide';
 
 export interface ILlmResponse<T> {
   success: boolean;
@@ -227,8 +231,8 @@ SCHEMA:
   }
 
   /**
-   * 2. SCORER & RUBRIC AGENT (LLM Mode):
-   * Evaluates candidate fit and calculates 5-tier career-ops rubric with deep reasoning.
+   * 2. SCORER & RUBRIC AGENT (RAG-Augmented LLM Mode):
+   * Evaluates candidate fit against JD with evidence retrieved from knowledge vault.
    */
   public async scoreJobWithLlm(
     job: Partial<IJob | IExtractedJD>,
@@ -236,7 +240,8 @@ SCHEMA:
     apiKey: string
   ): Promise<ILlmResponse<IScoreResult>> {
     try {
-      const systemPrompt = `You are a Principal Engineering Hiring Evaluator. Assess candidate fit for this opening using a 0-100 score and 1.0-5.0 rubric ratings across skills, tech stack, experience, and location. Return strictly valid JSON.`;
+      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
+      const systemPrompt = `You are a Principal Engineering Hiring Evaluator. Assess candidate fit for this opening using a 0-100 score and 1.0-5.0 rubric ratings across skills, tech stack, experience, and location. Ground your evaluation in the candidate's actual projects, case studies, and credentials retrieved from their knowledge base. Return strictly valid JSON.`;
       const prompt = `EVALUATE CANDIDATE FIT:
 JOB:
 Company: ${job.companyName}
@@ -244,12 +249,14 @@ Title: ${job.jobTitle}
 Skills Required: ${(job.skillsRequired || []).join(', ')}
 Location: ${job.location}
 
-CANDIDATE PROFILE:
+CANDIDATE BASE PROFILE:
 Name: ${profile.name}
 Degree: ${profile.education}
 Primary Skills: ${profile.primarySkills.join(', ')}
 Experience: ${profile.experience}
-Projects: AUSVMS (Visitor Management MERN), Guard Hub (Security Roster MERN), Matrix Library Management System (MERN, Python NLP)
+
+RETRIEVED CANDIDATE KNOWLEDGE VAULT EVIDENCE (GROUND TRUTH):
+${ragContext.formattedContext || 'AUSVMS (MERN, Socket.io, MongoDB), Guard Hub (MERN, Scheduling), Matrix Library (MERN, Python NLP), JobRadar (Electron, React, TypeScript).'}
 
 SCHEMA:
 {
@@ -257,7 +264,7 @@ SCHEMA:
   "matchConfidence": "high | medium | low",
   "gapAnalysis": {
     "missingSkills": ["Skills mentioned in JD not in profile"],
-    "strongMatches": ["Skills candidate excels in"]
+    "strongMatches": ["Skills candidate excels in based on retrieved evidence"]
   },
   "fitBreakdown": {
     "techFitScore": 90,
@@ -286,8 +293,8 @@ SCHEMA:
   }
 
   /**
-   * 3. RESUME TAILORING AGENT (LLM Mode):
-   * Customizes candidate project highlights for maximum ATS keyword alignment.
+   * 3. RESUME TAILORING AGENT (RAG-Augmented LLM Mode):
+   * Customizes candidate project highlights with authentic metrics retrieved from knowledge vault.
    */
   public async tailorResumeBulletsWithLlm(
     job: Partial<IJob | IExtractedJD>,
@@ -295,26 +302,8 @@ SCHEMA:
     apiKey: string
   ): Promise<ILlmResponse<{ summary: string; customizedBullets: string[] }>> {
     try {
-      const systemPrompt = `You are an ATS Resume Optimization Engineer at FAANG. Rewrite candidate project bullets to prominently showcase relevant technologies requested in the target Job Description while retaining technical veracity. Return strictly valid JSON.`;
-      const prompt = `TAILOR RESUME BULLETS FOR:
-Target Company: ${job.companyName}
-Target Role: ${job.jobTitle}
-Key JD Skills: ${(job.skillsRequired || []).join(', ')}
-
-Candidate Profile:
-Name: ${profile.name}
-Degree: ${profile.education}
-Projects: AUSVMS (Visitor Management MERN), Guard Hub (Security Roster MERN), Matrix Library Management System (MERN, NLP Python)
-
-SCHEMA:
-{
-  "summary": "1 concise tailored ATS summary for ${job.companyName}",
-  "customizedBullets": [
-    "AUSVMS: Built role-based access control with real-time Socket.io and MongoDB pipelines...",
-    "Guard Hub: Engineered automated shift collision detection engine in React and Node.js...",
-    "Matrix Library: Integrated NLP query assistant and stateful real-time book checkout..."
-  ]
-}`;
+      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
+      const { prompt, systemPrompt } = ragAugmentor.buildAugmentedResumePrompt(job, profile, ragContext);
 
       const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
       const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -327,8 +316,8 @@ SCHEMA:
   }
 
   /**
-   * 4. INTERVIEW PREP AGENT (LLM Mode):
-   * Generates dynamic role-specific questions and STAR answers.
+   * 4. INTERVIEW PREP AGENT (RAG-Augmented LLM Mode):
+   * Generates dynamic role-specific questions and authentic STAR answers from candidate vault.
    */
   public async generateAiInterviewPrep(
     job: Partial<IJob | IExtractedJD>,
@@ -336,54 +325,8 @@ SCHEMA:
     apiKey: string
   ): Promise<ILlmResponse<IInterviewPrep>> {
     try {
-      const systemPrompt = `You are a Senior Staff Engineering Interviewer and Career Coach. You evaluate technical job descriptions and produce realistic, rigorous interview preparation packets tailored to the specific company, role, and candidate profile. Always return strictly valid JSON matching the requested schema with no markdown code fences or conversational filler.`;
-
-      const prompt = `Analyze this job posting and generate a comprehensive interview preparation plan:
-COMPANY: ${job.companyName}
-ROLE: ${job.jobTitle}
-LOCATION: ${job.location || 'Remote'}
-REQUIRED SKILLS: ${(job.skillsRequired || []).join(', ')}
-JOB DESCRIPTION:
-${job.rawDescription || 'No description provided'}
-
-CANDIDATE BACKGROUND:
-Name: ${profile.name}
-Degree: ${profile.education}
-Primary Skills: ${profile.primarySkills.join(', ')}
-Key Projects: AUSVMS (Visitor Management MERN), Guard Hub (Security Roster MERN), Matrix Library Management System (MERN, NLP Python)
-Internship: Full Stack Development Intern @ Technical Hub Pvt. Ltd.
-
-Return JSON in this EXACT schema:
-{
-  "roleOverview": "2-3 sentence strategic analysis of what this role specifically demands at ${job.companyName}",
-  "technicalTopics": ["Topic 1", "Topic 2", "Topic 3", "Topic 4", "Topic 5"],
-  "questions": [
-    {
-      "category": "Technical",
-      "question": "Realistic deep technical question specific to ${job.companyName}'s tech stack",
-      "suggestedAnswer": "Detailed STAR/technical answer leveraging candidate's actual projects and skills",
-      "keyConcepts": ["Concept A", "Concept B"]
-    },
-    {
-      "category": "System Design",
-      "question": "System design challenge relevant to ${job.companyName}",
-      "suggestedAnswer": "Architectural breakdown covering API design, DB schema, scalability, and bottlenecks",
-      "keyConcepts": ["Concept A", "Concept B"]
-    },
-    {
-      "category": "Behavioral",
-      "question": "Behavioral / culture fit question matching ${job.companyName}'s engineering principles",
-      "suggestedAnswer": "Structured STAR story connecting to candidate's internship or university projects",
-      "keyConcepts": ["Ownership", "Collaboration"]
-    },
-    {
-      "category": "Company Fit",
-      "question": "Why ${job.companyName} and how does this role fit your career trajectory?",
-      "suggestedAnswer": "Persuasive company-specific pitch connecting candidate's goals with company mission",
-      "keyConcepts": ["Company Culture", "Product Impact"]
-    }
-  ]
-}`;
+      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 5 });
+      const { prompt, systemPrompt } = ragAugmentor.buildAugmentedInterviewPrepPrompt(job, profile, ragContext);
 
       const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
       const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -403,8 +346,8 @@ Return JSON in this EXACT schema:
   }
 
   /**
-   * 5. COVER LETTER AGENT (LLM Mode):
-   * Generates high-converting tailored cover letter.
+   * 5. COVER LETTER AGENT (RAG-Augmented LLM Mode):
+   * Generates high-converting tailored cover letter grounded in retrieved project evidence.
    */
   public async generateAiCoverLetter(
     job: Partial<IJob | IExtractedJD>,
@@ -412,27 +355,8 @@ Return JSON in this EXACT schema:
     apiKey: string
   ): Promise<ILlmResponse<string>> {
     try {
-      const systemPrompt = `You are a high-conversion Tech Career Strategist. Write concise, persuasive, non-generic cover letters that highlight measurable engineering impact and match candidate skills with company goals.`;
-
-      const prompt = `Write a high-converting, professional cover letter for:
-COMPANY: ${job.companyName}
-ROLE: ${job.jobTitle}
-LOCATION: ${job.location || 'India / Remote'}
-SKILLS NEEDED: ${(job.skillsRequired || []).join(', ')}
-
-CANDIDATE:
-Name: ${profile.name}
-Email: ${profile.email} | Phone: ${profile.phone}
-Education: ${profile.education}
-Experience: ${profile.experience}
-Portfolio: ${profile.portfolio} | GitHub: ${profile.github} | LinkedIn: ${profile.linkedin}
-Core Skills: ${profile.primarySkills.join(', ')}
-Key Projects:
-1. AUSVMS (Visitor Management MERN with RBAC & real-time Socket.io alerts)
-2. Guard Hub (Security Roster Engine with shift constraint validation)
-3. Matrix Library System (React, Node.js, NLP Python chatbot)
-
-Write a 3-4 paragraph impactful cover letter with zero fluff, formatted in clean Markdown.`;
+      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
+      const { prompt, systemPrompt } = ragAugmentor.buildAugmentedCoverLetterPrompt(job, profile, ragContext);
 
       const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
       return {
@@ -446,6 +370,24 @@ Write a 3-4 paragraph impactful cover letter with zero fluff, formatted in clean
         error: err.message,
       };
     }
+  }
+
+  /**
+   * 6. INTERACTIVE RAG CAREER CHAT:
+   * Queries knowledge vault with hybrid search & generates grounded response with citations.
+   */
+  public async ragChat(
+    userQuery: string,
+    chatHistory: IRagChatMessage[] = [],
+    apiKey?: string,
+    preferredModel?: string
+  ): Promise<{
+    content: string;
+    citations: IRagCitation[];
+    modelUsed: string;
+    queryTimeMs: number;
+  }> {
+    return ragAugmentor.queryRagChat(userQuery, chatHistory, apiKey, preferredModel);
   }
 
   /**
@@ -468,6 +410,108 @@ CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfo
       return { success: true, data: text.trim(), modelUsed: model };
     } catch (err: any) {
       return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * 7. COLD OUTREACH & CADENCE AGENT (LLM Mode):
+   * Generates highly tailored corporate emails, 3-step follow-up sequences, and InMails.
+   */
+  public async generateAiOutreachSuite(
+    job: IJob,
+    profile: IProfile,
+    apiKey: string
+  ): Promise<ILlmResponse<IColdOutreachSuite>> {
+    try {
+      const fallback = generateOutreachSuite(job, profile);
+      const systemPrompt = `You are an Executive Job Search Coach & Outreach Strategist. Write a tailored, high-converting cold email outreach and follow-up sequence. Respond with valid JSON matching the schema with no markdown outside the JSON block.`;
+      const prompt = `Generate tailored outreach for:
+COMPANY: ${job.companyName}
+ROLE: ${job.jobTitle}
+CANDIDATE: ${profile.name}, MCA 2026 Aditya University (MERN Stack: React, Node.js, Express, MongoDB, Projects: AUSVMS, Guard Hub).
+
+Return JSON matching:
+{
+  "companyDomain": "${fallback.companyDomain}",
+  "emailPatterns": ${JSON.stringify(fallback.emailPatterns)},
+  "cadenceSequence": [
+    {
+      "stepNumber": 1,
+      "dayLabel": "Day 1 — Concise Value Pitch",
+      "triggerCondition": "Immediate application",
+      "channel": "Email",
+      "subject": "string",
+      "body": "string"
+    },
+    {
+      "stepNumber": 2,
+      "dayLabel": "Day 4 — Engineering Value-Add Bump",
+      "triggerCondition": "No response after 3 days",
+      "channel": "Email",
+      "subject": "string",
+      "body": "string"
+    },
+    {
+      "stepNumber": 3,
+      "dayLabel": "Day 9 — Graceful Keep-in-Touch Close",
+      "triggerCondition": "No response after 8-10 days",
+      "channel": "Email",
+      "subject": "string",
+      "body": "string"
+    }
+  ],
+  "linkedInNotes": {
+    "connectionRequestNote300Char": "Max 300 characters connection note",
+    "recruiterDirectPitch": "Direct InMail pitch",
+    "alumniWarmIntroduction": "Alumni outreach message"
+  }
+}`;
+
+      const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
+      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      return { success: true, data: { ...fallback, ...parsed }, modelUsed: model };
+    } catch (err: any) {
+      console.warn('[LLM Client] LLM outreach generation fallback:', err.message);
+      return { success: true, data: generateOutreachSuite(job, profile), modelUsed: 'Heuristic Fallback' };
+    }
+  }
+
+  /**
+   * 8. INTERVIEW MASTER GUIDE AGENT (LLM Mode):
+   * Generates tailored DSA challenges, system design architecture, and 48-hour cram sheets.
+   */
+  public async generateAiInterviewMasterGuide(
+    job: IJob,
+    profile: IProfile,
+    apiKey: string
+  ): Promise<ILlmResponse<IInterviewMasterGuide>> {
+    try {
+      const fallback = generateInterviewMasterGuide(job, profile);
+      const systemPrompt = `You are a Principal Software Engineer & Staff Technical Interviewer at a FAANG company. Generate a comprehensive technical interview prep guide for this role. Return strictly valid JSON matching the schema.`;
+      const prompt = `Generate technical interview master guide for:
+COMPANY: ${job.companyName}
+ROLE: ${job.jobTitle}
+REQUIRED SKILLS: ${job.skillsRequired.join(', ')}
+CANDIDATE: ${profile.name}, MCA 2026 (Projects: AUSVMS Vehicle Management System with MongoDB & JWT, Guard Hub Security Platform).
+
+Return JSON matching:
+{
+  "generatedAt": "${new Date().toISOString()}",
+  "dsaChallenges": ${JSON.stringify(fallback.dsaChallenges)},
+  "systemDesign": ${JSON.stringify(fallback.systemDesign)},
+  "skillGapCramSheet": ${JSON.stringify(fallback.skillGapCramSheet)},
+  "salaryBenchmark": ${JSON.stringify(fallback.salaryBenchmark)},
+  "companyCultureAudit": ${JSON.stringify(fallback.companyCultureAudit)}
+}`;
+
+      const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey);
+      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      return { success: true, data: { ...fallback, ...parsed }, modelUsed: model };
+    } catch (err: any) {
+      console.warn('[LLM Client] LLM Master Guide generation fallback:', err.message);
+      return { success: true, data: generateInterviewMasterGuide(job, profile), modelUsed: 'Heuristic Fallback' };
     }
   }
 

@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { IJob } from '../../app-core/types';
 import { ScoreBadge } from './ScoreBadge';
-import { Building, MapPin, Check, Send, ArrowRight, Sparkles, ExternalLink } from 'lucide-react';
+import { Building, MapPin, Check, Send, ArrowRight, Sparkles, ExternalLink, Trash2 } from 'lucide-react';
 
 interface KanbanBoardProps {
   jobs: IJob[];
   onSelectJob: (job: IJob) => void;
   onUpdateApproval: (jobId: string, status: 'pending' | 'approved' | 'rejected') => void;
   onUpdateApplication: (jobId: string, status: 'not_applied' | 'applied' | 'interview' | 'offer' | 'rejected') => void;
+  onDeleteJob?: (jobId: string) => void;
 }
 
-export function KanbanBoard({ jobs, onSelectJob, onUpdateApproval, onUpdateApplication }: KanbanBoardProps) {
+export function KanbanBoard({ jobs, onSelectJob, onUpdateApproval, onUpdateApplication, onDeleteJob }: KanbanBoardProps) {
   const [draggedJobId, setDraggedJobId] = useState<string | null>(null);
 
   const columns = [
@@ -79,6 +80,15 @@ export function KanbanBoard({ jobs, onSelectJob, onUpdateApproval, onUpdateAppli
     setDraggedJobId(null);
   };
 
+  const handleDelete = (jobId: string, jobTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Delete "${jobTitle}" from job radar?`)) {
+      if (onDeleteJob) {
+        onDeleteJob(jobId);
+      }
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-4 overflow-x-auto pb-4">
       {columns.map((col) => {
@@ -117,12 +127,22 @@ export function KanbanBoard({ jobs, onSelectJob, onUpdateApproval, onUpdateAppli
                     onClick={() => onSelectJob(job)}
                     className="p-4 bg-[#18181b] border border-[#27272a] hover:border-zinc-500 rounded-2xl cursor-grab active:cursor-grabbing transition shadow-lg space-y-3 group"
                   >
-                    {/* Header: Source tag + Score badge */}
+                    {/* Header: Source tag + Score badge + Delete */}
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono text-zinc-400 px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 truncate max-w-[120px]">
+                      <span className="text-[10px] font-mono text-zinc-400 px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 truncate max-w-[110px]">
                         {job.companyName}
                       </span>
-                      <ScoreBadge score={job.matchScore || 0} />
+                      <div className="flex items-center space-x-1.5">
+                        <ScoreBadge score={job.matchScore || 0} />
+                        <button
+                          type="button"
+                          onClick={(e) => handleDelete(job.id, job.jobTitle, e)}
+                          className="p-1 text-zinc-600 hover:text-red-400 rounded transition opacity-0 group-hover:opacity-100"
+                          title="Delete job posting"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Job Title */}

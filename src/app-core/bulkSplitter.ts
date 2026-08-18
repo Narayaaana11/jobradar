@@ -15,7 +15,7 @@ export function splitBulkChatText(rawBulkText: string): string[] {
     .map((c) => c.trim())
     .filter((c) => c.length > 25);
   if (dividerChunks.length > 1) {
-    candidates.push(dividerChunks);
+    return dividerChunks;
   }
 
   // Strategy 2. Numbered posts e.g. "\n1. ", "\n2) ", "1. Company", "2. Company"
@@ -24,7 +24,7 @@ export function splitBulkChatText(rawBulkText: string): string[] {
     .map((c) => c.trim())
     .filter((c) => c.length > 25);
   if (numberedChunks.length > 1) {
-    candidates.push(numberedChunks);
+    return numberedChunks;
   }
 
   // Strategy 3. Split on company recruitment header patterns starting on a new line
@@ -35,7 +35,7 @@ export function splitBulkChatText(rawBulkText: string): string[] {
     .map((c) => c.trim())
     .filter((c) => c.length > 30);
   if (headerChunks.length > 1) {
-    candidates.push(headerChunks);
+    return headerChunks;
   }
 
   // Strategy 4. Split on multiple blank lines (2+ consecutive newlines)
@@ -44,22 +44,16 @@ export function splitBulkChatText(rawBulkText: string): string[] {
     .map((c) => c.trim())
     .filter((c) => c.length > 35);
   if (doubleNewlineChunks.length > 1) {
-    candidates.push(doubleNewlineChunks);
+    return doubleNewlineChunks;
   }
 
-  // Strategy 5. Emoji or bullet list delimiters (e.g. "\n📌", "\n🚀", "\n•", "\n-")
+  // Strategy 5. Emoji or bullet list delimiters only when preceding major company/job headers
   const emojiChunks = text
-    .split(/\n(?=\s*(?:[📌🚀👉💼🔥⭐•\-\*]|[\u{1F300}-\u{1FAFF}])\s*[A-Za-z0-9])/u)
+    .split(/\n(?=\s*(?:[📌🚀🔥⭐]|[\u{1F300}-\u{1FAFF}])\s*(?:[*_#]+\s*)?[A-Z0-9][A-Za-z0-9\s&.,'-]{1,30}?\s+(?:Recruitment|Hiring|Walkin|Drive|Careers)\b)/iu)
     .map((c) => c.trim())
-    .filter((c) => c.length > 25);
+    .filter((c) => c.length > 35);
   if (emojiChunks.length > 1) {
-    candidates.push(emojiChunks);
-  }
-
-  if (candidates.length > 0) {
-    // Pick the strategy that decomposed the text into the most granular valid chunks
-    candidates.sort((a, b) => b.length - a.length);
-    return candidates[0];
+    return emojiChunks;
   }
 
   return [text];
