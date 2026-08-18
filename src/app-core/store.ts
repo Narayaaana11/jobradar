@@ -146,6 +146,7 @@ export const defaultProfile: IProfile = {
         'Integrated an NLP chatbot in Python to process natural language queries for book titles and locations.',
       ],
     },
+  ],
   apiKey: (typeof process !== 'undefined' && process.env?.OPENROUTER_API_KEY) || '',
 };
 
