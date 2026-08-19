@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { processIngestion } from '../../app-core/pipeline';
 import { store } from '../../app-core/store';
-import { Sparkles, X, MessageSquare, Globe, CheckCircle2, Loader2, Bot, Zap } from 'lucide-react';
-import { RadarLogoBadge } from './RadarLogo';
+import { processIngestion } from '../../app-core/pipeline';
+import {
+  X, Sparkles, MessageSquare, Globe, Bot, Zap,
+  CheckCircle2, Loader2, Link as LinkIcon
+} from 'lucide-react';
 
 interface IngestModalProps {
   isOpen: boolean;
@@ -10,23 +12,18 @@ interface IngestModalProps {
   onSuccess: () => void;
 }
 
-const sampleWhatsAppDump = `*Amazon Recruitment 2026 Drive* 🔥
-💼 *Job Role:* Software Development Engineer - I (Frontend & Fullstack)
-📍 *Location:* Hyderabad / Bengaluru
-💰 *Package:* ₹18,00,000 - ₹24,00,000 LPA
-🎓 *Eligibility:* MCA / B.Tech / M.Tech (2025/2026 Batch)
-👉 *Apply Link:* https://amazon.jobs/en/jobs/2849102/sde-1
-*Skills:* React, TypeScript, Node.js, Data Structures, Algorithms, REST APIs, AWS.
+const sampleWhatsAppDump = `[17/08, 5:13 pm] null: 🚀 Remote Job Opportunity!!
 
----------------------------------------------------
+Nagarro Hiring Freshers for Associate
 
-*Deloitte Off-Campus Hiring 2026* 🔥
-💼 *Job Role:* Associate Analyst - Cloud & Full Stack Development
-📍 *Location:* Hyderabad
-🎓 *Experience:* Freshers (MCA / B.Sc / B.Tech 2025/2026)
-👉 *Apply Link:* https://jobs2.deloitte.com/in/en/job/DELA01923
-*Skills Required:* JavaScript, React.js, Express.js, MongoDB, SQL, Git, Problem Solving.
+Experience: Freshers / 0-2 Years
+Education: Bachelor's / Master's Degree
+Salary: Rs 5-6 LPA (Expected)
+Location: Remote / Hyderabad / Gurgaon
 
+Apply: https://kickcharm.com/nagarro-recruitment-hiring-any-graduates/
+
+Skills: JavaScript, HTML5, CSS3, Data Structures, OOP.
 ---------------------------------------------------
 
 *Swiggy Engineering Hiring 2026* 🔥
@@ -38,8 +35,9 @@ const sampleWhatsAppDump = `*Amazon Recruitment 2026 Drive* 🔥
 
 export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
   const profile = store.getProfile();
+  const hasAiKey = Boolean(profile.apiKey || profile.groqApiKey || profile.geminiApiKey);
   const [ingestMode, setIngestMode] = useState<'whatsapp' | 'single'>('whatsapp');
-  const [useAiDeepExtraction, setUseAiDeepExtraction] = useState(Boolean(profile.apiKey));
+  const [useAiDeepExtraction, setUseAiDeepExtraction] = useState(hasAiKey);
   const [inputText, setInputText] = useState('');
   const [channelName, setChannelName] = useState('WhatsApp Hyderabad Tech Jobs');
   const [processing, setProcessing] = useState(false);
@@ -58,14 +56,13 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
       const result = await processIngestion(inputText, channelName, platform, useAiDeepExtraction);
 
       setResultMsg(`Successfully parsed & queued ${result.totalExtracted} job postings with AI scoring!`);
-      setInputText('');
       setTimeout(() => {
         onSuccess();
         onClose();
+        setInputText('');
         setResultMsg('');
-      }, 1800);
+      }, 1000);
     } catch (err: any) {
-      console.error('Ingestion failed:', err);
       setResultMsg(`Error: ${err.message}`);
     } finally {
       setProcessing(false);
@@ -78,86 +75,95 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#121215] border border-[#27272a] rounded-[24px] w-full max-w-2xl p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="w-full max-w-2xl bg-[#121215] border border-[#27272a] rounded-[28px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Modal Header */}
-        <div className="flex items-center justify-between">
+        <div className="p-6 border-b border-[#27272a] flex items-center justify-between bg-[#121215]">
           <div className="flex items-center space-x-3">
-            <RadarLogoBadge size="sm" />
+            <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-black shadow-lg">
+              <Sparkles className="w-5 h-5" />
+            </div>
             <div>
-              <h3 className="text-base font-extrabold text-white">AI Job Ingestion & Extraction Engine</h3>
-              <p className="text-xs text-zinc-400">Ingest WhatsApp / Telegram dumps or single JDs with automatic pipeline processing.</p>
+              <h3 className="text-base font-extrabold text-white">Universal Job Ingestion Engine</h3>
+              <p className="text-xs text-zinc-400">
+                Paste bulk WhatsApp chat dumps, Telegram channels, or direct job posting URLs.
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800 transition"
+            className="p-2 rounded-full hover:bg-[#18181b] text-zinc-400 hover:text-white transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Ingest Mode Switcher */}
-        <div className="flex items-center space-x-2 bg-[#18181b] p-1 rounded-full border border-zinc-800">
-          <button
-            type="button"
-            onClick={() => setIngestMode('whatsapp')}
-            className={`flex-1 py-1.5 px-4 text-xs font-bold rounded-full transition flex items-center justify-center gap-1.5 ${
-              ingestMode === 'whatsapp' ? 'bg-white text-black shadow-md' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4 text-emerald-600" />
-            <span>WhatsApp / Telegram Bulk Dump</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setIngestMode('single')}
-            className={`flex-1 py-1.5 px-4 text-xs font-bold rounded-full transition flex items-center justify-center gap-1.5 ${
-              ingestMode === 'single' ? 'bg-white text-black shadow-md' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Globe className="w-4 h-4 text-blue-500" />
-            <span>Single Job Description / URL</span>
-          </button>
-        </div>
+        <form onSubmit={handleProcess} className="p-6 space-y-4 overflow-y-auto flex-1">
+          {/* Ingest Mode Switcher */}
+          <div className="grid grid-cols-2 gap-2 p-1 bg-[#18181b] border border-[#27272a] rounded-2xl">
+            <button
+              type="button"
+              onClick={() => setIngestMode('whatsapp')}
+              className={`py-2 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 ${
+                ingestMode === 'whatsapp'
+                  ? 'bg-white text-black shadow-md'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Bulk WhatsApp / Chat Dump</span>
+            </button>
 
-        {/* AI Mode Selector Toggle */}
-        <div className="p-3 bg-[#18181b] border border-[#27272a] rounded-2xl flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
-            <span className={`p-1.5 rounded-lg border text-xs ${useAiDeepExtraction ? 'bg-purple-950/60 border-purple-800 text-purple-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
-              <Bot className="w-4 h-4" />
-            </span>
-            <div>
-              <p className="text-xs font-extrabold text-white flex items-center gap-1.5">
-                <span>AI Deep Extraction & Reasoning</span>
-                {profile.apiKey && (
-                  <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
-                    API Key Active
-                  </span>
-                )}
-              </p>
-              <p className="text-[11px] text-zinc-400">
-                {useAiDeepExtraction
-                  ? 'Runs Claude / OpenRouter LLM for zero-shot parsing, scoring, and interview prep.'
-                  : 'Runs lightning-fast offline heuristic regex splitter & career rubric calculator.'}
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() => setIngestMode('single')}
+              className={`py-2 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 ${
+                ingestMode === 'single'
+                  ? 'bg-white text-black shadow-md'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <LinkIcon className="w-3.5 h-3.5" />
+              <span>Single Posting / Direct URL</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setUseAiDeepExtraction(!useAiDeepExtraction)}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1 border ${
-              useAiDeepExtraction
-                ? 'bg-purple-600 text-white border-purple-500 shadow'
-                : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-white'
-            }`}
-          >
-            <Zap className="w-3 h-3" />
-            <span>{useAiDeepExtraction ? 'LLM Mode ON' : 'Fast Mode'}</span>
-          </button>
-        </div>
 
-        <form onSubmit={handleProcess} className="space-y-4">
+          {/* AI Mode Selector Toggle */}
+          <div className="p-3 bg-[#18181b] border border-[#27272a] rounded-2xl flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <span className={`p-1.5 rounded-lg border text-xs ${useAiDeepExtraction ? 'bg-purple-950/60 border-purple-800 text-purple-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
+                <Bot className="w-4 h-4" />
+              </span>
+              <div>
+                <p className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                  <span>AI Deep Extraction & Reasoning</span>
+                  {hasAiKey && (
+                    <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+                      AI Key Connected
+                    </span>
+                  )}
+                </p>
+                <p className="text-[11px] text-zinc-400">
+                  {useAiDeepExtraction
+                    ? 'Runs multi-provider AI (OpenRouter / Groq / Gemini) for zero-shot parsing, scoring, and interview prep.'
+                    : 'Runs lightning-fast offline heuristic regex splitter & career rubric calculator.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setUseAiDeepExtraction(!useAiDeepExtraction)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1 border ${
+                useAiDeepExtraction
+                  ? 'bg-purple-600 text-white border-purple-500 shadow'
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-white'
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              <span>{useAiDeepExtraction ? 'AI Mode ON' : 'Fast Mode'}</span>
+            </button>
+          </div>
+
           {/* Source Tag & Sample Fill Button */}
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { IJob, IProfile } from '../../app-core/types';
 import { store } from '../../app-core/store';
 import { llmClient } from '../../app-core/llmClient';
@@ -184,9 +184,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
   // 1. AI Re-Scorer Agent (OpenRouter)
   const handleAiReScore = async () => {
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to run real LLM reasoning.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run real LLM reasoning.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -224,9 +224,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
   // 2. AI Resume Bullet Tailor Agent (OpenRouter)
   const handleAiTailorResume = async () => {
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to run real LLM reasoning.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run real LLM reasoning.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -260,9 +260,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
   // 3. AI Interview Prep Agent (OpenRouter)
   const handleGenerateRealAiPrep = async () => {
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to run real LLM generation.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run real LLM generation.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -291,9 +291,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
   // 4. AI Cover Letter Agent (OpenRouter)
   const handleGenerateRealAiLetter = async () => {
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to run real LLM generation.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run real LLM generation.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -322,9 +322,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
   // 5. AI Referral Personalizer Agent (OpenRouter)
   const handleAiPersonalizeReferral = async (idx: number, personaRole: string) => {
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to run real LLM reasoning.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run real LLM reasoning.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -354,9 +354,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
   // 6. AI Council Deliberation Agent (Multi-Model Consensus)
   const handleConveneAiCouncil = async () => {
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to convene the AI Council.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to convene the AI Council.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -409,9 +409,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
   // 8. AI Cold Outreach Suite Generator (OpenRouter)
   const handleGenerateAiOutreach = async () => {
     if (!job) return;
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to run AI Outreach reasoning.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run AI Outreach reasoning.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -439,9 +439,9 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
   // 9. AI Master Prep Guide Generator (OpenRouter)
   const handleGenerateAiMasterGuide = async () => {
     if (!job) return;
-    const key = profile.apiKey;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
-      setAiError('Please configure your OpenRouter API Key in Settings to run AI Prep Guide reasoning.');
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run AI Prep Guide reasoning.');
       setTimeout(() => setAiError(null), 5000);
       return;
     }
@@ -616,7 +616,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
         {/* Landscape 2-Column Main Workspace */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-          {/* ── LEFT PANEL: Job Quick Brief & Original JD (35% width) ── */}
+          {/* â”€â”€ LEFT PANEL: Job Quick Brief & Original JD (35% width) â”€â”€ */}
           <div className="lg:w-[36%] xl:w-[34%] border-r border-zinc-800/80 flex flex-col overflow-y-auto p-5 space-y-4 bg-[#0c0c0e]">
             {/* Quick Actions (Mobile approve/reject) */}
             <div className="flex sm:hidden items-center justify-between gap-2 p-2 bg-[#121215] rounded-xl border border-zinc-800">
@@ -786,7 +786,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
             </div>
           </div>
 
-          {/* ── RIGHT PANEL: Multi-Tab Deep Workspace (65% width) ── */}
+          {/* â”€â”€ RIGHT PANEL: Multi-Tab Deep Workspace (65% width) â”€â”€ */}
           <div className="flex-1 flex flex-col overflow-hidden bg-[#09090b]">
             {/* Top Workspace Tab Bar */}
             <div className="flex items-center space-x-1 border-b border-zinc-800/80 px-6 pt-3 overflow-x-auto bg-[#09090b]/80 shrink-0">
@@ -808,7 +808,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
-                <span>📝 App QA Answers</span>
+                <span>ðŸ“ App QA Answers</span>
               </button>
 
               <button
@@ -820,7 +820,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <Clock className="w-3.5 h-3.5 text-blue-400" />
-                <span>⏱️ Follow-Up Cadence</span>
+                <span>â±ï¸ Follow-Up Cadence</span>
               </button>
 
               <button
@@ -832,7 +832,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <DollarSign className="w-3.5 h-3.5 text-yellow-400" />
-                <span>💰 Offer & Negotiation</span>
+                <span>ðŸ’° Offer & Negotiation</span>
               </button>
 
               <button
@@ -844,7 +844,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-                <span>🚀 Master Prep Guide</span>
+                <span>ðŸš€ Master Prep Guide</span>
               </button>
 
               <button
@@ -856,7 +856,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <Mail className="w-3.5 h-3.5 text-cyan-400" />
-                <span>📧 Cold Email & Cadence</span>
+                <span>ðŸ“§ Cold Email & Cadence</span>
               </button>
 
               <button
@@ -868,7 +868,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <Globe className="w-3.5 h-3.5 text-emerald-400" />
-                <span>🌐 Web Intelligence</span>
+                <span>ðŸŒ Web Intelligence</span>
               </button>
 
               <button
@@ -914,7 +914,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
             {/* Tab Body View */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* ── 1. OVERVIEW TAB: Deep AI Rubrics & Match Breakdown ── */}
+              {/* â”€â”€ 1. OVERVIEW TAB: Deep AI Rubrics & Match Breakdown â”€â”€ */}
               {activeTab === 'overview' && (
                 <div className="space-y-5">
                   {/* AI Re-Score Banner */}
@@ -943,7 +943,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3 h-3 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Scoring...' : '⚡ AI Re-Score (OpenRouter)'}</span>
+                      <span>{isLlmRunning ? 'Scoring...' : 'âš¡ AI Re-Score (OpenRouter)'}</span>
                     </button>
                   </div>
 
@@ -1037,7 +1037,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Tech Stack Match</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>★ {job.rubricScores?.technicalStackMatchScore || job.rubricScores?.skillsScore || 4.8}</span>
+                              <span>â˜… {job.rubricScores?.technicalStackMatchScore || job.rubricScores?.skillsScore || 4.8}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1045,7 +1045,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Seniority & YOE</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>★ {job.rubricScores?.seniorityExperienceScore || job.rubricScores?.experienceScore || 4.7}</span>
+                              <span>â˜… {job.rubricScores?.seniorityExperienceScore || job.rubricScores?.experienceScore || 4.7}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1053,7 +1053,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Domain Synergy</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>★ {job.rubricScores?.domainRelevanceScore || 4.6}</span>
+                              <span>â˜… {job.rubricScores?.domainRelevanceScore || 4.6}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1061,7 +1061,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Comp & Location</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>★ {job.rubricScores?.compensationLocationScore || job.rubricScores?.cultureFitScore || 4.9}</span>
+                              <span>â˜… {job.rubricScores?.compensationLocationScore || job.rubricScores?.cultureFitScore || 4.9}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1085,7 +1085,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                               {report.pros.length > 0 ? (
                                 report.pros.map((p, i) => (
                                   <li key={i} className="flex items-start gap-1.5">
-                                    <span className="text-emerald-400 mt-0.5">•</span>
+                                    <span className="text-emerald-400 mt-0.5">â€¢</span>
                                     <span>{p}</span>
                                   </li>
                                 ))
@@ -1105,12 +1105,12 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                               {report.cons.length > 0 ? (
                                 report.cons.map((c, i) => (
                                   <li key={i} className="flex items-start gap-1.5">
-                                    <span className="text-amber-400 mt-0.5">•</span>
+                                    <span className="text-amber-400 mt-0.5">â€¢</span>
                                     <span>{c}</span>
                                   </li>
                                 ))
                               ) : (
-                                <li className="text-emerald-400/80 text-[11px]">✓ No critical skill gaps detected.</li>
+                                <li className="text-emerald-400/80 text-[11px]">âœ“ No critical skill gaps detected.</li>
                               )}
                             </ul>
                           </div>
@@ -1147,7 +1147,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                                     ? 'bg-amber-950/80 text-amber-300 border-amber-800'
                                     : 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
                                 }`}>
-                                  {isDomainMismatch ? '⚠️ Domain Mismatch' : '✓ Verified Candidate Fit'}
+                                  {isDomainMismatch ? 'âš ï¸ Domain Mismatch' : 'âœ“ Verified Candidate Fit'}
                                 </span>
                               </h4>
                               <p className="text-[11px] text-zinc-400">
@@ -1234,7 +1234,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                               setIsLlmRunning(true);
                               setAiActionLabel('Auditing posting legitimacy and ghost job risk with AI...');
                               try {
-                                const res = await auditBlockGLegitimacyWithAi(job, profile.apiKey);
+                                const res = await auditBlockGLegitimacyWithAi(job, profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "");
                                 setBlockGData(res);
                                 job.blockGAudit = res;
                                 store.updateJob(job.id, { blockGAudit: res });
@@ -1282,7 +1282,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 2. AI COUNCIL CHAMBER TAB ── */}
+              {/* â”€â”€ 2. AI COUNCIL CHAMBER TAB â”€â”€ */}
               {activeTab === 'council' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-purple-950/40 via-[#18181b] to-indigo-950/40 border border-purple-800/60 rounded-[24px] space-y-3 shadow-xl">
@@ -1309,7 +1309,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         className="px-5 py-2.5 rounded-full bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 text-white font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 flex items-center gap-1.5 disabled:opacity-50"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                        <span>{isLlmRunning ? 'Council Deliberating...' : '⚡ Convene AI Council'}</span>
+                        <span>{isLlmRunning ? 'Council Deliberating...' : 'âš¡ Convene AI Council'}</span>
                       </button>
                     </div>
                   </div>
@@ -1368,7 +1368,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 3. ATS RESUME TAB (PDF + LaTeX Dual Mode) ── */}
+              {/* â”€â”€ 3. ATS RESUME TAB (PDF + LaTeX Dual Mode) â”€â”€ */}
               {activeTab === 'resume' && (
                 <div className="space-y-5">
                   <div className="p-6 bg-[#121215] border border-[#27272a] rounded-[24px] space-y-5 shadow-2xl">
@@ -1501,7 +1501,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 🔥 2. MASTER PREP GUIDE TAB (DSA, SYSTEM DESIGN, CRAM SHEET, SALARY, CULTURE) ── */}
+              {/* â”€â”€ ðŸ”¥ 2. MASTER PREP GUIDE TAB (DSA, SYSTEM DESIGN, CRAM SHEET, SALARY, CULTURE) â”€â”€ */}
               {activeTab === 'masterguide' && masterGuideData && (
                 <div className="space-y-5 animate-in fade-in-50 duration-200">
                   {/* AI Regenerate Banner */}
@@ -1527,18 +1527,18 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Synthesizing with AI...' : '⚡ AI Re-Generate Prep Guide'}</span>
+                      <span>{isLlmRunning ? 'Synthesizing with AI...' : 'âš¡ AI Re-Generate Prep Guide'}</span>
                     </button>
                   </div>
 
                   {/* Master Guide Sub-Nav Pills */}
                   <div className="p-1.5 bg-[#121215] border border-zinc-800 rounded-2xl flex items-center gap-1 overflow-x-auto">
                     {[
-                      { key: 'dsa', label: '💻 DSA & Coding Challenges', icon: Code },
-                      { key: 'systemdesign', label: '🏗️ System Design Blueprint', icon: Layers },
-                      { key: 'cramsheet', label: '⏱️ 48-Hour Cram Sheet', icon: Zap },
-                      { key: 'salary', label: '💰 Salary & Negotiation Levers', icon: DollarSign },
-                      { key: 'culture', label: '🚨 Culture & Red-Flag Audit', icon: ShieldAlert },
+                      { key: 'dsa', label: 'ðŸ’» DSA & Coding Challenges', icon: Code },
+                      { key: 'systemdesign', label: 'ðŸ—ï¸ System Design Blueprint', icon: Layers },
+                      { key: 'cramsheet', label: 'â±ï¸ 48-Hour Cram Sheet', icon: Zap },
+                      { key: 'salary', label: 'ðŸ’° Salary & Negotiation Levers', icon: DollarSign },
+                      { key: 'culture', label: 'ðŸš¨ Culture & Red-Flag Audit', icon: ShieldAlert },
                     ].map((st) => (
                       <button
                         key={st.key}
@@ -1586,7 +1586,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                                 <span className="text-xs font-mono text-zinc-400">{ch.topic}</span>
                               </div>
                               <h3 className="text-sm font-extrabold text-white mt-1">{ch.title}</h3>
-                              <p className="text-[11px] font-mono text-amber-400 mt-0.5">🔥 {ch.companyFrequency}</p>
+                              <p className="text-[11px] font-mono text-amber-400 mt-0.5">ðŸ”¥ {ch.companyFrequency}</p>
                             </div>
 
                             <button
@@ -1616,7 +1616,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           {/* Key Insights */}
                           <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-1.5">
                             <span className="text-[11px] font-mono font-bold text-zinc-300 uppercase">
-                              💡 Optimal Strategy & Complexity:
+                              ðŸ’¡ Optimal Strategy & Complexity:
                             </span>
                             <div className="flex flex-wrap gap-3 text-xs font-mono text-zinc-400">
                               <span><strong className="text-amber-400">Time:</strong> {ch.timeComplexity}</span>
@@ -1677,7 +1677,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             {masterGuideData.systemDesign.keyComponents.map((comp, i) => (
                               <div key={i} className="p-3 bg-[#09090b] border border-zinc-800/80 rounded-xl text-xs text-zinc-300 font-mono">
-                                • {comp}
+                                â€¢ {comp}
                               </div>
                             ))}
                           </div>
@@ -1732,11 +1732,11 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                             </pre>
 
                             <div className="p-2.5 bg-red-950/30 border border-red-800/40 rounded-lg text-[11px] text-red-300 font-mono">
-                              ⚠️ <strong>Pitfall:</strong> {mod.commonInterviewPitfall}
+                              âš ï¸ <strong>Pitfall:</strong> {mod.commonInterviewPitfall}
                             </div>
 
                             <div className="p-2.5 bg-emerald-950/30 border border-emerald-800/40 rounded-lg text-[11px] text-emerald-300 font-mono">
-                              💡 <strong>Say this:</strong> {mod.winningTalkingPoint}
+                              ðŸ’¡ <strong>Say this:</strong> {mod.winningTalkingPoint}
                             </div>
                           </div>
                         ))}
@@ -1759,7 +1759,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="px-3 py-1 bg-emerald-950 text-emerald-300 border border-emerald-800 rounded-full text-xs font-mono font-black">
-                              {masterGuideData.salaryBenchmark.minLpa} – {masterGuideData.salaryBenchmark.maxLpa}
+                              {masterGuideData.salaryBenchmark.minLpa} â€“ {masterGuideData.salaryBenchmark.maxLpa}
                             </span>
                           </div>
                         </div>
@@ -1825,13 +1825,13 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1 text-center">
                             <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase">Work-Life Balance</span>
                             <div className="text-xl font-black text-emerald-400 font-mono">
-                              ★ {masterGuideData.companyCultureAudit.workLifeBalanceScore} / 10
+                              â˜… {masterGuideData.companyCultureAudit.workLifeBalanceScore} / 10
                             </div>
                           </div>
                           <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1 text-center">
                             <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase">Tech Modernity</span>
                             <div className="text-xl font-black text-cyan-400 font-mono">
-                              ★ {masterGuideData.companyCultureAudit.techStackModernityScore} / 10
+                              â˜… {masterGuideData.companyCultureAudit.techStackModernityScore} / 10
                             </div>
                           </div>
                           <div className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl space-y-1 text-center">
@@ -1850,7 +1850,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                             </h5>
                             <ul className="text-xs text-emerald-200 space-y-1.5 font-sans">
                               {masterGuideData.companyCultureAudit.greenFlags.map((flag, i) => (
-                                <li key={i}>• {flag}</li>
+                                <li key={i}>â€¢ {flag}</li>
                               ))}
                             </ul>
                           </div>
@@ -1861,7 +1861,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                             </h5>
                             <ul className="text-xs text-amber-200 space-y-1.5 font-sans">
                               {masterGuideData.companyCultureAudit.redFlags.map((flag, i) => (
-                                <li key={i}>• {flag}</li>
+                                <li key={i}>â€¢ {flag}</li>
                               ))}
                             </ul>
                           </div>
@@ -1870,7 +1870,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         {/* Insider Advice */}
                         <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-xl space-y-1">
                           <span className="text-xs font-mono font-bold text-zinc-300 uppercase">
-                            💡 Insider Interview Format Advice:
+                            ðŸ’¡ Insider Interview Format Advice:
                           </span>
                           <p className="text-xs text-zinc-300 font-sans leading-relaxed">
                             {masterGuideData.companyCultureAudit.insiderAdvice}
@@ -1882,7 +1882,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 🔥 3. COLD EMAIL & 3-STEP CADENCE TAB ── */}
+              {/* â”€â”€ ðŸ”¥ 3. COLD EMAIL & 3-STEP CADENCE TAB â”€â”€ */}
               {activeTab === 'outreach' && outreachData && (
                 <div className="space-y-5 animate-in fade-in-50 duration-200">
                   {/* AI Regenerate Banner */}
@@ -1908,7 +1908,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="px-4 py-2 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Synthesizing with AI...' : '⚡ AI Re-Generate Cadence'}</span>
+                      <span>{isLlmRunning ? 'Synthesizing with AI...' : 'âš¡ AI Re-Generate Cadence'}</span>
                     </button>
                   </div>
 
@@ -2030,7 +2030,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 🔥 4. LIVE WEB INTELLIGENCE AGENT TAB ── */}
+              {/* â”€â”€ ðŸ”¥ 4. LIVE WEB INTELLIGENCE AGENT TAB â”€â”€ */}
               {activeTab === 'webintel' && (
                 <div className="space-y-5 animate-in fade-in-50 duration-200">
                   <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex flex-wrap items-center justify-between gap-4 shadow-xl">
@@ -2053,7 +2053,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isScrapingLive ? 'animate-spin' : ''}`} />
-                      <span>{isScrapingLive ? 'Scraping Live Web...' : '⚡ Run Live Web Audit'}</span>
+                      <span>{isScrapingLive ? 'Scraping Live Web...' : 'âš¡ Run Live Web Audit'}</span>
                     </button>
                   </div>
 
@@ -2106,12 +2106,12 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       {/* Reported Questions from Web */}
                       <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2.5">
                         <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider">
-                          🔥 Top Technical Questions Reported from {job.companyName} Rounds
+                          ðŸ”¥ Top Technical Questions Reported from {job.companyName} Rounds
                         </h4>
                         <div className="space-y-1.5">
                           {webIntelData.interviewQuestionsFromWeb.map((q, i) => (
                             <div key={i} className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono">
-                              • {q}
+                              â€¢ {q}
                             </div>
                           ))}
                         </div>
@@ -2126,7 +2126,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 4. REFERRALS TAB ── */}
+              {/* â”€â”€ 4. REFERRALS TAB â”€â”€ */}
               {activeTab === 'referral' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
@@ -2179,7 +2179,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 5. INTERVIEW PREP TAB ── */}
+              {/* â”€â”€ 5. INTERVIEW PREP TAB â”€â”€ */}
               {activeTab === 'interview' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
@@ -2202,7 +2202,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Reasoning...' : '⚡ Generate Questions'}</span>
+                      <span>{isLlmRunning ? 'Reasoning...' : 'âš¡ Generate Questions'}</span>
                     </button>
                   </div>
 
@@ -2223,7 +2223,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 6. COVER LETTER TAB ── */}
+              {/* â”€â”€ 6. COVER LETTER TAB â”€â”€ */}
               {activeTab === 'coverletter' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
@@ -2246,7 +2246,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Drafting...' : '⚡ Generate Cover Letter'}</span>
+                      <span>{isLlmRunning ? 'Drafting...' : 'âš¡ Generate Cover Letter'}</span>
                     </button>
                   </div>
 
@@ -2271,7 +2271,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 7. APPLICATION QA ANSWERS TAB (JobRadar Autonomous) ── */}
+              {/* â”€â”€ 7. APPLICATION QA ANSWERS TAB (JobRadar Autonomous) â”€â”€ */}
               {activeTab === 'appanswers' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-emerald-950/40 via-[#18181b] to-teal-950/40 border border-emerald-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
@@ -2293,7 +2293,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         setIsLlmRunning(true);
                         setAiActionLabel('Synthesizing tailored application answers with AI...');
                         try {
-                          const res = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey);
+                          const res = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "");
                           setAppAnswersData(res);
                           job.applicationAnswers = res;
                           store.updateJob(job.id, { applicationAnswers: res });
@@ -2310,7 +2310,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Generating...' : '⚡ AI Re-Generate Answers'}</span>
+                      <span>{isLlmRunning ? 'Generating...' : 'âš¡ AI Re-Generate Answers'}</span>
                     </button>
                   </div>
 
@@ -2341,7 +2341,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="flex flex-wrap gap-1.5 pt-1">
                             {item.groundedEvidence.map((ev, evIdx) => (
                               <span key={evIdx} className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
-                                📌 {ev}
+                                ðŸ“Œ {ev}
                               </span>
                             ))}
                           </div>
@@ -2352,7 +2352,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 8. FOLLOW-UP CADENCE TAB (JobRadar Autonomous) ── */}
+              {/* â”€â”€ 8. FOLLOW-UP CADENCE TAB (JobRadar Autonomous) â”€â”€ */}
               {activeTab === 'followup' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-blue-950/40 via-[#18181b] to-indigo-950/40 border border-blue-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
@@ -2375,7 +2375,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           setIsLlmRunning(true);
                           setAiActionLabel('Synthesizing personalized follow-up cadence emails with AI...');
                           try {
-                            const res = await generateFollowupCadenceWithAi(job, profile, profile.apiKey);
+                            const res = await generateFollowupCadenceWithAi(job, profile, profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "");
                             setFollowupData(res);
                             job.followupCadence = res;
                             store.updateJob(job.id, { followupCadence: res });
@@ -2392,7 +2392,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         className="flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                        <span>{isLlmRunning ? 'Generating...' : '⚡ AI Re-Generate Cadence'}</span>
+                        <span>{isLlmRunning ? 'Generating...' : 'âš¡ AI Re-Generate Cadence'}</span>
                       </button>
 
                       <div className="text-right font-mono shrink-0">
@@ -2420,7 +2420,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                               </span>
                               {step.isOverdue && (
                                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800 animate-pulse">
-                                  ⚠️ Due for follow-up
+                                  âš ï¸ Due for follow-up
                                 </span>
                               )}
                             </div>
@@ -2453,7 +2453,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* ── 9. OFFER & SALARY NEGOTIATION TAB (JobRadar Autonomous) ── */}
+              {/* â”€â”€ 9. OFFER & SALARY NEGOTIATION TAB (JobRadar Autonomous) â”€â”€ */}
               {activeTab === 'negotiation' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-yellow-950/40 via-[#18181b] to-amber-950/40 border border-yellow-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
@@ -2475,7 +2475,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         setIsLlmRunning(true);
                         setAiActionLabel('Synthesizing compensation counter-offer package with AI...');
                         try {
-                          const res = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey);
+                          const res = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "");
                           setSalaryData(res);
                           job.salaryNegotiation = res;
                           store.updateJob(job.id, { salaryNegotiation: res });
@@ -2492,14 +2492,14 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-yellow-500 to-amber-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Calibrating...' : '⚡ AI Recalibrate CTC'}</span>
+                      <span>{isLlmRunning ? 'Calibrating...' : 'âš¡ AI Recalibrate CTC'}</span>
                     </button>
                   </div>
 
                   {/* Benchmark Summary Card */}
                   <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
                     <h4 className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-wider">
-                      📊 Market Compensation Analysis
+                      ðŸ“Š Market Compensation Analysis
                     </h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
                       <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl">
@@ -2519,7 +2519,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
-                          <span>✉️ Counter-Offer Email Script</span>
+                          <span>âœ‰ï¸ Counter-Offer Email Script</span>
                         </h4>
                         <button
                           onClick={() => copyToClipboard(salaryData.counterOfferEmailScript, 301)}
@@ -2541,7 +2541,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
-                          <span>🌍 Geographic / Remote Discount Pushback</span>
+                          <span>ðŸŒ Geographic / Remote Discount Pushback</span>
                         </h4>
                         <button
                           onClick={() => copyToClipboard(salaryData.remoteCompPushbackScript, 302)}
@@ -2563,7 +2563,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
-                          <span>⚡ Competing Offer Leverage Script</span>
+                          <span>âš¡ Competing Offer Leverage Script</span>
                         </h4>
                         <button
                           onClick={() => copyToClipboard(salaryData.competingOfferLeverageScript, 303)}
@@ -2588,3 +2588,4 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     </div>
   );
 }
+
