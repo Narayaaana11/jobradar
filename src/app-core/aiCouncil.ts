@@ -50,13 +50,14 @@ Return strictly valid JSON:
   "reasoning": "2-3 concise sentences on technical code & stack alignment citing retrieved evidence",
   "keyFindings": ["Point 1", "Point 2"]
 }`;
+        const candidateProjectsList = (profile.projects || []).map((p) => `${p.title} (${p.tech})`).join(', ');
         const prompt = `EVALUATE TECHNICAL COMPETENCY FOR:
 Target: ${job.companyName} — ${job.jobTitle}
 Skills Needed: ${(job.skillsRequired || []).join(', ')}
 Candidate Skills: ${profile.primarySkills.join(', ')}
 
 RETRIEVED CANDIDATE KNOWLEDGE VAULT EVIDENCE:
-${ragContext.formattedContext || 'AUSVMS, Guard Hub, Matrix Library, JobRadar projects.'}`;
+${ragContext.formattedContext || candidateProjectsList || 'Full stack engineering projects.'}`;
 
         try {
           const res = await llmClient.callLlm(prompt, systemPrompt, apiKey, techModel);
@@ -68,7 +69,7 @@ ${ragContext.formattedContext || 'AUSVMS, Guard Hub, Matrix Library, JobRadar pr
             score: typeof parsed.score === 'number' ? parsed.score : 80,
             verdict: parsed.verdict || 'Moderate Fit',
             reasoning: parsed.reasoning || 'Technical capabilities align with core role requirements.',
-            keyFindings: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : ['MERN stack proficiency confirmed.'],
+            keyFindings: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : ['Technical stack proficiency confirmed.'],
           };
         } catch {
           return {
@@ -76,8 +77,8 @@ ${ragContext.formattedContext || 'AUSVMS, Guard Hub, Matrix Library, JobRadar pr
             modelUsed: techModel,
             score: 82,
             verdict: 'Moderate Fit',
-            reasoning: 'Candidate demonstrates strong hands-on full-stack TypeScript and React competencies.',
-            keyFindings: ['Solid JavaScript/Node foundations', 'Ready for junior development tasks'],
+            reasoning: 'Candidate demonstrates hands-on competencies in primary technical requirements.',
+            keyFindings: ['Solid programming foundations', 'Ready for engineering tasks'],
           };
         }
       })();
@@ -85,20 +86,19 @@ ${ragContext.formattedContext || 'AUSVMS, Guard Hub, Matrix Library, JobRadar pr
       // ── 2. MEMBER 2: HIRING MANAGER / SENIORITY EVALUATOR ──
       const hiringPromise = (async (): Promise<IAiCouncilMemberVote> => {
         const systemPrompt = `You are Member #2 of the AI Hiring Council: The Engineering Hiring Manager.
-Evaluate on candidate career trajectory, graduation year suitability (${profile.education}), practical internship execution, and teamwork potential.
+Evaluate on candidate career trajectory, education suitability (${profile.education || 'Degree'}), practical execution, and teamwork potential.
 Return strictly valid JSON:
 {
   "score": 88,
   "verdict": "Strong Fit | Moderate Fit | Borderline | Reject",
-  "reasoning": "2-3 concise sentences on seniority, graduation batch fit, and project scale",
+  "reasoning": "2-3 concise sentences on seniority, education fit, and project scale",
   "keyFindings": ["Point 1", "Point 2"]
 }`;
         const prompt = `EVALUATE HIRING & CAREER FIT FOR:
 Target: ${job.companyName} — ${job.jobTitle}
 Location: ${job.location || 'India'}
-Candidate Education: ${profile.education}
-Candidate Experience: ${profile.experience}
-Internship: Full Stack Development Intern @ Technical Hub Pvt. Ltd.`;
+Candidate Education: ${profile.education || 'University Degree'}
+Candidate Experience: ${profile.experience || 'Early Career / Associate'}`;
 
         try {
           const res = await llmClient.callLlm(prompt, systemPrompt, apiKey, hiringModel);
@@ -109,8 +109,8 @@ Internship: Full Stack Development Intern @ Technical Hub Pvt. Ltd.`;
             modelUsed: res.model,
             score: typeof parsed.score === 'number' ? parsed.score : 85,
             verdict: parsed.verdict || 'Strong Fit',
-            reasoning: parsed.reasoning || 'Candidate profile matches entry-level / university talent criteria.',
-            keyFindings: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : ['Graduation batch 2026 is eligible.'],
+            reasoning: parsed.reasoning || 'Candidate profile matches engineering talent criteria.',
+            keyFindings: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : ['Educational qualifications align with role.'],
           };
         } catch {
           return {
@@ -118,8 +118,8 @@ Internship: Full Stack Development Intern @ Technical Hub Pvt. Ltd.`;
             modelUsed: hiringModel,
             score: 86,
             verdict: 'Strong Fit',
-            reasoning: 'MCA 2026 graduation timeline matches off-campus and university hiring cycles perfectly.',
-            keyFindings: ['Eligible 2026 batch', 'Internship experience provides practical readiness'],
+            reasoning: 'Candidate education timeline and background match hiring requirements.',
+            keyFindings: ['Eligible background', 'Demonstrated practical project readiness'],
           };
         }
       })();
@@ -195,19 +195,21 @@ Synthesize the final Council Verdict into JSON matching the schema.`;
         const cleaned = chairRes.text.replace(/```json/g, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(cleaned);
 
+        const candidateProjNames = (profile.projects || []).map((p) => p.title).join(', ') || 'verified engineering projects';
         verdict = {
           consensusScore: typeof parsed.consensusScore === 'number' ? parsed.consensusScore : Math.round((memberVotes[0].score + memberVotes[1].score + memberVotes[2].score) / 3),
           consensusRubricTier: parsed.consensusRubricTier || 'Tier 1 - Strong Fit',
           consensusRecommendation: parsed.consensusRecommendation || 'auto',
           chairModelUsed: chairRes.model,
-          chairSynthesis: parsed.chairSynthesis || 'The AI Council unanimously recommends pursuing this opportunity based on strong skill alignment and 2026 batch eligibility.',
+          chairSynthesis: parsed.chairSynthesis || 'The AI Council recommends pursuing this opening based on core skill alignment and candidate qualifications.',
           memberVotes,
-          reconciledGaps: Array.isArray(parsed.reconciledGaps) ? parsed.reconciledGaps : ['Brush up on high-concurrency system design nuances.'],
-          tailoredStrategy: parsed.tailoredStrategy || 'Emphasize your full-stack MERN production deployments and MCA 2026 graduation timeline.',
+          reconciledGaps: Array.isArray(parsed.reconciledGaps) ? parsed.reconciledGaps : ['Review system design and scalability concepts before interview.'],
+          tailoredStrategy: parsed.tailoredStrategy || `Highlight hands-on impact metrics from ${candidateProjNames} in your application.`,
           evaluatedAt: new Date().toISOString(),
         };
       } catch {
         const avgScore = Math.round((memberVotes[0].score + memberVotes[1].score + memberVotes[2].score) / 3);
+        const candidateProjNames = (profile.projects || []).map((p) => p.title).join(', ') || 'verified engineering projects';
         verdict = {
           consensusScore: avgScore,
           consensusRubricTier: avgScore >= 85 ? 'Tier 1 - Strong Fit' : 'Tier 2 - Good Match',
@@ -216,7 +218,7 @@ Synthesize the final Council Verdict into JSON matching the schema.`;
           chairSynthesis: `The AI Council evaluated ${job.companyName} across Technical, Hiring, and ATS dimensions with a composite consensus score of ${avgScore}%. Candidate presents strong readiness.`,
           memberVotes,
           reconciledGaps: ['Review system scalability and distributed database concepts before interview.'],
-          tailoredStrategy: 'Highlight hands-on full stack project metrics (AUSVMS, Guard Hub) in your application.',
+          tailoredStrategy: `Highlight hands-on project metrics (${candidateProjNames}) in your application.`,
           evaluatedAt: new Date().toISOString(),
         };
       }

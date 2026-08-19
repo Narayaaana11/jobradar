@@ -225,7 +225,7 @@ export class ScrapingOverseerAgent {
       const res = await llmClient.auditAndExtractCareerPageWithAi(rawText, pageUrl, companyName, apiKey);
       if (res.success && res.data && res.data.openings.length > 0) {
         // Filter openings through role validation
-        return res.data.openings.filter((op) => this.isLegitimateJobTitle(op.jobTitle).valid);
+        return res.data.openings.filter((op: { jobTitle: string }) => this.isLegitimateJobTitle(op.jobTitle).valid);
       }
     } catch (err) {
       console.warn(`[ScrapingOverseer] LLM Career Page audit fallback for ${companyName}:`, err);

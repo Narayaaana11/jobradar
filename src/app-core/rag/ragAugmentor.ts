@@ -81,9 +81,9 @@ SCHEMA:
 {
   "summary": "1 concise tailored ATS summary specifically matching ${job.companyName}'s domain using candidate's actual credentials",
   "customizedBullets": [
-    "AUSVMS: Built role-based access control with real-time Socket.io and MongoDB pipelines cutting lookup times by 70%...",
-    "Guard Hub: Engineered automated shift collision detection engine in React and Node.js eliminating 100% of double-booking conflicts...",
-    "Matrix Library: Integrated NLP query assistant and real-time state synchronization..."
+    "Project 1: Built scalable service utilizing primary stack with quantifiable outcome...",
+    "Project 2: Engineered resilient data pipeline with optimized response latency...",
+    "Project 3: Developed responsive UI component system with state management..."
   ]
 }`;
 

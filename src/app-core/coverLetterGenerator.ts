@@ -1,30 +1,57 @@
-import { IProfile } from './types';
+import { IProfile, IJob } from './types';
 import { IExtractedJD } from './extractor';
+import { llmClient } from './llmClient';
 
-export function generateCoverLetter(job: IExtractedJD, profile: IProfile): string {
+/**
+ * Primary AI-Native Cover Letter Generator.
+ */
+export async function generateCoverLetterWithAi(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): Promise<string> {
+  const res = await llmClient.generateAiCoverLetter(job, profile);
+  if (res.success && res.data) {
+    return res.data;
+  }
+  throw new Error(res.error || 'AI Cover Letter generation failed.');
+}
+
+/**
+ * Dynamic parameter-driven cover letter generator.
+ * Parameterized entirely from profile and job with zero static literals.
+ */
+export function generateCoverLetter(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): string {
   const company = job.companyName || 'Hiring Team';
   const role = job.jobTitle || 'Software Engineer';
-  const skillsList = (job.skillsRequired || ['TypeScript', 'React', 'Node.js', 'REST APIs']).slice(0, 4).join(', ');
+  const matchedSkills = (job.skillsRequired && job.skillsRequired.length > 0)
+    ? job.skillsRequired.slice(0, 4).join(', ')
+    : (profile.primarySkills || []).slice(0, 4).join(', ') || 'Modern Software Engineering';
+
+  const projectHighlights = (profile.projects || [])
+    .slice(0, 2)
+    .map((p) => `• Built ${p.title} utilizing ${p.tech}: ${p.description}`)
+    .join('\n');
+
+  const educationText = profile.education ? ` possessing a background in ${profile.education}` : '';
 
   return `Dear ${company} Hiring Team,
 
-I am writing to express my enthusiastic interest in the ${role} opening at ${company}. As a Full Stack Engineer and Master of Computer Applications (MCA 2026) candidate with deep technical hands-on experience in modern TypeScript, React, Next.js, Node.js, and autonomous LLM agent systems, I am excited about the opportunity to contribute to ${company}'s forward-thinking engineering initiatives.
+I am writing to express my enthusiastic interest in the ${role} position at ${company}. As a ${profile.title || 'Software Engineer'}${educationText} with hands-on proficiency in ${matchedSkills}, I am eager to bring my problem-solving abilities and engineering discipline to your team.
 
-Throughout my software engineering journey, I have focused on building robust, scalable applications from the ground up. My experience includes:
-• Architecting full-stack systems with React 18, Next.js App Router, and modular Node.js/Express backends.
-• Developing high-throughput data pipelines and desktop integration engines handling tens of thousands of transactional records with strict reliability.
-• Implementing clean, ATS-compliant user experiences, component-driven design systems with Tailwind CSS, and optimized database queries in MongoDB and PostgreSQL.
+${projectHighlights ? `Key highlights from my recent engineering work include:\n${projectHighlights}\n` : ''}
+Your opening for ${role} strongly resonates with my background in ${matchedSkills}. I focus on building robust, maintainable systems, writing clean and modular code, and driving rapid development cycles.
 
-Your opening for ${role} strongly resonates with my background in ${skillsList}. I am known for my quick learning curve, rigorous problem-solving approach, and relentless focus on code quality and performance.
-
-I would welcome the opportunity to discuss how my technical skills, passion for building impactful software, and proactive work ethic can add immediate value to ${company}.
+I would welcome the opportunity to discuss how my technical skills and proactive work ethic can support ${company}'s product and engineering goals.
 
 Thank you for your time and consideration.
 
 Sincerely,
 ${profile.name}
-${profile.phone} | ${profile.email}
-LinkedIn: ${profile.linkedin}
-Portfolio: ${profile.portfolio}
-GitHub: ${profile.github}`;
+${profile.email} | ${profile.phone}
+${profile.linkedin ? `LinkedIn: ${profile.linkedin}` : ''}
+${profile.github ? `GitHub: ${profile.github}` : ''}
+${profile.portfolio ? `Portfolio: ${profile.portfolio}` : ''}`.trim();
 }

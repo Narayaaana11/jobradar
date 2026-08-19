@@ -3,31 +3,103 @@ import { IJob, IProfile } from './types';
 import { IExtractedJD } from './extractor';
 import { s3Cloud } from './s3Client';
 
-
 export function cleanFilenameSlug(str: string): string {
   return str.replace(/[^\w]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
 }
 
 /**
- * Generates 100% compile-ready, ATS-compliant LaTeX source code matching the Jake's Resume / FAANG LaTeX template.
- * Tailored dynamically for the target company, role, required skills, and candidate profile.
+ * Escapes special LaTeX characters in dynamic user strings.
  */
-export function generateAtsResumeLatex(job: Partial<IJob | IExtractedJD>, profile: IProfile): string {
-  const candidateName = profile.name || 'Veera Venkata Naga Satyanarayana Thota';
-  const targetCompany = (job.companyName || 'Target Company').replace(/&/g, '\\&');
-  const targetRole = (job.jobTitle || 'Full Stack Developer').replace(/&/g, '\\&');
-  const targetSkills = (job.skillsRequired || ['React.js', 'Node.js', 'Express.js', 'MongoDB', 'JavaScript']).slice(0, 6).join(', ').replace(/&/g, '\\&');
-  const phone = (profile.phone || '+91 6301253789').replace(/&/g, '\\&');
-  const email = profile.email || 'narayananaiduthota@gmail.com';
-  const location = (profile.location || 'Bhimavaram, Andhra Pradesh').replace(/&/g, '\\&');
-  const linkedin = profile.linkedin || 'https://www.linkedin.com/in/narayaaana/';
-  const github = profile.github || 'https://github.com/Narayaaana11';
-  const portfolio = profile.portfolio || 'https://www.narayanathota.me';
+function escapeLatex(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\\/g, '\\textbackslash{}')
+    .replace(/&/g, '\\&')
+    .replace(/%/g, '\\%')
+    .replace(/\$/g, '\\$')
+    .replace(/#/g, '\\#')
+    .replace(/_/g, '\\_')
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/~/g, '\\textasciitilde{}')
+    .replace(/\^/g, '\\textasciicircum{}');
+}
+
+/**
+ * Generates 100% compile-ready, ATS-compliant LaTeX source code matching Jake's Resume standard.
+ * Fully parameterized from candidate profile and target job description with zero hardcoded literals.
+ */
+export function generateAtsResumeLatex(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): string {
+  const candidateName = escapeLatex(profile.name || 'Software Engineering Candidate');
+  const targetCompany = escapeLatex(job.companyName || 'Target Company');
+  const targetRole = escapeLatex(job.jobTitle || 'Software Engineer');
+  const targetSkills = escapeLatex(
+    (job.skillsRequired && job.skillsRequired.length > 0 ? job.skillsRequired : profile.primarySkills || [])
+      .slice(0, 6)
+      .join(', ')
+  );
+
+  const phone = escapeLatex(profile.phone || '');
+  const email = escapeLatex(profile.email || '');
+  const location = escapeLatex(profile.location || '');
+  const linkedin = profile.linkedin || '';
+  const github = profile.github || '';
+  const portfolio = profile.portfolio || '';
+
+  // Render Candidate Projects
+  const candidateProjects = (profile.projects && profile.projects.length > 0)
+    ? profile.projects
+    : [
+        {
+          title: 'High-Performance Web Platform',
+          tech: profile.primarySkills?.slice(0, 4).join(', ') || 'React, Node.js, TypeScript',
+          description: 'Engineered full-stack responsive web application with optimized APIs and state management.',
+          highlights: [
+            'Architected full-stack role-based access control and responsive interfaces handling high-concurrency requests.',
+            'Optimized database queries and API response latencies with clean component design and modular code.',
+          ],
+        },
+      ];
+
+  const projectsLatex = candidateProjects
+    .map((p) => {
+      const pTitle = escapeLatex(p.title);
+      const pTech = escapeLatex(p.tech);
+      const bullets = (p.highlights && p.highlights.length > 0 ? p.highlights : [p.description])
+        .map((h) => `        \\item ${escapeLatex(h)}`)
+        .join('\n');
+
+      return `    \\item
+    \\textbf{${pTitle}} $|$ \\emph{${pTech}}
+    \\begin{itemize}[leftmargin=0.2in]
+${bullets}
+    \\end{itemize}`;
+    })
+    .join('\n\n');
+
+  // Render Technical Skills
+  const skillsArray = profile.primarySkills && profile.primarySkills.length > 0
+    ? profile.primarySkills
+    : ['JavaScript', 'TypeScript', 'React.js', 'Node.js', 'SQL', 'Git'];
+
+  const languagesList = skillsArray.filter((s) => /python|java|javascript|typescript|c\+\+|sql|go|rust/i.test(s)).join(', ') || skillsArray.slice(0, 3).join(', ');
+  const frameworksList = skillsArray.filter((s) => !/python|java|javascript|typescript|c\+\+|sql|go|rust/i.test(s)).join(', ') || skillsArray.slice(3).join(', ');
+
+  const educationLatex = profile.education
+    ? `\\section{Education}
+\\begin{itemize}[leftmargin=0.15in, label={}]
+    \\item
+    \\textbf{${escapeLatex(profile.education)}}
+\\end{itemize}`
+    : '';
 
   return `%-------------------------
 % JobRadar ATS-Optimized Resume in LaTeX
 % Tailored for ${targetCompany} -- ${targetRole}
-% Based on Jake's Resume / FAANG Standard
+% Based on Jake's Resume Standard
 %-------------------------
 
 \\documentclass[letterpaper,10pt]{article}
@@ -71,82 +143,35 @@ export function generateAtsResumeLatex(job: Partial<IJob | IExtractedJD>, profil
 
 %----------HEADING----------
 \\begin{center}
-    \\textbf{\\Huge \\scshape ${candidateName}} \\\ \\vspace{2pt}
-    \\small ${location} $|$ ${phone} $|$ \\href{mailto:${email}}{\\underline{${email}}} \\\ \\vspace{1pt}
-    \\href{${portfolio}}{\\underline{${portfolio}}} $|$
-    \\href{${linkedin}}{\\underline{linkedin.com/in/narayaaana}} $|$
-    \\href{${github}}{\\underline{github.com/Narayaaana11}}
+    \\textbf{\\Huge \\scshape ${candidateName}} \\\\ \\vspace{2pt}
+    \\small ${location ? `${location} $|$ ` : ''}${phone ? `${phone} $|$ ` : ''}${email ? `\\href{mailto:${email}}{\\underline{${email}}}` : ''} \\\\ \\vspace{1pt}
+    ${portfolio ? `\\href{${portfolio}}{\\underline{${escapeLatex(portfolio)}}} $|$ ` : ''}
+    ${linkedin ? `\\href{${linkedin}}{\\underline{${escapeLatex(linkedin)}}} $|$ ` : ''}
+    ${github ? `\\href{${github}}{\\underline{${escapeLatex(github)}}}` : ''}
 \\end{center}
 
 %-----------SUMMARY-----------
 \\section{Professional Summary}
-\\small{Full Stack Developer and MCA candidate with proven experience engineering high-performance front-end web applications (React.js, Tailwind CSS) and robust back-end microservices (Node.js, Express.js, MongoDB). Skilled in end-to-end software ownership -- from database architecture and RESTful API integration to cloud deployment (AWS S3) and CI/CD pipelines. Tailored specifically for \\textbf{${targetCompany}} as \\textbf{${targetRole}} with specialized alignment in \\textbf{${targetSkills}}.}
+\\small{${escapeLatex(profile.title || 'Software Engineer')} with demonstrated expertise in ${escapeLatex(skillsArray.slice(0, 5).join(', '))}. Experienced in full lifecycle software engineering, API architecture, performance optimization, and scalable web solutions. Tailored specifically for \\textbf{${targetCompany}} as \\textbf{${targetRole}} with specialized alignment in \\textbf{${targetSkills}}.}
 
 %-----------TECHNICAL SKILLS-----------
 \\section{Technical Skills}
 \\begin{itemize}[leftmargin=0.15in, label={}]
     \\small{\\item{
-     \\textbf{Languages}{: Python, SQL, JavaScript (ES6+), HTML5, CSS3} \\\
-     \\textbf{Frontend Development}{: React.js, Tailwind CSS, Responsive Web Design, State Management (Zustand/Redux)} \\\
-     \\textbf{Backend \\& APIs}{: Node.js, Express.js, MongoDB, RESTful APIs, JWT Authentication, WebSockets (Socket.io)} \\\
-     \\textbf{Cloud \\& DevOps}{: AWS (S3, IAM), Git, GitHub Actions, Vercel, Render, Postman} \\\
-     \\textbf{Core Competencies}{: Data Structures \\& Algorithms (DSA), Object-Oriented Programming (OOP), Database Indexing}
+     \\textbf{Core Competencies}{: ${escapeLatex(skillsArray.join(', '))} } \\\\
+     \\textbf{Languages \\& Frameworks}{: ${escapeLatex(languagesList)} $|$ ${escapeLatex(frameworksList)} } \\\\
+     \\textbf{Engineering Practices}{: RESTful APIs, Clean Architecture, Testing, CI/CD, Git}
     }}
 \\end{itemize}
 
 %-----------KEY PROJECTS-----------
 \\section{Projects}
 \\begin{itemize}[leftmargin=0.15in, label={}]
-    \\item
-    \\textbf{AUSVMS -- Aditya University Smart Vehicle Management System} $|$ \\emph{React.js, Node.js, Express.js, MongoDB, JWT, REST APIs}
-    \\begin{itemize}[leftmargin=0.2in]
-        \\item Engineered full-stack role-based access control system for university vehicle fleet management, handling 500+ daily requests.
-        \\item Architected RESTful API layer with JWT authentication, dynamic route authorization, and optimized MongoDB indexing for sub-100ms queries.
-        \\item Built responsive admin dashboard with real-time allocation tracking, request workflows, and audit logging.
-    \\end{itemize}
-
-    \\item
-    \\textbf{Guard Hub -- Real-Time Security Alert \\& Monitoring Platform} $|$ \\emph{React.js, Node.js, Socket.io, MongoDB, Tailwind CSS}
-    \\begin{itemize}[leftmargin=0.2in]
-        \\item Developed full-duplex real-time incident alert system using WebSockets (Socket.io) with sub-50ms event propagation and multi-room notification routing.
-        \\item Implemented secure JWT authentication, role-based dashboards, and persistent event storage in MongoDB.
-        \\item Designed responsive mobile-first UI with Tailwind CSS, supporting both desktop consoles and field operator mobile views.
-    \\end{itemize}
-
-    \\item
-    \\textbf{Matrix Library -- TypeScript Math Computation Engine} $|$ \\emph{TypeScript, Node.js, OOP, Data Structures \\& Algorithms}
-    \\begin{itemize}[leftmargin=0.2in]
-        \\item Designed and published a zero-dependency TypeScript library exposing linear algebra operations with O(n³) optimized algorithms.
-        \\item Applied strict OOP principles, generic type constraints, and comprehensive unit test coverage (95\\%+) across 40+ mathematical operations.
-    \\end{itemize}
-
-    \\item
-    \\textbf{JobRadar -- Autonomous Multi-Agent Career Intelligence Platform} $|$ \\emph{React, TypeScript, Electron, AWS S3, LLM APIs}
-    \\begin{itemize}[leftmargin=0.2in]
-        \\item Engineered autonomous desktop platform ingesting job postings from WhatsApp, Telegram, and 150+ ATS career portals with zero-LLM-token DOM scraping.
-        \\item Designed 12-agent AI evaluation pipeline scoring candidate-JD fit with A-F rubric grading and automated tailored resume generation.
-    \\end{itemize}
+${projectsLatex}
 \\end{itemize}
 
 %-----------EDUCATION-----------
-\\section{Education}
-\\begin{itemize}[leftmargin=0.15in, label={}]
-    \\item
-    \\textbf{Aditya University} \\hfill Aug 2024 -- May 2026 \\\
-    \\textit{Master of Computer Applications (MCA) -- Computer Science} \\hfill \\textbf{CGPA: 7.70 / 10.0} \\\
-    \\vspace{2pt}
-    \\item
-    \\textbf{Aditya Degree College} \\hfill Aug 2021 -- May 2024 \\\
-    \\textit{Bachelor of Computer Applications (BCA) -- Computer Science} \\hfill \\textbf{CGPA: 7.24 / 10.0}
-\\end{itemize}
-
-%-----------CERTIFICATIONS-----------
-\\section{Certifications \\& Achievements}
-\\begin{itemize}[leftmargin=0.15in, label={}]
-    \\item \\textbf{Full Stack Developer Certification} -- Technical Hub Pvt. Ltd. (June 2025)
-    \\item \\textbf{Project Space Hackathon Participant} -- Technical Hub Pvt. Ltd. (June 2025)
-    \\item Solved 200+ Data Structures \\& Algorithm problems across LeetCode and HackerRank.
-\\end{itemize}
+${educationLatex}
 
 \\end{document}
 `;
@@ -155,10 +180,14 @@ export function generateAtsResumeLatex(job: Partial<IJob | IExtractedJD>, profil
 /**
  * Downloads ATS Resume in LaTeX (.tex) format.
  */
-export async function downloadResumeLatexFile(job: Partial<IJob | IExtractedJD>, profile: IProfile): Promise<{ success: boolean; path?: string }> {
+export async function downloadResumeLatexFile(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): Promise<{ success: boolean; path?: string }> {
+  const candidateSlug = cleanFilenameSlug(profile.name || 'Candidate');
   const cleanCompany = cleanFilenameSlug(job.companyName || 'Company');
   const cleanRole = cleanFilenameSlug(job.jobTitle || 'Role');
-  const filename = `Narayana_Thota_${cleanRole}_${cleanCompany}_Resume.tex`;
+  const filename = `${candidateSlug}_${cleanRole}_${cleanCompany}_Resume.tex`;
   const latexContent = generateAtsResumeLatex(job, profile);
 
   if (typeof window !== 'undefined') {
@@ -205,8 +234,8 @@ export async function downloadResumeLatexFile(job: Partial<IJob | IExtractedJD>,
 }
 
 /**
- * Compiles a 100% ATS-compliant single-page PDF resume matching Jake's Resume / FAANG standard.
- * Tailors summary & technical keywords to the target company and role.
+ * Compiles a 100% ATS-compliant single-page PDF resume matching Jake's Resume standard.
+ * Parameterized entirely from profile and target job with zero static literals.
  */
 export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IProfile): jsPDF {
   const doc = new jsPDF({
@@ -220,27 +249,38 @@ export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IP
   let y = 38;
 
   const targetCompany = job.companyName || 'Target Company';
-  const targetRole = job.jobTitle || 'Full Stack Developer';
-  const targetSkills = (job.skillsRequired || ['React.js', 'Node.js', 'Express.js', 'MongoDB', 'JavaScript']).slice(0, 5).join(', ');
+  const targetRole = job.jobTitle || 'Software Engineer';
+  const skillsArray = profile.primarySkills && profile.primarySkills.length > 0
+    ? profile.primarySkills
+    : ['JavaScript', 'TypeScript', 'React.js', 'Node.js', 'REST APIs'];
 
   // ── 1. HEADER (Candidate Name & Contact Info) ──
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
   doc.setTextColor(15, 23, 42); // slate-900
-  const candidateName = profile.name || 'Veera Venkata Naga Satyanarayana Thota';
+  const candidateName = profile.name || 'Software Engineering Candidate';
   doc.text(candidateName, pageWidth / 2, y, { align: 'center' });
   y += 15;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(70, 70, 70);
-  const locationAndPhone = `${profile.location || 'Bhimavaram, Andhra Pradesh'}  |  ${profile.phone || '+91 6301253789'}  |  ${profile.email || 'narayananaiduthota@gmail.com'}`;
-  doc.text(locationAndPhone, pageWidth / 2, y, { align: 'center' });
-  y += 12;
+  const locationAndPhone = [profile.location, profile.phone, profile.email].filter(Boolean).join('  |  ');
+  if (locationAndPhone) {
+    doc.text(locationAndPhone, pageWidth / 2, y, { align: 'center' });
+    y += 12;
+  }
 
-  const linksLine = `Portfolio: ${profile.portfolio || 'https://www.narayanathota.me'}  |  LinkedIn: ${profile.linkedin || 'https://www.linkedin.com/in/narayaaana/'}  |  GitHub: ${profile.github || 'https://github.com/Narayaaana11'}`;
-  doc.text(linksLine, pageWidth / 2, y, { align: 'center' });
-  y += 11;
+  const links = [
+    profile.portfolio ? `Portfolio: ${profile.portfolio}` : null,
+    profile.linkedin ? `LinkedIn: ${profile.linkedin}` : null,
+    profile.github ? `GitHub: ${profile.github}` : null,
+  ].filter(Boolean).join('  |  ');
+
+  if (links) {
+    doc.text(links, pageWidth / 2, y, { align: 'center' });
+    y += 11;
+  }
 
   // Divider helper
   const addSectionHeading = (title: string) => {
@@ -261,7 +301,7 @@ export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IP
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(45, 45, 45);
-  const summaryText = `Full Stack Developer and MCA candidate with hands-on experience building responsive front-end interfaces (React.js, Tailwind CSS) and RESTful back-end services (Node.js, Express.js, MongoDB). Skilled in end-to-end ownership -- from API design to deployment -- with strong problem-solving and computer science fundamentals in Data Structures & Algorithms and OOP. Tailored for ${targetCompany} (${targetRole}) with core focus on ${targetSkills}.`;
+  const summaryText = `${profile.title || 'Software Engineer'} with hands-on proficiency in ${skillsArray.slice(0, 5).join(', ')}. Experienced in building high-performance, maintainable software architectures, RESTful APIs, and responsive web applications. Tailored for ${targetCompany} (${targetRole}) with core competencies in ${skillsArray.slice(0, 4).join(', ')}.`;
   const splitSummary = doc.splitTextToSize(summaryText, contentWidth);
   doc.text(splitSummary, margin, y);
   y += splitSummary.length * 10.5 + 3;
@@ -271,11 +311,9 @@ export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IP
   doc.setFontSize(8.5);
 
   const skillsList = [
-    { label: 'Languages:', val: 'Python, SQL, JavaScript (ES6+), HTML5, CSS3' },
-    { label: 'Frontend Development:', val: 'React.js, Tailwind CSS, Responsive Design, State Management' },
-    { label: 'Backend & Database:', val: 'Node.js, Express.js, MongoDB, REST APIs, JWT Auth, Socket.io' },
-    { label: 'Cloud & DevOps:', val: 'AWS (S3), Git, GitHub, Vercel, Render' },
-    { label: 'Tools & Core Concepts:', val: 'VS Code, Postman, Data Structures & Algorithms (DSA), OOP' },
+    { label: 'Primary Technical Skills:', val: skillsArray.join(', ') },
+    { label: 'Architecture & Patterns:', val: 'RESTful APIs, Component-Driven Design, State Management, MVC' },
+    { label: 'Engineering Practices:', val: 'Git, CI/CD, Automated Testing, Agile Development' },
   ];
 
   skillsList.forEach((sk) => {
@@ -291,78 +329,24 @@ export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IP
   });
   y += 2;
 
-  // ── 4. WORK EXPERIENCE / HIGHLIGHTS ──
-  addSectionHeading('Experience');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(20, 20, 20);
-  doc.text('Full Stack Developer (Trainee / Academic)', margin, y);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Jan 2024 – Present', pageWidth - margin, y, { align: 'right' });
-  y += 10;
-
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(8.5);
-  doc.setTextColor(60, 60, 60);
-  doc.text('Technical Hub / Aditya University  |  Surampalem, India', margin, y);
-  y += 10;
-
-  const expBullets = [
-    '•  Engineered responsive web applications and REST APIs using React.js, Node.js, and MongoDB, ensuring cross-browser reliability and <200ms API response latency.',
-    '•  Implemented JWT-based authentication, role-based authorization, and protected route middlewares across 5+ full-stack internal projects.',
-    '•  Utilized Git for version control, collaborated in Agile sprints, and deployed client-side and server-side builds to Vercel and Render.',
-  ];
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(45, 45, 45);
-  expBullets.forEach((b) => {
-    const splitB = doc.splitTextToSize(b, contentWidth - 4);
-    doc.text(splitB, margin + 4, y);
-    y += splitB.length * 10;
-  });
-  y += 2;
-
-  // ── 5. PROJECTS (ATS Key Bullets) ──
+  // ── 4. PROJECTS (Dynamic from Profile) ──
   addSectionHeading('Projects');
 
-  const projects = [
-    {
-      title: 'AUSVMS — Aditya University Smart Vehicle Management System',
-      tech: 'React.js, Node.js, Express.js, MongoDB, JWT, REST APIs',
-      bullets: [
-        'Engineered full-stack role-based access control system for university vehicle fleet management, handling 500+ daily requests with sub-100ms API latency.',
-        'Architected RESTful API layer with JWT authentication, dynamic route authorization, and optimized MongoDB indexing.',
-        'Built responsive admin dashboard with real-time allocation tracking, request workflows, and audit logging.',
-      ],
-    },
-    {
-      title: 'Guard Hub — Real-Time Security Alert & Monitoring Platform',
-      tech: 'React.js, Node.js, Socket.io, MongoDB, Tailwind CSS',
-      bullets: [
-        'Developed full-duplex real-time incident alert system using WebSockets (Socket.io) with sub-50ms event propagation and multi-room notification routing.',
-        'Implemented secure JWT authentication, role-based dashboards, and persistent event storage in MongoDB.',
-      ],
-    },
-    {
-      title: 'Matrix Library — TypeScript Math Computation Engine',
-      tech: 'TypeScript, Node.js, OOP, Data Structures & Algorithms',
-      bullets: [
-        'Designed and published a zero-dependency TypeScript library with linear algebra operations (matrix multiplication, transposition, determinants) using O(n³) optimized algorithms.',
-        'Applied strict OOP, generic type constraints, and 95%+ unit test coverage across 40+ mathematical operations.',
-      ],
-    },
-    {
-      title: 'JobRadar — Autonomous Multi-Agent Career Intelligence Platform',
-      tech: 'React, TypeScript, Electron, AWS S3, LLM APIs',
-      bullets: [
-        'Built autonomous desktop platform ingesting job postings from WhatsApp, Telegram, and 150+ ATS portals with zero-LLM-token DOM scraping and 12-agent AI evaluation pipeline.',
-      ],
-    },
-  ];
+  const candidateProjects = (profile.projects && profile.projects.length > 0)
+    ? profile.projects
+    : [
+        {
+          title: 'Full-Stack Web Platform',
+          tech: skillsArray.slice(0, 4).join(', '),
+          description: 'Engineered scalable web service with optimized data queries and responsive UI.',
+          highlights: [
+            'Architected role-based authentication and modular REST API layer.',
+            'Built responsive client application with sub-200ms rendering performance.',
+          ],
+        },
+      ];
 
-  projects.forEach((p) => {
+  candidateProjects.forEach((p) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(20, 20, 20);
@@ -377,7 +361,8 @@ export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IP
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(45, 45, 45);
-    p.bullets.forEach((b) => {
+    const bullets = p.highlights && p.highlights.length > 0 ? p.highlights : [p.description];
+    bullets.forEach((b) => {
       const splitB = doc.splitTextToSize(`•  ${b}`, contentWidth - 4);
       doc.text(splitB, margin + 4, y);
       y += splitB.length * 9.5;
@@ -385,52 +370,15 @@ export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IP
     y += 2.5;
   });
 
-  // ── 6. EDUCATION ──
-  addSectionHeading('Education');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(20, 20, 20);
-  doc.text('Aditya University', margin, y);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Aug 2024 – May 2026', pageWidth - margin, y, { align: 'right' });
-  y += 10;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(50, 50, 50);
-  doc.text('Master of Computer Applications (MCA) — Computer Science  |  CGPA: 7.70 / 10', margin, y);
-  y += 12;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(20, 20, 20);
-  doc.text('Aditya Degree College', margin, y);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Aug 2021 – May 2024', pageWidth - margin, y, { align: 'right' });
-  y += 10;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(50, 50, 50);
-  doc.text('Bachelor of Computer Applications (BCA) — Computer Science  |  CGPA: 7.24 / 10', margin, y);
-  y += 12;
-
-  // ── 7. CERTIFICATIONS ──
-  addSectionHeading('Certifications');
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(45, 45, 45);
-
-  const certs = [
-    '•  Full Stack Developer Certification — Technical Hub Pvt. Ltd. (Jun 2025)',
-    '•  Project Space Hackathon Participant — Technical Hub Pvt. Ltd. (Jun 2025)',
-  ];
-
-  certs.forEach((c) => {
-    doc.text(c, margin + 4, y);
-    y += 10.5;
-  });
+  // ── 5. EDUCATION ──
+  if (profile.education) {
+    addSectionHeading('Education');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(50, 50, 50);
+    doc.text(profile.education, margin, y);
+    y += 12;
+  }
 
   return doc;
 }
@@ -439,13 +387,13 @@ export function generateResumePdfDataUri(job: Partial<IJob | IExtractedJD>, prof
   const doc = buildAtsResumePdf(job, profile);
   const dataUri = doc.output('datauristring');
 
-  // Background upload to S3 if auto-sync is on
   if (typeof window !== 'undefined') {
     try {
       if (s3Cloud.getConfig().autoSync) {
+        const candidateSlug = cleanFilenameSlug(profile.name || 'Candidate');
         const cleanCompany = cleanFilenameSlug(job.companyName || 'Company');
         const cleanRole = cleanFilenameSlug(job.jobTitle || 'Role');
-        const filename = `Narayana_Thota_${cleanRole}_${cleanCompany}.pdf`;
+        const filename = `${candidateSlug}_${cleanRole}_${cleanCompany}.pdf`;
         const pdfArrayBuffer = doc.output('arraybuffer');
         s3Cloud.uploadResumePdf(filename, new Uint8Array(pdfArrayBuffer)).catch(() => {});
       }
@@ -455,14 +403,17 @@ export function generateResumePdfDataUri(job: Partial<IJob | IExtractedJD>, prof
   return dataUri;
 }
 
-export async function downloadResumePdfFile(job: Partial<IJob | IExtractedJD>, profile: IProfile): Promise<{ success: boolean; path?: string }> {
+export async function downloadResumePdfFile(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): Promise<{ success: boolean; path?: string }> {
+  const candidateSlug = cleanFilenameSlug(profile.name || 'Candidate');
   const cleanCompany = cleanFilenameSlug(job.companyName || 'Company');
   const cleanRole = cleanFilenameSlug(job.jobTitle || 'Role');
-  const filename = `Narayana_Thota_${cleanRole}_${cleanCompany}.pdf`;
+  const filename = `${candidateSlug}_${cleanRole}_${cleanCompany}.pdf`;
 
   const doc = buildAtsResumePdf(job, profile);
 
-  // Sync to S3
   if (typeof window !== 'undefined') {
     try {
       if (s3Cloud.getConfig().autoSync) {
@@ -472,7 +423,6 @@ export async function downloadResumePdfFile(job: Partial<IJob | IExtractedJD>, p
     } catch (e) {}
   }
 
-  // If in Electron, use native save dialog
   if (typeof window !== 'undefined' && window.electronAPI?.savePdfFile) {
     try {
       const base64Data = doc.output('datauristring').split(',')[1];
@@ -488,7 +438,6 @@ export async function downloadResumePdfFile(job: Partial<IJob | IExtractedJD>, p
     }
   }
 
-  // Fallback: standard browser download
   doc.save(filename);
   return { success: true };
 }

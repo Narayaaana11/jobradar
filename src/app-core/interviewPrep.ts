@@ -1,52 +1,85 @@
-import { IInterviewPrep, IInterviewQuestion } from './types';
+import { IInterviewPrep, IInterviewQuestion, IProfile, IJob } from './types';
 import { IExtractedJD } from './extractor';
-import { IProfile } from './types';
+import { llmClient } from './llmClient';
 
-export function generateInterviewPrep(job: IExtractedJD, profile: IProfile): IInterviewPrep {
+/**
+ * Primary AI-Native Interview Prep Generator.
+ */
+export async function generateInterviewPrepWithAi(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): Promise<IInterviewPrep> {
+  const res = await llmClient.generateAiInterviewPrep(job, profile);
+  if (res.success && res.data) {
+    return res.data;
+  }
+  throw new Error(res.error || 'AI Interview Prep generation failed.');
+}
+
+/**
+ * Dynamic parameter-driven interview prep generator.
+ * Parameterized with candidate's actual profile details with zero static literals.
+ */
+export function generateInterviewPrep(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): IInterviewPrep {
   const company = job.companyName || 'Target Company';
   const role = job.jobTitle || 'Software Engineer';
-  const skills = job.skillsRequired || ['JavaScript', 'React', 'Node.js', 'REST APIs'];
+  const skills = (job.skillsRequired && job.skillsRequired.length > 0)
+    ? job.skillsRequired
+    : (profile.primarySkills && profile.primarySkills.length > 0)
+    ? profile.primarySkills
+    : ['JavaScript', 'TypeScript', 'Node.js', 'REST APIs'];
+
+  const primarySkill = skills[0] || 'Full Stack Engineering';
+  const secondarySkill = skills[1] || 'Distributed Systems';
+  const firstProject = profile.projects && profile.projects.length > 0
+    ? profile.projects[0]
+    : { title: 'production web service', tech: primarySkill, description: 'full stack application' };
+
+  const candidateEdu = profile.education ? `As a graduate with a background in ${profile.education}` : 'As a Software Engineer';
 
   const questions: IInterviewQuestion[] = [
     {
       category: 'Technical',
-      question: `How would you architect a high-performance frontend for ${role} at ${company} using modern React and TypeScript?`,
-      suggestedAnswer: `I implement component-level code splitting using React.lazy and Suspense, memoize expensive calculations with useMemo/useCallback, and utilize server-state caching (React Query or SWR) to minimize unnecessary re-renders. In TypeScript, I enforce strict typing with discriminated unions and generics for API response schemas.`,
-      keyConcepts: ['Code Splitting', 'React Performance', 'TypeScript Discriminated Unions', 'Server State Caching'],
+      question: `How would you architect a high-performance, maintainable service for ${role} at ${company} using ${primarySkill} and modern engineering standards?`,
+      suggestedAnswer: `I implement component-level separation of concerns, optimize data-fetching lifecycles with state caching, and enforce strict type safety with interfaces and generics. I ensure profiling tools monitor rendering bottlenecks and latency overhead.`,
+      keyConcepts: [primarySkill, 'Performance Optimization', 'Modular Architecture', 'State Management'],
     },
     {
       category: 'System Design',
-      question: `Design an idempotent RESTful API endpoint for transaction processing or batch data ingestion.`,
-      suggestedAnswer: `I design idempotent endpoints by requiring an Idempotency-Key header from clients, caching the processing state and response in Redis with a TTL. Database transactions use atomic ACID operations and optimistic locking with version numbers to guarantee zero duplicate record inserts even during network retries.`,
-      keyConcepts: ['Idempotency-Key', 'Redis TTL', 'Optimistic Locking', 'ACID Transactions'],
+      question: `Design an idempotent RESTful/gRPC endpoint for transaction processing or asynchronous job ingestion for ${role}.`,
+      suggestedAnswer: `I enforce idempotency using client-supplied idempotency keys stored in an in-memory cache with atomic TTL checks. Database mutations utilize optimistic concurrency locking and transaction boundaries to guarantee consistency.`,
+      keyConcepts: ['Idempotency-Key', 'Atomic Operations', 'Optimistic Locking', 'Transactional Consistency'],
     },
     {
       category: 'Technical',
-      question: `How do you handle asynchronous error boundaries and unhandled promise rejections in Node.js microservices?`,
-      suggestedAnswer: `In Node.js/Express, I use centralized async error-handling middleware that intercepts rejected promises, logs structured telemetry with Winston/Pino including correlation IDs, and gracefully sends sanitized RFC 7807 problem details without leaking stack traces.`,
-      keyConcepts: ['Centralized Error Middleware', 'Structured Telemetry', 'Correlation IDs', 'RFC 7807'],
+      question: `How do you handle asynchronous error boundaries, unhandled promise rejections, and observability in ${secondarySkill}?`,
+      suggestedAnswer: `I implement centralized middleware to intercept unhandled exceptions, log structured telemetry with correlation IDs, and return RFC 7807 compliant sanitized error envelopes without exposing internal stack traces.`,
+      keyConcepts: ['Centralized Middleware', 'Structured Telemetry', 'Correlation IDs', 'Observability'],
     },
     {
       category: 'Behavioral',
-      question: `Tell me about a challenging technical bug you encountered in one of your projects and how you diagnosed it.`,
-      suggestedAnswer: `While developing the Aditya University Smart Vehicle Management System (AUSVMS), I encountered intermittent socket timeout errors and MongoDB connection pool saturation during peak shift changes with 500+ concurrent requests. I traced the query latency and identified an unindexed compound lookup in the vehicle allocation schema. I resolved this by adding compound indexes on status and timestamp, reducing database lookup time from 850ms to under 45ms.`,
-      keyConcepts: ['STAR Method', 'Root Cause Analysis', 'MongoDB Index Optimization', 'Connection Pooling'],
+      question: `Tell me about a challenging technical bug or bottleneck you encountered in one of your projects and how you diagnosed it.`,
+      suggestedAnswer: `While building ${firstProject.title} (${firstProject.tech}), I investigated a latency bottleneck under concurrent load. By profiling query execution times and server event loops, I identified an unindexed compound query. Adding composite indexing and connection pooling reduced query latency significantly.`,
+      keyConcepts: ['STAR Method', 'Root Cause Analysis', 'Performance Profiling', 'System Optimization'],
     },
     {
       category: 'Company Fit',
       question: `Why are you interested in joining ${company} as a ${role}?`,
-      suggestedAnswer: `I have closely followed ${company}'s engineering initiatives and commitment to building scalable, high-impact products. As an MCA 2026 graduate specializing in MERN stack architectures and autonomous AI workflow systems, I am excited to apply my rapid problem-solving abilities and dedication to clean engineering within ${company}'s collaborative culture.`,
-      keyConcepts: ['Company Values Alignment', 'Growth Mindset', 'Technical Passion'],
+      suggestedAnswer: `${candidateEdu} specializing in ${primarySkill} and modern software architecture, I admire ${company}'s focus on engineering velocity and product excellence. I am excited to apply my problem-solving skills to high-impact initiatives here.`,
+      keyConcepts: ['Company Values Alignment', 'Growth Mindset', 'Engineering Passion'],
     },
   ];
 
   return {
-    roleOverview: `Interviews at ${company} for ${role} test core algorithmic thinking, full-stack JavaScript/TypeScript architecture, system scalability, and practical software engineering judgment.`,
+    roleOverview: `Interviews at ${company} for ${role} assess algorithmic fundamentals, ${primarySkill} architecture, system scalability, and software engineering craftsmanship.`,
     technicalTopics: [
       ...skills.slice(0, 4),
       'State Management & Rendering',
-      'REST & GraphQL API Idempotency',
-      'MongoDB & SQL Indexing',
+      'API Idempotency & Caching',
+      'Database Indexing & Query Tuning',
       'Distributed Systems & Async I/O',
     ],
     questions,

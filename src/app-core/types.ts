@@ -170,6 +170,7 @@ export interface IJob {
   followupCadence?: IFollowupCadenceSuite;
   applicationAnswers?: IApplicationAnswersSuite;
   salaryNegotiation?: ISalaryNegotiationSuite;
+  provenance?: IAiProvenance;
 
   createdAt: string;
   updatedAt: string;
@@ -266,6 +267,7 @@ export interface IColdOutreachSuite {
     recruiterDirectPitch: string;
     alumniWarmIntroduction: string;
   };
+  provenance?: IAiProvenance;
 }
 
 export interface IDsaChallenge {
@@ -287,7 +289,7 @@ export interface ISystemDesignBlueprint {
   mermaidDiagram: string;
   keyComponents: string[];
   scalingBottlenecksAndFixes: string[];
-  candidateProjectMapping: string; // e.g. "Map AUSVMS Redis queue to Swiggy order processing"
+  candidateProjectMapping: string;
 }
 
 export interface ISkillGapCramSheet {
@@ -329,6 +331,7 @@ export interface IInterviewMasterGuide {
   skillGapCramSheet: ISkillGapCramSheet;
   salaryBenchmark: ISalaryBenchmark;
   companyCultureAudit: ICompanyCultureAudit;
+  provenance?: IAiProvenance;
 }
 
 export interface IWebScrapingIntelligence {
@@ -401,7 +404,45 @@ export interface IProfile {
   apiKey?: string;          // OpenRouter API key(s), comma-separated for pooling
   geminiApiKey?: string;    // Google Gemini API key (aistudio.google.com) — 1500 req/day free
   groqApiKey?: string;      // Groq API key (console.groq.com) — 14400 req/day free
+  ollamaEndpoint?: string;  // Local Ollama base URL, default http://localhost:11434
+  ollamaModel?: string;     // Local Ollama default model (e.g. llama3.2, qwen2.5)
+  preferredProvider?: 'auto' | 'openrouter' | 'gemini' | 'groq' | 'ollama';
   telegramToken?: string;
+}
+
+export interface IAiProvenance {
+  modelUsed: string;
+  provider: 'openrouter' | 'gemini' | 'groq' | 'ollama' | 'local_heuristic';
+  generatedAt: string;
+  taskType?: string;
+}
+
+export interface IResolvedLink {
+  originalUrl: string;
+  canonicalUrl: string;
+  linkType: 'direct_apply' | 'careers_portal' | 'redirect_wrapper' | 'job_board' | 'social_spam';
+  pageTitle?: string;
+  isJobPage: boolean;
+  confidence: number;
+  redirectHops: string[];
+  extractedText?: string;
+}
+
+export interface IAtsOptimizationResult {
+  initialScore: number;
+  finalScore: number;
+  iterations: number;
+  targetScoreReached: boolean;
+  tailoredSummary: string;
+  tailoredProjects: {
+    title: string;
+    tech: string;
+    bullets: string[];
+  }[];
+  latexResume: string;
+  missingKeywordsIdentified: string[];
+  truthfulInjectedKeywords: string[];
+  modelUsed?: string;
 }
 
 export interface IStats {

@@ -1,20 +1,22 @@
 import { store } from './store';
-import { IJob, IJobSource } from './types';
+import { IJob, IJobSource, IAiProvenance } from './types';
 import { splitBulkChatText } from './bulkSplitter';
-import { extractJobDetails, IExtractedJD } from './extractor';
-import { scoreJobAgainstProfile, auditBlockGLegitimacy } from './scorer';
+import { extractJobDetails, extractJobDetailsWithAi, IExtractedJD } from './extractor';
+import { scoreJobAgainstProfile, scoreJobAgainstProfileWithAi, auditBlockGLegitimacy } from './scorer';
 import { analyzeAtsCompliance } from './atsMatcher';
-import { generateReferralContacts } from './referralGenerator';
-import { generateInterviewPrep } from './interviewPrep';
-import { generateCoverLetter } from './coverLetterGenerator';
-import { generateOutreachSuite } from './outreachAgent';
-import { generateInterviewMasterGuide } from './interviewMasterGuide';
+import { generateReferralContacts, generateReferralContactsWithAi } from './referralGenerator';
+import { generateInterviewPrep, generateInterviewPrepWithAi } from './interviewPrep';
+import { generateCoverLetter, generateCoverLetterWithAi } from './coverLetterGenerator';
+import { generateOutreachSuite, generateOutreachSuiteWithAi } from './outreachAgent';
+import { generateInterviewMasterGuide, generateInterviewMasterGuideWithAi } from './interviewMasterGuide';
 import { generateFollowupCadence } from './followupCadence';
 import { applicationAnswers } from './applicationAnswers';
 import { salaryNegotiation } from './salaryNegotiation';
-import { llmClient } from './llmClient';
+import { linkResolver } from './linkResolver';
+import { atsOptimizer } from './atsOptimizer';
 import { isWebUrl, fetchAndExtractJobFromUrl } from './webFetcher';
 import { evaluateNoiseTriage } from './noiseFilter';
+import { llmClient } from './llmClient';
 
 export interface IngestionResult {
   totalExtracted: number;
@@ -22,21 +24,24 @@ export interface IngestionResult {
   queueIds: string[];
 }
 
+/**
+ * 9-Step AI-Native JobRadar Ingestion Pipeline.
+ * Orchestrates dump segmentation, link resolution, extraction, scoring, ATS optimization, and downstream asset generation.
+ */
 export async function processIngestion(
   input: string,
   channelName: string = 'WhatsApp Ingest',
   platform: IJobSource['platform'] = 'whatsapp',
-  useLlm: boolean = false
+  useLlm: boolean = true
 ): Promise<IngestionResult> {
   const profile = store.getProfile();
-  const activeAiKey = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || '';
-  const hasAiKey = Boolean(activeAiKey);
-  const shouldRunAi = useLlm || hasAiKey;
   const trimmedInput = input.trim();
   const processedJobs: IJob[] = [];
   const queueIds: string[] = [];
 
-  // Special Case: Single Web URL Ingestion (live scraping)
+  // ──────────────────────────────────────────────────────────────────
+  // CASE A: Direct Single Web URL Ingestion
+  // ──────────────────────────────────────────────────────────────────
   if (isWebUrl(trimmedInput) || (platform === 'web' && (trimmedInput.startsWith('http://') || trimmedInput.startsWith('https://')))) {
     const messageId = `web-${Date.now()}`;
     const queueItem = store.addQueueItem({
@@ -49,54 +54,75 @@ export async function processIngestion(
     queueIds.push(queueItem.id);
 
     try {
-      // 1. Fetch & extract full JD content from live web page
-      let extracted: IExtractedJD = await fetchAndExtractJobFromUrl(trimmedInput);
+      // Step 3 & 4: Link Resolution Agent
+      const resolvedLink = await linkResolver.resolveLink(trimmedInput, '', { profile });
+      const targetUrl = resolvedLink.canonicalUrl || trimmedInput;
 
-      if (shouldRunAi && activeAiKey) {
-        const llmExtracted = await llmClient.extractJobWithLlm(extracted.rawDescription, activeAiKey);
-        if (llmExtracted.success && llmExtracted.data) {
-          extracted = {
-            ...llmExtracted.data,
-            applicationLink: trimmedInput,
-            rawDescription: extracted.rawDescription,
-          };
+      // Step 5: JD Extraction (Live text + AI structured parser)
+      let extracted: IExtractedJD;
+      if (resolvedLink.extractedText && resolvedLink.extractedText.length > 100) {
+        extracted = await extractJobDetailsWithAi(resolvedLink.extractedText, profile);
+        extracted.applicationLink = targetUrl;
+      } else {
+        extracted = await fetchAndExtractJobFromUrl(targetUrl);
+        if (useLlm) {
+          extracted = await extractJobDetailsWithAi(extracted.rawDescription, profile);
+          extracted.applicationLink = targetUrl;
         }
       }
 
-      // 2. Score against candidate profile (RAG-Augmented)
-      let scoreResult = scoreJobAgainstProfile(extracted, profile);
-      if (shouldRunAi && activeAiKey) {
-        const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, activeAiKey);
-        if (llmScore.success && llmScore.data) {
-          scoreResult = llmScore.data;
-        }
-      }
+      // Step 6: AI Eligibility & Fit Evaluation
+      const scoreResult = useLlm
+        ? await scoreJobAgainstProfileWithAi(extracted, profile)
+        : scoreJobAgainstProfile(extracted, profile);
 
-      // 3. ATS compliance analysis
-      const atsResult = analyzeAtsCompliance(extracted, profile);
+      // Step 7: ATS Resume Gap Analysis & Iterative Optimization Loop
+      const atsOpt = await atsOptimizer.optimizeResumeForJob(extracted, profile);
+      const atsAnalysis = analyzeAtsCompliance(extracted, profile);
+      atsAnalysis.overallAtsScore = Math.max(atsAnalysis.overallAtsScore ?? 0, atsOpt.finalScore);
 
-      // 4. Generate referrals
-      const referrals = generateReferralContacts(extracted, profile);
-
-      // 5. Generate AI interview prep (RAG-Augmented)
+      // Step 8: Downstream AI Asset Generators
+      let referrals = generateReferralContacts(extracted, profile);
       let interviewPrep = generateInterviewPrep(extracted, profile);
-      if (shouldRunAi && activeAiKey) {
-        const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, activeAiKey);
-        if (llmPrep.success && llmPrep.data) {
-          interviewPrep = llmPrep.data;
-        }
-      }
-
-      // 6. Generate tailored cover letter (RAG-Augmented)
       let coverLetter = generateCoverLetter(extracted, profile);
-      if (shouldRunAi && activeAiKey) {
-        const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, activeAiKey);
-        if (llmLetter.success && llmLetter.data) {
-          coverLetter = llmLetter.data;
+      let outreach = generateOutreachSuite(extracted as IJob, profile);
+      let masterGuide = generateInterviewMasterGuide(extracted as IJob, profile);
+      let appAnswers = applicationAnswers.generateAnswersDeterministic(extracted as IJob, profile);
+      let salaryNeg = salaryNegotiation.generateNegotiationSuite(extracted as IJob, profile);
+
+      if (useLlm) {
+        try {
+          const [refRes, prepRes, letterRes, outRes, guideRes, ansRes, salRes] = await Promise.allSettled([
+            generateReferralContactsWithAi(extracted, profile),
+            generateInterviewPrepWithAi(extracted, profile),
+            generateCoverLetterWithAi(extracted, profile),
+            generateOutreachSuiteWithAi(extracted as IJob, profile),
+            generateInterviewMasterGuideWithAi(extracted as IJob, profile),
+            applicationAnswers.generateAnswersWithAi(extracted as IJob, profile),
+            salaryNegotiation.generateNegotiationWithAi(extracted as IJob, profile),
+          ]);
+
+          if (refRes.status === 'fulfilled') referrals = refRes.value;
+          if (prepRes.status === 'fulfilled') interviewPrep = prepRes.value;
+          if (letterRes.status === 'fulfilled') coverLetter = letterRes.value;
+          if (outRes.status === 'fulfilled') outreach = outRes.value;
+          if (guideRes.status === 'fulfilled') masterGuide = guideRes.value;
+          if (ansRes.status === 'fulfilled') appAnswers = ansRes.value;
+          if (salRes.status === 'fulfilled') salaryNeg = salRes.value;
+        } catch {
+          // Keep parameter-driven fallbacks
         }
       }
 
       const jobId = `job-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+      const provenance: IAiProvenance = {
+        modelUsed: scoreResult.structuredFitReport ? 'multi_provider_ai_gateway' : 'local_heuristic',
+        provider: 'openrouter',
+        generatedAt: new Date().toISOString(),
+        taskType: 'ingestion_pipeline',
+      };
+
+      // Step 9: Final Job Feed Card Assembly
       const job: IJob = {
         id: jobId,
         companyName: extracted.companyName,
@@ -107,7 +133,7 @@ export async function processIngestion(
         isRemote: extracted.isRemote,
         ctcMentioned: extracted.ctcMentioned,
         ctcRange: extracted.ctcRange,
-        applicationLink: trimmedInput,
+        applicationLink: targetUrl,
         applicationDeadline: extracted.applicationDeadline,
         skillsRequired: extracted.skillsRequired,
         experienceRequired: extracted.experienceRequired,
@@ -117,7 +143,7 @@ export async function processIngestion(
             platform: 'web',
             channelName: channelName || 'Web URL Scraper',
             messageId,
-            url: trimmedInput,
+            url: targetUrl,
             scrapedAt: new Date().toISOString(),
           },
         ],
@@ -128,7 +154,7 @@ export async function processIngestion(
         fitBreakdown: scoreResult.fitBreakdown,
         rubricScores: scoreResult.rubricScores,
         structuredFitReport: scoreResult.structuredFitReport,
-        atsAnalysis: atsResult,
+        atsAnalysis,
         scoreFlag: scoreResult.scoreFlag,
         skillMatched: scoreResult.skillMatched,
         stage: scoreResult.matchScore >= 75 ? 'approved' : 'pending_approval',
@@ -139,124 +165,147 @@ export async function processIngestion(
         coverLetterText: coverLetter,
         resumeNotes: `Tailored resume for ${extracted.companyName} (${extracted.jobTitle})`,
         blockGAudit: auditBlockGLegitimacy(extracted),
+        outreachSuite: outreach,
+        interviewMasterGuide: masterGuide,
+        followupCadence: generateFollowupCadence(extracted as IJob, profile),
+        applicationAnswers: appAnswers,
+        salaryNegotiation: salaryNeg,
+        provenance,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
-      job.outreachSuite = generateOutreachSuite(job, profile);
-      job.interviewMasterGuide = generateInterviewMasterGuide(job, profile);
-      job.followupCadence = generateFollowupCadence(job, profile);
-      job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
-      job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
-
-      if (shouldRunAi && activeAiKey) {
-        try {
-          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, activeAiKey);
-          if (aiCadence.success && aiCadence.data) job.followupCadence = aiCadence.data;
-        } catch {}
-
-        try {
-          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, activeAiKey);
-          if (aiBlockG.success && aiBlockG.data) job.blockGAudit = aiBlockG.data;
-        } catch {}
-
-        try {
-          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, activeAiKey);
-          if (aiAnswers) job.applicationAnswers = aiAnswers;
-        } catch {}
-
-        try {
-          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, activeAiKey);
-          if (aiSal) job.salaryNegotiation = aiSal;
-        } catch {}
-      }
-
-      store.addOrUpdateJob(job);
-      store.updateQueueItem(queueItem.id, { processed: true, jobId });
+      store.addJobs([job]);
+      store.updateQueueItem(queueItem.id, { processed: true });
       processedJobs.push(job);
-
-      return {
-        totalExtracted: 1,
-        jobs: processedJobs,
-        queueIds,
-      };
     } catch (err: any) {
-      console.error('Web URL scraping failed:', err);
-      store.updateQueueItem(queueItem.id, { processed: true, error: err.message });
-      throw new Error(`Web scraping failed for ${trimmedInput}: ${err.message}`);
+      console.error(`Failed to ingest web URL "${trimmedInput}":`, err);
+    }
+
+    return {
+      totalExtracted: processedJobs.length,
+      jobs: processedJobs,
+      queueIds,
+    };
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // CASE B: Bulk Dump Ingestion (WhatsApp / Telegram / Raw Text)
+  // ──────────────────────────────────────────────────────────────────
+  const messageId = `bulk-${Date.now()}`;
+  const queueItem = store.addQueueItem({
+    platform,
+    channelName,
+    rawMessageId: messageId,
+    rawText: trimmedInput,
+    processed: false,
+  });
+  queueIds.push(queueItem.id);
+
+  // Step 2: Cleaning & Segmentation
+  let candidateChunks: string[] = splitBulkChatText(trimmedInput);
+
+  if (candidateChunks.length === 1 && trimmedInput.length > 600 && useLlm) {
+    try {
+      const segRes = await llmClient.segmentDumpWithAi(trimmedInput, profile);
+      if (segRes.success && segRes.data?.postings && segRes.data.postings.length > 1) {
+        candidateChunks = segRes.data.postings;
+      }
+    } catch {
+      // Retain heuristic chunks
     }
   }
 
-  // Standard Text / Bulk WhatsApp & Telegram dump processing
-  const chunks = splitBulkChatText(input);
+  for (let i = 0; i < candidateChunks.length; i++) {
+    const chunk = candidateChunks[i].trim();
+    if (!chunk || chunk.length < 25) continue;
 
-  for (let i = 0; i < chunks.length; i++) {
-    const rawPost = chunks[i];
-    const messageId = `${platform}-${Date.now()}-${i + 1}`;
-
-    // 1. Add to local queue
-    const queueItem = store.addQueueItem({
-      platform,
-      channelName,
-      rawMessageId: messageId,
-      rawText: rawPost,
-      processed: false,
-    });
-    queueIds.push(queueItem.id);
-
-    // 2. Filter out promotional spam / educational courses
-    const triage = evaluateNoiseTriage(rawPost, channelName);
+    // Noise Pre-Filter
+    const triage = evaluateNoiseTriage(chunk);
     if (!triage.isJobPosting) {
-      store.updateQueueItem(queueItem.id, { processed: true, error: triage.reason });
       continue;
     }
 
     try {
-      // 3. Extract structured JD (Deterministic first, AI if key available)
-      let extracted = extractJobDetails(rawPost);
+      // Step 3 & 4: Link Extraction and Deep Resolution
+      const rawExtracted = extractJobDetails(chunk);
+      let canonicalApplyLink = rawExtracted.applicationLink;
 
-      if (shouldRunAi && activeAiKey) {
-        const llmExtracted = await llmClient.extractJobWithLlm(rawPost, activeAiKey);
-        if (llmExtracted.success && llmExtracted.data) {
-          extracted = llmExtracted.data;
+      if (rawExtracted.applicationLink) {
+        const resolved = await linkResolver.resolveLink(rawExtracted.applicationLink, chunk, { profile });
+        if (resolved.isJobPage && resolved.canonicalUrl) {
+          canonicalApplyLink = resolved.canonicalUrl;
         }
       }
 
-      // 4. Score against candidate profile (RAG-Augmented AI)
-      let scoreResult = scoreJobAgainstProfile(extracted, profile);
-      if (shouldRunAi && activeAiKey) {
-        const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, activeAiKey);
-        if (llmScore.success && llmScore.data) {
-          scoreResult = llmScore.data;
-        }
+      // Step 5: AI Structured Extraction
+      let extracted: IExtractedJD;
+      if (useLlm) {
+        extracted = await extractJobDetailsWithAi(chunk, profile);
+        if (canonicalApplyLink) extracted.applicationLink = canonicalApplyLink;
+      } else {
+        extracted = rawExtracted;
+        if (canonicalApplyLink) extracted.applicationLink = canonicalApplyLink;
       }
 
-      // 5. ATS compliance analysis
-      const atsResult = analyzeAtsCompliance(extracted, profile);
+      // Deduplication Check
+      const isDuplicate = store.getJobs().some((j) => j.dedupHash === extracted.dedupHash);
+      if (isDuplicate) {
+        continue;
+      }
 
-      // 6. Generate employee referral personas & search queries
-      const referrals = generateReferralContacts(extracted, profile);
+      // Step 6: AI Eligibility & Fit Evaluation
+      const scoreResult = useLlm
+        ? await scoreJobAgainstProfileWithAi(extracted, profile)
+        : scoreJobAgainstProfile(extracted, profile);
 
-      // 7. Generate AI interview prep (RAG-Augmented AI)
+      // Step 7: ATS Resume Gap Analysis & Iterative Optimization Loop
+      const atsOpt = await atsOptimizer.optimizeResumeForJob(extracted, profile);
+      const atsAnalysis = analyzeAtsCompliance(extracted, profile);
+      atsAnalysis.overallAtsScore = Math.max(atsAnalysis.overallAtsScore ?? 0, atsOpt.finalScore);
+
+      // Step 8: Downstream AI Asset Generators
+      let referrals = generateReferralContacts(extracted, profile);
       let interviewPrep = generateInterviewPrep(extracted, profile);
-      if (shouldRunAi && activeAiKey) {
-        const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, activeAiKey);
-        if (llmPrep.success && llmPrep.data) {
-          interviewPrep = llmPrep.data;
-        }
-      }
-
-      // 8. Generate tailored cover letter (RAG-Augmented AI)
       let coverLetter = generateCoverLetter(extracted, profile);
-      if (shouldRunAi && activeAiKey) {
-        const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, activeAiKey);
-        if (llmLetter.success && llmLetter.data) {
-          coverLetter = llmLetter.data;
+      let outreach = generateOutreachSuite(extracted as IJob, profile);
+      let masterGuide = generateInterviewMasterGuide(extracted as IJob, profile);
+      let appAnswers = applicationAnswers.generateAnswersDeterministic(extracted as IJob, profile);
+      let salaryNeg = salaryNegotiation.generateNegotiationSuite(extracted as IJob, profile);
+
+      if (useLlm) {
+        try {
+          const [refRes, prepRes, letterRes, outRes, guideRes, ansRes, salRes] = await Promise.allSettled([
+            generateReferralContactsWithAi(extracted, profile),
+            generateInterviewPrepWithAi(extracted, profile),
+            generateCoverLetterWithAi(extracted, profile),
+            generateOutreachSuiteWithAi(extracted as IJob, profile),
+            generateInterviewMasterGuideWithAi(extracted as IJob, profile),
+            applicationAnswers.generateAnswersWithAi(extracted as IJob, profile),
+            salaryNegotiation.generateNegotiationWithAi(extracted as IJob, profile),
+          ]);
+
+          if (refRes.status === 'fulfilled') referrals = refRes.value;
+          if (prepRes.status === 'fulfilled') interviewPrep = prepRes.value;
+          if (letterRes.status === 'fulfilled') coverLetter = letterRes.value;
+          if (outRes.status === 'fulfilled') outreach = outRes.value;
+          if (guideRes.status === 'fulfilled') masterGuide = guideRes.value;
+          if (ansRes.status === 'fulfilled') appAnswers = ansRes.value;
+          if (salRes.status === 'fulfilled') salaryNeg = salRes.value;
+        } catch {
+          // Keep parameter-driven fallbacks
         }
       }
 
       const jobId = `job-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+      const provenance: IAiProvenance = {
+        modelUsed: scoreResult.structuredFitReport ? 'multi_provider_ai_gateway' : 'local_heuristic',
+        provider: 'openrouter',
+        generatedAt: new Date().toISOString(),
+        taskType: 'ingestion_pipeline',
+      };
 
+      // Step 9: Final Job Feed Card Assembly
       const job: IJob = {
         id: jobId,
         companyName: extracted.companyName,
@@ -267,7 +316,7 @@ export async function processIngestion(
         isRemote: extracted.isRemote,
         ctcMentioned: extracted.ctcMentioned,
         ctcRange: extracted.ctcRange,
-        applicationLink: extracted.applicationLink,
+        applicationLink: canonicalApplyLink || null,
         applicationDeadline: extracted.applicationDeadline,
         skillsRequired: extracted.skillsRequired,
         experienceRequired: extracted.experienceRequired,
@@ -277,72 +326,46 @@ export async function processIngestion(
             platform,
             channelName,
             messageId,
-            url: extracted.applicationLink,
+            url: canonicalApplyLink || undefined,
             scrapedAt: new Date().toISOString(),
           },
         ],
         dedupHash: extracted.dedupHash,
-
         matchScore: scoreResult.matchScore,
         matchConfidence: scoreResult.matchConfidence,
         gapAnalysis: scoreResult.gapAnalysis,
         fitBreakdown: scoreResult.fitBreakdown,
         rubricScores: scoreResult.rubricScores,
         structuredFitReport: scoreResult.structuredFitReport,
-        atsAnalysis: atsResult,
+        atsAnalysis,
         scoreFlag: scoreResult.scoreFlag,
         skillMatched: scoreResult.skillMatched,
-
         stage: scoreResult.matchScore >= 75 ? 'approved' : 'pending_approval',
         approvalStatus: scoreResult.matchScore >= 75 ? 'approved' : 'pending',
         applicationStatus: 'not_applied',
-
         referralContacts: referrals,
         interviewPrep,
         coverLetterText: coverLetter,
-        resumeNotes: `Tailored master resume for ${extracted.companyName} (${extracted.jobTitle}) — highlighted ${extracted.skillsRequired.slice(0, 4).join(', ')} and MCA 2026 credentials.`,
+        resumeNotes: `Tailored resume for ${extracted.companyName} (${extracted.jobTitle})`,
         blockGAudit: auditBlockGLegitimacy(extracted),
+        outreachSuite: outreach,
+        interviewMasterGuide: masterGuide,
+        followupCadence: generateFollowupCadence(extracted as IJob, profile),
+        applicationAnswers: appAnswers,
+        salaryNegotiation: salaryNeg,
+        provenance,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
-      job.outreachSuite = generateOutreachSuite(job, profile);
-      job.interviewMasterGuide = generateInterviewMasterGuide(job, profile);
-      job.followupCadence = generateFollowupCadence(job, profile);
-      job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
-      job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
-
-      if (shouldRunAi && activeAiKey) {
-        try {
-          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, activeAiKey);
-          if (aiCadence.success && aiCadence.data) job.followupCadence = aiCadence.data;
-        } catch {}
-
-        try {
-          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, activeAiKey);
-          if (aiBlockG.success && aiBlockG.data) job.blockGAudit = aiBlockG.data;
-        } catch {}
-
-        try {
-          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, activeAiKey);
-          if (aiAnswers) job.applicationAnswers = aiAnswers;
-        } catch {}
-
-        try {
-          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, activeAiKey);
-          if (aiSal) job.salaryNegotiation = aiSal;
-        } catch {}
-      }
-
-      // Save to store
-      store.addOrUpdateJob(job);
-      store.updateQueueItem(queueItem.id, { processed: true, jobId });
+      store.addJobs([job]);
       processedJobs.push(job);
     } catch (err: any) {
-      console.error('Error processing post:', err);
-      store.updateQueueItem(queueItem.id, { processed: true, error: err.message });
+      console.error(`Failed to process chunk #${i + 1}:`, err);
     }
   }
+
+  store.updateQueueItem(queueItem.id, { processed: true });
 
   return {
     totalExtracted: processedJobs.length,
@@ -350,3 +373,5 @@ export async function processIngestion(
     queueIds,
   };
 }
+
+export const runTargetAiPipeline = processIngestion;

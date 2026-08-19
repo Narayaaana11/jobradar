@@ -245,7 +245,7 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
       /(?:Company|Organization|Employer):\s*[\*_]*([A-Za-z0-9\s&.,-]+?)[\*_]*\s*(?:\n|$)/i,
       /(?:hiring|recruiting|opening)\s+at\s+([A-Za-z0-9\s&.,-]+)/i,
       /^[\*_]+([A-Za-z0-9][A-Za-z0-9\s&.,'-]{1,35}?)[\*_]+/im,
-      /\b([A-Za-z0-9]{2,}(?:\s[A-Za-z0-9]{2,}){0,2})\s+is\s+hiring/i,
+      /\b([A-Za-z0-9]{2,}(?:\s[A-Za-z0-9]{2,}){0,2})\s+is\s+(?:actively\s+)?(?:hiring|recruiting)/i,
     ];
 
     for (const pattern of companyPatterns) {
@@ -439,3 +439,21 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
     dedupHash,
   };
 }
+
+/**
+ * Primary AI-Native Extractor.
+ * Extracts structured metadata using the multi-provider LLM gateway, falling back to heuristic pre-pass.
+ */
+export async function extractJobDetailsWithAi(
+  rawText: string,
+  profile?: any
+): Promise<IExtractedJD> {
+  const { llmClient } = await import('./llmClient');
+  const aiRes = await llmClient.extractJobWithLlm(rawText, profile);
+  if (aiRes.success && aiRes.data) {
+    return aiRes.data;
+  }
+  // Heuristic pre-pass fallback if all AI providers unavailable
+  return extractJobDetails(rawText);
+}
+

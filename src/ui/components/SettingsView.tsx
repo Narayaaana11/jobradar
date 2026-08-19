@@ -25,6 +25,8 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
   const [testingS3, setTestingS3] = useState(false);
   const [s3TestResult, setS3TestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [testingApiKey, setTestingApiKey] = useState(false);
+  const [testingOllama, setTestingOllama] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [envPasteModal, setEnvPasteModal] = useState(false);
   const [rawEnvText, setRawEnvText] = useState('');
 
@@ -618,28 +620,135 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
           {/* Header */}
           <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-5 shadow-2xl">
             <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Key className="w-4 h-4 text-purple-400" /> AI Provider Keys — Multi-Provider Free Tier
+              <Key className="w-4 h-4 text-purple-400" /> AI Provider Gateway — Multi-Provider Routing
             </h3>
             <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              JobRadar works fully offline with heuristic engines. Adding any AI provider key unlocks real-time LLM reasoning.
-              All three providers are <strong className="text-white">100% free</strong> — no billing required.
-              When one provider hits its limit, the system automatically cascades to the next.
+              JobRadar features a 100% AI-native pipeline. Configure one or more cloud providers or connect to a local Ollama instance.
+              When one provider hits rate limits or fails, the gateway automatically cascades to the next.
             </p>
 
-            {/* Combined capacity banner */}
-            <div className="mt-3 flex items-center gap-3 flex-wrap">
-              {[
-                { label: 'OpenRouter', color: 'purple', note: '200 req/day (free models)' },
-                { label: 'Groq', color: 'orange', note: '14,400 req/day' },
-                { label: 'Gemini', color: 'blue', note: '1,500 req/day' },
-              ].map((p) => (
-                <div key={p.label} className={`px-3 py-1.5 rounded-full bg-${p.color}-950/50 border border-${p.color}-800/50 text-[10px] font-mono text-${p.color}-300`}>
-                  {p.label} — {p.note}
-                </div>
-              ))}
-              <div className="px-3 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-700/50 text-[10px] font-mono text-emerald-400 font-bold">
-                Combined ≈ 16,100+ req/day FREE
+            {/* Preferred Provider Selector */}
+            <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <label className="text-xs font-bold text-white block">Preferred AI Provider Route</label>
+                <p className="text-[11px] text-zinc-500">Auto mode uses smart task-based routing (fastest/cheapest for triage, strongest for scoring & guides).</p>
               </div>
+              <select
+                value={profile.preferredProvider || 'auto'}
+                onChange={(e) => {
+                  const updated: IProfile = { ...profile, preferredProvider: e.target.value as any };
+                  setProfile(updated);
+                  store.saveProfile(updated);
+                  setSaveMsg(`Preferred provider set to ${e.target.value}`);
+                  setTimeout(() => setSaveMsg(''), 3000);
+                }}
+                className="px-3.5 py-2 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+              >
+                <option value="auto">✨ Auto (Smart Cascade)</option>
+                <option value="openrouter">OpenRouter (Key Pooling)</option>
+                <option value="groq">Groq (Ultra-Fast 500 tok/s)</option>
+                <option value="gemini">Google Gemini (1M Context)</option>
+                <option value="ollama">Local Ollama (Offline / Private)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* ── LOCAL OLLAMA ── */}
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-5 space-y-3 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-mono font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  Local Ollama — 100% Private · Offline · Zero Cost
+                </h4>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Connect to local Ollama running on your machine • Default: <code className="text-zinc-300">http://localhost:11434</code>
+                </p>
+              </div>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${ollamaModels.length > 0 ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-zinc-900 text-zinc-500 border border-zinc-700'}`}>
+                {ollamaModels.length > 0 ? `● ${ollamaModels.length} models detected` : '○ probe to detect'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-mono text-zinc-400 uppercase block mb-1">Ollama Base URL</label>
+                <input
+                  type="text"
+                  placeholder="http://localhost:11434"
+                  value={profile.ollamaEndpoint || 'http://localhost:11434'}
+                  onChange={(e) => {
+                    const updated = { ...profile, ollamaEndpoint: e.target.value };
+                    setProfile(updated);
+                    store.saveProfile(updated);
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-mono text-zinc-400 uppercase block mb-1">Target Model Name</label>
+                <input
+                  type="text"
+                  placeholder="llama3.2"
+                  value={profile.ollamaModel || 'llama3.2'}
+                  onChange={(e) => {
+                    const updated = { ...profile, ollamaModel: e.target.value };
+                    setProfile(updated);
+                    store.saveProfile(updated);
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <button
+                type="button"
+                disabled={testingOllama}
+                onClick={async () => {
+                  setTestingOllama(true);
+                  setSaveMsg('Probing local Ollama at /api/tags...');
+                  try {
+                    const { llmClient } = await import('../../app-core/llmClient');
+                    const res = await llmClient.testOllama(profile.ollamaEndpoint || 'http://localhost:11434');
+                    if (res.valid) {
+                      setOllamaModels(res.models);
+                      setSaveMsg(`✓ ${res.message}`);
+                    } else {
+                      setSaveMsg(`✕ ${res.message}`);
+                    }
+                  } catch (err: any) {
+                    setSaveMsg(`✕ ${err.message}`);
+                  } finally {
+                    setTestingOllama(false);
+                    setTimeout(() => setSaveMsg(''), 6000);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${testingOllama ? 'animate-spin' : ''}`} />
+                Probe Local Ollama Models
+              </button>
+
+              {ollamaModels.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {ollamaModels.slice(0, 4).map((m) => (
+                    <span
+                      key={m}
+                      onClick={() => {
+                        const updated = { ...profile, ollamaModel: m };
+                        setProfile(updated);
+                        store.saveProfile(updated);
+                        setSaveMsg(`Selected Ollama model: ${m}`);
+                        setTimeout(() => setSaveMsg(''), 3000);
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-emerald-950/80 border border-emerald-800/80 text-[10px] font-mono text-emerald-300 cursor-pointer hover:bg-emerald-900"
+                    >
+                      {m}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -649,7 +758,7 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
               <div>
                 <h4 className="text-xs font-mono font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-purple-400" />
-                  OpenRouter — Primary Provider
+                  OpenRouter — Multi-Model Free Cloud Pool
                 </h4>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
                   Rotate 20+ free models (Gemma, GPT-OSS, Nemotron, etc.) •{' '}
@@ -703,7 +812,7 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
                   Groq — 14,400 req/day Free ⚡ Fastest
                 </h4>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
-                  Llama 3.1 70B, Mixtral 8x7B, Gemma2 9B — 500 tok/s blazing speed •{' '}
+                  Llama 3.3 70B, Llama 3.1 8B Instant, Mixtral 8x7B — 500 tok/s speed •{' '}
                   <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline">console.groq.com →</a>
                 </p>
               </div>
@@ -753,7 +862,7 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
                   Google Gemini — 1,500 req/day Free · 1M Token Context
                 </h4>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
-                  Gemini 1.5 Flash — large context window, great for long JD analysis •{' '}
+                  Gemini 2.0 Flash / 1.5 Flash — large context window, great for deep analysis •{' '}
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">aistudio.google.com →</a>
                 </p>
               </div>

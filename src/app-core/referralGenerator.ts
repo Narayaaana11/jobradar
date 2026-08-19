@@ -1,111 +1,84 @@
-import { IReferralContact, IProfile } from './types';
+import { IReferralContact, IProfile, IJob } from './types';
 import { IExtractedJD } from './extractor';
+import { llmClient } from './llmClient';
 
-interface ITargetPersona {
-  targetTitle: string;
-  department: string;
-  personaLabel: string;
-  tone: string;
+/**
+ * Primary AI-Native Referral Personas & Outreach Generator.
+ */
+export async function generateReferralContactsWithAi(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): Promise<IReferralContact[]> {
+  const res = await llmClient.generateAiReferralContacts(job, profile);
+  if (res.success && res.data && res.data.length > 0) {
+    return res.data;
+  }
+  throw new Error(res.error || 'AI Referral generation failed.');
 }
 
-const targetPersonas: ITargetPersona[] = [
-  {
-    targetTitle: 'Engineering Manager',
-    department: 'Engineering Leadership',
-    personaLabel: 'Hiring Manager (Direct Team Lead)',
-    tone: 'leadership',
-  },
-  {
-    targetTitle: 'Senior Software Engineer',
-    department: 'Engineering Team',
-    personaLabel: 'Peer Developer / Senior SDE',
-    tone: 'peer',
-  },
-  {
-    targetTitle: 'Technical Recruiter',
-    department: 'Talent Acquisition',
-    personaLabel: 'Tech Recruiter & Sourcer',
-    tone: 'recruiter',
-  },
-  {
-    targetTitle: 'University Recruiter',
-    department: 'Early Career Relations',
-    personaLabel: 'Campus & Graduate Recruiter',
-    tone: 'campus',
-  },
-  {
-    targetTitle: 'Software Engineer Alumni',
-    department: 'Alumni Network (Aditya University)',
-    personaLabel: 'College Alumni at Company',
-    tone: 'alumni',
-  },
-  {
-    targetTitle: 'Director of Engineering',
-    department: 'Executive Leadership',
-    personaLabel: 'Department Head / VP',
-    tone: 'director',
-  },
-];
-
-export function generateReferralContacts(job: IExtractedJD, profile: IProfile): IReferralContact[] {
+/**
+ * Dynamic parameter-driven referral contacts generator.
+ * Parameterized with candidate's actual profile details with zero static literals.
+ */
+export function generateReferralContacts(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): IReferralContact[] {
   const company = job.companyName || 'Target Company';
   const role = job.jobTitle || 'Software Engineer';
+  const skillsSummary = (profile.primarySkills || []).slice(0, 4).join(', ') || 'modern software development';
+  const educationOrg = profile.education || 'University';
 
-  return targetPersonas.map((persona) => {
+  const defaultPersonas = [
+    {
+      targetTitle: 'Engineering Manager',
+      department: 'Engineering Leadership',
+      personaLabel: 'Hiring Manager (Direct Team Lead)',
+      tone: 'leadership',
+    },
+    {
+      targetTitle: 'Senior Software Engineer',
+      department: 'Engineering Team',
+      personaLabel: 'Peer Developer / Senior SDE',
+      tone: 'peer',
+    },
+    {
+      targetTitle: 'Technical Recruiter',
+      department: 'Talent Acquisition',
+      personaLabel: 'Tech Recruiter & Sourcer',
+      tone: 'recruiter',
+    },
+    {
+      targetTitle: 'University Recruiter',
+      department: 'Early Career Relations',
+      personaLabel: 'Campus & Graduate Recruiter',
+      tone: 'campus',
+    },
+    {
+      targetTitle: 'Software Engineer Alumni',
+      department: `Alumni Network (${educationOrg})`,
+      personaLabel: 'College Alumni at Company',
+      tone: 'alumni',
+    },
+    {
+      targetTitle: 'Director of Engineering',
+      department: 'Executive Leadership',
+      personaLabel: 'Department Head / VP',
+      tone: 'director',
+    },
+  ];
+
+  return defaultPersonas.map((persona) => {
     const searchTerms = `${persona.targetTitle} ${company}`;
     const linkedinSearchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchTerms)}`;
 
     let outreachDraft = '';
     if (persona.tone === 'alumni') {
-      outreachDraft = `Hi [Name],
-
-I hope you're having a productive week!
-
-I noticed you're working as a ${persona.targetTitle} at ${company}. As a fellow graduate / MCA candidate from Aditya University with hands-on experience in MERN stack development, RESTful APIs, and full stack projects, I'm reaching out to see if you would be open to referring me for the open ${role} position at ${company}.
-
-My technical portfolio and projects are available here:
-• Portfolio: ${profile.portfolio || 'https://www.narayanathota.me'}
-• GitHub: ${profile.github || 'https://github.com/Narayaaana11'}
-
-Would you have 5 minutes to connect or review my profile? I'd appreciate any guidance!
-
-Warm regards,
-${profile.name}
-${profile.email} | ${profile.phone}
-LinkedIn: ${profile.linkedin}`;
+      outreachDraft = `Hi [Name],\n\nI noticed you are working as a ${persona.targetTitle} at ${company}. As a fellow graduate with background in ${educationOrg} and hands-on experience in ${skillsSummary}, I am reaching out to see if you would be open to referring my profile for the ${role} opening at ${company}.\n\nPortfolio: ${profile.portfolio || profile.github}\nGitHub: ${profile.github}\n\nWould you be open to a quick review of my profile? I would greatly appreciate your guidance!\n\nWarm regards,\n${profile.name}\n${profile.email} | ${profile.phone}\n${profile.linkedin ? `LinkedIn: ${profile.linkedin}` : ''}`;
     } else if (persona.tone === 'leadership' || persona.tone === 'director') {
-      outreachDraft = `Hi [Name],
-
-I hope all is well with you and your team at ${company}.
-
-I saw the recent opening for ${role} under ${company}'s engineering group. With hands-on experience building scalable full-stack web applications, React interfaces, and Node.js microservices, I believe I can make an immediate contribution to your team's development sprints.
-
-I've attached my ATS resume and portfolio for your convenience:
-• Portfolio: ${profile.portfolio || 'https://www.narayanathota.me'}
-• GitHub: ${profile.github || 'https://github.com/Narayaaana11'}
-
-If you believe my background is a fit, could you kindly submit a referral for this opening?
-
-Thank you for your time and leadership,
-${profile.name}
-${profile.email} | ${profile.phone}`;
+      outreachDraft = `Hi [Name],\n\nI saw the recent opening for ${role} on ${company}'s engineering team. With hands-on experience in ${skillsSummary} and building production-ready applications, I believe I can make an immediate contribution to your team.\n\nPortfolio: ${profile.portfolio || profile.github}\nGitHub: ${profile.github}\n\nIf you find my profile aligned, could you kindly submit an internal referral for this opening?\n\nThank you for your time,\n${profile.name}\n${profile.email} | ${profile.phone}`;
     } else {
-      outreachDraft = `Hi [Name],
-
-I hope you're having a great week!
-
-I came across the ${role} opening at ${company} and wanted to reach out. I have experience across React.js, Node.js, Express, MongoDB, and modern web application development.
-
-I would love to be considered for this role. If you are open to it, could you refer my profile internally at ${company}?
-
-Here is a summary of my background and projects:
-• Portfolio: ${profile.portfolio || 'https://www.narayanathota.me'}
-• GitHub: ${profile.github || 'https://github.com/Narayaaana11'}
-
-Thank you for your support,
-${profile.name}
-${profile.email} | ${profile.phone}
-LinkedIn: ${profile.linkedin}`;
+      outreachDraft = `Hi [Name],\n\nI came across the ${role} opening at ${company} and wanted to connect. I have verified experience in ${skillsSummary} and building scalable applications.\n\nI would love to be considered for this role. If you are open to it, could you refer my profile internally?\n\nPortfolio: ${profile.portfolio || profile.github}\nGitHub: ${profile.github}\n\nThank you for your support!\n${profile.name}\n${profile.email} | ${profile.phone}\n${profile.linkedin ? `LinkedIn: ${profile.linkedin}` : ''}`;
     }
 
     return {
@@ -115,7 +88,7 @@ LinkedIn: ${profile.linkedin}`;
       linkedinSearchUrl,
       searchQuery: searchTerms,
       subject: `Referral Request: ${role} (${company}) — ${profile.name}`,
-      outreachDraft,
+      outreachDraft: outreachDraft.trim(),
     };
   });
 }

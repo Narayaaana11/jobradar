@@ -348,24 +348,32 @@ export function auditBlockGLegitimacy(job: IExtractedJD): import('./types').IBlo
 }
 
 /**
+ * Primary AI-Native Scorer & Fit Evaluator.
+ * Uses the multi-provider LLM gateway for authoritative scoring, dealbreaker quoting, and rubric evaluation.
+ */
+export async function scoreJobAgainstProfileWithAi(
+  job: Partial<IJob | IExtractedJD>,
+  profile: IProfile
+): Promise<IScoreResult> {
+  const aiRes = await llmClient.scoreJobWithLlm(job, profile);
+  if (aiRes.success && aiRes.data) {
+    return aiRes.data;
+  }
+  // Heuristic pre-filter fallback
+  return scoreJobAgainstProfile(job as IExtractedJD, profile);
+}
+
+/**
  * AI-Augmented Block G Legitimacy & Ghost Job Auditor
  */
 export async function auditBlockGLegitimacyWithAi(
   job: IJob,
   apiKey?: string
 ): Promise<import('./types').IBlockGAudit> {
-  if (!apiKey) {
-    return auditBlockGLegitimacy(job);
+  const res = await llmClient.auditBlockGLegitimacyWithAi(job, apiKey);
+  if (res.success && res.data) {
+    return res.data;
   }
-
-  try {
-    const res = await llmClient.auditBlockGLegitimacyWithAi(job, apiKey);
-    if (res.success && res.data) {
-      return res.data;
-    }
-  } catch {
-    // Fallback
-  }
-
   return auditBlockGLegitimacy(job);
 }
+

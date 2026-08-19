@@ -1,16 +1,55 @@
-﻿import { IJob, IProfile, IInterviewPrep, IColdOutreachSuite, IInterviewMasterGuide } from './types';
+import {
+  IJob,
+  IProfile,
+  IInterviewPrep,
+  IColdOutreachSuite,
+  IInterviewMasterGuide,
+  IReferralContact,
+  IBlockGAudit,
+  IFollowupCadenceSuite,
+  IApplicationAnswersSuite,
+  ISalaryNegotiationSuite,
+  IResolvedLink,
+  IAiProvenance,
+} from './types';
 import { IExtractedJD } from './extractor';
 import { IScoreResult } from './scorer';
-import { IRagCitation } from './rag/types';
 import { ragAugmentor } from './rag/ragAugmentor';
-import { generateOutreachSuite } from './outreachAgent';
-import { generateInterviewMasterGuide } from './interviewMasterGuide';
+
+export type AiTaskType =
+  | 'cheap_fast'
+  | 'link_classification'
+  | 'dump_segmentation'
+  | 'extraction'
+  | 'scoring'
+  | 'resume_tailoring'
+  | 'interview_guide'
+  | 'cover_letter'
+  | 'referrals'
+  | 'outreach'
+  | 'interview_prep'
+  | 'salary_negotiation'
+  | 'application_answers'
+  | 'block_g_audit'
+  | 'general';
 
 export interface ILlmResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
   modelUsed?: string;
+  provider?: 'openrouter' | 'gemini' | 'groq' | 'ollama' | 'local_heuristic';
+  provenance?: IAiProvenance;
+}
+
+export interface ILlmExecutionRecord {
+  taskType: AiTaskType;
+  provider: 'openrouter' | 'gemini' | 'groq' | 'ollama';
+  modelUsed: string;
+  timestamp: string;
+  durationMs: number;
+  success: boolean;
+  error?: string;
 }
 
 // Resilient fallback seed list if offline or network fetch fails
@@ -31,25 +70,190 @@ export class LlmClientService {
   private cachedFreeModels: string[] = [...SEED_FREE_MODELS];
   private lastModelsFetchTime = 0;
   private roundRobinCounter = 0;
+  private cachedOllamaModels: { endpoint: string; models: string[]; fetchedAt: number } | null = null;
+  private recentExecutionLogs: ILlmExecutionRecord[] = [];
 
   /**
-   * Reads Groq and Gemini keys from the saved profile (lazy import avoids circular dep).
-   * Used by agent methods to auto-enable multi-provider fallback.
+   * Records execution telemetry for UI transparency and audit.
    */
-  private getProfileProviderKeys(): { groqKey: string; geminiKey: string } {
+  public logExecution(record: ILlmExecutionRecord): void {
+    this.recentExecutionLogs.unshift(record);
+    if (this.recentExecutionLogs.length > 50) {
+      this.recentExecutionLogs.pop();
+    }
+  }
+
+  public getRecentExecutions(): ILlmExecutionRecord[] {
+    return [...this.recentExecutionLogs];
+  }
+
+  /**
+   * Reads all configured provider keys and options from stored profile.
+   */
+  public getProviderConfig(profileOverride?: IProfile): {
+    openRouterKey: string;
+    geminiKey: string;
+    groqKey: string;
+    ollamaEndpoint: string;
+    ollamaModel: string;
+    preferredProvider: 'auto' | 'openrouter' | 'gemini' | 'groq' | 'ollama';
+  } {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { store } = require('./store') as typeof import('./store');
-      const p = store.getProfile();
-      return { groqKey: p.groqApiKey || '', geminiKey: p.geminiApiKey || '' };
+      let p: IProfile;
+      if (profileOverride) {
+        p = profileOverride;
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { store } = require('./store') as typeof import('./store');
+        p = store.getProfile();
+      }
+      return {
+        openRouterKey: (p.apiKey || '').trim(),
+        geminiKey: (p.geminiApiKey || '').trim(),
+        groqKey: (p.groqApiKey || '').trim(),
+        ollamaEndpoint: (p.ollamaEndpoint || 'http://localhost:11434').trim().replace(/\/+$/, ''),
+        ollamaModel: (p.ollamaModel || 'llama3.2').trim(),
+        preferredProvider: p.preferredProvider || 'auto',
+      };
     } catch {
-      return { groqKey: '', geminiKey: '' };
+      return {
+        openRouterKey: '',
+        geminiKey: '',
+        groqKey: '',
+        ollamaEndpoint: 'http://localhost:11434',
+        ollamaModel: 'llama3.2',
+        preferredProvider: 'auto',
+      };
     }
   }
 
   /**
-   * Fetches the LIVE list of 100% free models from OpenRouter's public API
-   * and caches the result for 1 hour.
+   * Probes a local Ollama instance for installed models at /api/tags
+   */
+  public async detectOllamaModels(endpoint: string = 'http://localhost:11434'): Promise<{
+    available: boolean;
+    models: string[];
+    error?: string;
+  }> {
+    const cleanEndpoint = endpoint.trim().replace(/\/+$/, '');
+    const now = Date.now();
+
+    if (
+      this.cachedOllamaModels &&
+      this.cachedOllamaModels.endpoint === cleanEndpoint &&
+      now - this.cachedOllamaModels.fetchedAt < 30000
+    ) {
+      return { available: true, models: this.cachedOllamaModels.models };
+    }
+
+    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
+
+    try {
+      let data: any = null;
+      if (electronApi?.callLlmApi) {
+        const res = await electronApi.callLlmApi({
+          endpoint: `${cleanEndpoint}/api/tags`,
+          headers: {},
+          method: 'GET',
+        });
+        if (res.success && res.data) {
+          data = res.data;
+        }
+      } else {
+        const res = await fetch(`${cleanEndpoint}/api/tags`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(4000),
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+
+      if (data?.models && Array.isArray(data.models)) {
+        const modelNames = data.models.map((m: any) => m.name || m.model).filter(Boolean);
+        this.cachedOllamaModels = {
+          endpoint: cleanEndpoint,
+          models: modelNames,
+          fetchedAt: now,
+        };
+        return { available: true, models: modelNames };
+      }
+
+      return { available: false, models: [], error: 'Ollama responded but returned no models list.' };
+    } catch (err: any) {
+      return { available: false, models: [], error: err.message || 'Could not connect to Ollama.' };
+    }
+  }
+
+  /**
+   * Calls a local Ollama instance via /api/chat or /api/generate
+   */
+  public async callOllama(
+    prompt: string,
+    systemPrompt: string,
+    endpoint: string = 'http://localhost:11434',
+    modelName?: string
+  ): Promise<{ text: string; model: string; provider: 'ollama' }> {
+    const cleanEndpoint = endpoint.trim().replace(/\/+$/, '');
+    const targetModel = modelName || 'llama3.2';
+    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
+
+    const chatBody = {
+      model: targetModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt },
+      ],
+      stream: false,
+      options: {
+        temperature: 0.2,
+      },
+    };
+
+    try {
+      if (electronApi?.callLlmApi) {
+        const res = await electronApi.callLlmApi({
+          endpoint: `${cleanEndpoint}/api/chat`,
+          headers: { 'Content-Type': 'application/json' },
+          body: chatBody,
+          method: 'POST',
+        });
+
+        if (res.success && res.data?.message?.content) {
+          return {
+            text: res.data.message.content,
+            model: `ollama/${targetModel}`,
+            provider: 'ollama',
+          };
+        }
+        throw new Error(res.error || 'Ollama API returned empty response');
+      } else {
+        const res = await fetch(`${cleanEndpoint}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(chatBody),
+          signal: AbortSignal.timeout(45000),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.message?.content) {
+            return {
+              text: data.message.content,
+              model: `ollama/${targetModel}`,
+              provider: 'ollama',
+            };
+          }
+        }
+        throw new Error(`HTTP ${res.status}: Ollama failed`);
+      }
+    } catch (err: any) {
+      throw new Error(`Ollama (${targetModel}) call failed: ${err.message}`);
+    }
+  }
+
+  /**
+   * Fetches the LIVE list of free models from OpenRouter's public API
    */
   public async getLiveFreeModels(): Promise<string[]> {
     const now = Date.now();
@@ -78,12 +282,10 @@ export class LlmClientService {
       }
 
       if (data?.data && Array.isArray(data.data)) {
-        // Filter for models with 0 prompt and 0 completion cost
         const liveFree = data.data
           .filter((m: any) => {
             const isZeroCost = m.pricing && m.pricing.prompt === '0' && m.pricing.completion === '0';
             const isFreeId = m.id && (m.id.endsWith(':free') || m.id === 'openrouter/free');
-            // Filter out non-chat / audio / safety-only utility models
             const isExcluded = m.id.includes('safety') || m.id.includes('lyria') || m.id.includes('clip');
             return (isZeroCost || isFreeId) && !isExcluded;
           })
@@ -96,37 +298,25 @@ export class LlmClientService {
         }
       }
     } catch {
-      // Gracefully retain seed list if network fetch fails
+      // Retain seed list if network fetch fails
     }
 
     return this.cachedFreeModels;
   }
 
   /**
-   * Universal OpenRouter fetch caller with True Load-Balanced Rotation,
-   * Automatic Failover Cascade across all free models,
-   * and multi-provider fallback to Groq / Gemini when all OpenRouter models fail.
+   * Calls OpenRouter API with key-pool rotation and free model failover
    */
-  public async callLlm(
+  public async callOpenRouter(
     prompt: string,
     systemPrompt: string,
     apiKey: string,
-    preferredModel?: string,
-    groqKey?: string,
-    geminiKey?: string
-  ): Promise<{ text: string; model: string }> {
-    // If no OpenRouter key, go directly to Groq or Gemini
+    preferredModel?: string
+  ): Promise<{ text: string; model: string; provider: 'openrouter' }> {
     if (!apiKey || !apiKey.trim()) {
-      if (groqKey?.trim()) {
-        return this.callGroq(prompt, systemPrompt, groqKey);
-      }
-      if (geminiKey?.trim()) {
-        return this.callGemini(prompt, systemPrompt, geminiKey);
-      }
-      throw new Error('No API key provided. Please configure your OpenRouter, Gemini, or Groq API key in Settings.');
+      throw new Error('No OpenRouter API key provided');
     }
 
-    // Support Multi-Key Pooling: parse comma/newline-separated API keys
     const rawKeys = apiKey.split(/[,;\n]+/).map((k) => k.trim()).filter((k) => k.length > 5);
     const keyPool = rawKeys.length > 0 ? rawKeys : [apiKey.trim()];
 
@@ -134,7 +324,6 @@ export class LlmClientService {
     const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
     const freeModels = await this.getLiveFreeModels();
 
-    // Construct ordered trial list starting with rotated index
     let orderedModels: string[];
     if (preferredModel) {
       orderedModels = [preferredModel, ...freeModels.filter((m) => m !== preferredModel)];
@@ -149,15 +338,12 @@ export class LlmClientService {
 
     let lastError = '';
 
-    // Loop through available API keys in key pool
     for (let kIdx = 0; kIdx < keyPool.length; kIdx++) {
       const key = keyPool[kIdx];
       const headers = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
       };
-
-    let keyRateLimitedCount = 0;
 
       for (let i = 0; i < orderedModels.length; i++) {
         const model = orderedModels[i];
@@ -177,12 +363,12 @@ export class LlmClientService {
               return {
                 text: res.data.choices[0].message.content,
                 model: res.data.model || model,
+                provider: 'openrouter',
               };
             }
             if (res.status === 429) {
-              keyRateLimitedCount++;
-              lastError = `Rate limited (HTTP 429) on model ${model}. Trying next model...`;
-              continue; // try next free model, don't break key rotation
+              lastError = `Rate limited (HTTP 429) on OpenRouter model ${model}`;
+              continue;
             }
             lastError = res.error || `HTTP ${res.status || 'unknown'}`;
           } else {
@@ -190,74 +376,66 @@ export class LlmClientService {
               method: 'POST',
               headers,
               body: JSON.stringify(body),
-              signal: AbortSignal.timeout(12000),
+              signal: AbortSignal.timeout(18000),
             });
 
             if (res.ok) {
               const data = await res.json();
               const content = data.choices?.[0]?.message?.content;
               if (content) {
-                return { text: content, model: data.model || model };
+                return {
+                  text: content,
+                  model: data.model || model,
+                  provider: 'openrouter',
+                };
               }
+            } else if (res.status === 429) {
+              lastError = `Rate limited (HTTP 429) on OpenRouter model ${model}`;
+              continue;
             } else {
               const errData = await res.json().catch(() => ({}));
-              if (res.status === 429) {
-                keyRateLimitedCount++;
-                lastError = `Rate limited (HTTP 429) on model ${model}. Trying next model...`;
-                continue; // rotate to next model, NOT next key
-              }
               lastError = errData?.error?.message || `HTTP ${res.status}`;
-              if (res.status === 503 || res.status === 502) {
-                continue;
-              }
             }
           }
         } catch (err: any) {
           lastError = err.message;
         }
       }
-
-      // Only switch to next key if ALL models were rate-limited on this key
-      if (keyRateLimitedCount < orderedModels.length) {
-        break; // non-rate-limit error, don't try more keys
-      }
     }
 
-    // OpenRouter exhausted â€” cascade to Groq then Gemini
-    if (groqKey?.trim()) {
-      try {
-        return await this.callGroq(prompt, systemPrompt, groqKey);
-      } catch { /* fall through to Gemini */ }
-    }
-    if (geminiKey?.trim()) {
-      try {
-        return await this.callGemini(prompt, systemPrompt, geminiKey);
-      } catch { /* fall through to final error */ }
-    }
-
-    throw new Error(lastError || 'All AI providers (OpenRouter, Groq, Gemini) failed or rate-limited.');
+    throw new Error(lastError || 'OpenRouter: All models and keys failed.');
   }
 
-
   /**
-   * Calls Groq API (console.groq.com) â€” 14,400 req/day free.
-   * Models: llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it
+   * Calls Groq API (console.groq.com) — 14,400 req/day free
    */
-  private async callGroq(
+  public async callGroq(
     prompt: string,
     systemPrompt: string,
-    groqApiKey: string
-  ): Promise<{ text: string; model: string }> {
+    groqApiKey: string,
+    preferredModel?: string
+  ): Promise<{ text: string; model: string; provider: 'groq' }> {
+    if (!groqApiKey || !groqApiKey.trim()) {
+      throw new Error('No Groq API key provided');
+    }
+
     const GROQ_MODELS = [
-      'llama-3.1-70b-versatile',
-      'llama3-70b-8192',
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
       'mixtral-8x7b-32768',
       'gemma2-9b-it',
     ];
+
+    const modelsToTry = preferredModel
+      ? [preferredModel, ...GROQ_MODELS.filter((m) => m !== preferredModel)]
+      : GROQ_MODELS;
+
     const endpoint = 'https://api.groq.com/openai/v1/chat/completions';
     const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
-    for (const model of GROQ_MODELS) {
+    let lastError = '';
+
+    for (const model of modelsToTry) {
       try {
         const body = {
           model,
@@ -270,55 +448,82 @@ export class LlmClientService {
         };
         const headers = {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqApiKey}`,
+          Authorization: `Bearer ${groqApiKey.trim()}`,
         };
 
         if (electronApi?.callLlmApi) {
           const res = await electronApi.callLlmApi({ endpoint, headers, body, method: 'POST' });
           if (res.success && res.data?.choices?.[0]?.message?.content) {
-            return { text: res.data.choices[0].message.content, model: `groq/${model}` };
+            return {
+              text: res.data.choices[0].message.content,
+              model: `groq/${model}`,
+              provider: 'groq',
+            };
           }
-          if (res.status === 429) continue; // rate limited, try next model
+          if (res.status === 429) {
+            lastError = `Groq rate limited on ${model}`;
+            continue;
+          }
+          lastError = res.error || `HTTP ${res.status}`;
         } else {
           const res = await fetch(endpoint, {
             method: 'POST',
             headers,
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(18000),
           });
           if (res.ok) {
             const data = await res.json();
             const content = data.choices?.[0]?.message?.content;
-            if (content) return { text: content, model: `groq/${model}` };
+            if (content) {
+              return {
+                text: content,
+                model: `groq/${model}`,
+                provider: 'groq',
+              };
+            }
           } else if (res.status === 429) {
-            continue; // try next model
+            lastError = `Groq rate limited on ${model}`;
+            continue;
           }
         }
-      } catch {
-        continue;
+      } catch (err: any) {
+        lastError = err.message;
       }
     }
-    throw new Error('Groq: All models rate-limited or unavailable.');
+
+    throw new Error(lastError || 'Groq: All models rate-limited or unavailable.');
   }
 
   /**
-   * Calls Google Gemini API (aistudio.google.com) â€” 1,500 req/day free.
-   * Model: gemini-1.5-flash (fast, capable, huge context window)
+   * Calls Google Gemini API (aistudio.google.com) — 1,500 req/day free
    */
-  private async callGemini(
+  public async callGemini(
     prompt: string,
     systemPrompt: string,
-    geminiApiKey: string
-  ): Promise<{ text: string; model: string }> {
+    geminiApiKey: string,
+    preferredModel?: string
+  ): Promise<{ text: string; model: string; provider: 'gemini' }> {
+    if (!geminiApiKey || !geminiApiKey.trim()) {
+      throw new Error('No Gemini API key provided');
+    }
+
     const GEMINI_MODELS = [
+      'gemini-2.0-flash',
       'gemini-1.5-flash',
       'gemini-1.5-flash-8b',
       'gemini-1.0-pro',
     ];
-    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
-    for (const model of GEMINI_MODELS) {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+    const modelsToTry = preferredModel
+      ? [preferredModel, ...GEMINI_MODELS.filter((m) => m !== preferredModel)]
+      : GEMINI_MODELS;
+
+    const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
+    let lastError = '';
+
+    for (const model of modelsToTry) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey.trim()}`;
       try {
         const body = {
           contents: [
@@ -338,110 +543,219 @@ export class LlmClientService {
           });
           if (res.success) {
             const text = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) return { text, model: `gemini/${model}` };
+            if (text) {
+              return {
+                text,
+                model: `gemini/${model}`,
+                provider: 'gemini',
+              };
+            }
           }
-          if (res.status === 429) continue;
+          if (res.status === 429) {
+            lastError = `Gemini rate limited on ${model}`;
+            continue;
+          }
+          lastError = res.error || `HTTP ${res.status}`;
         } else {
           const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(18000),
           });
           if (res.ok) {
             const data = await res.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) return { text, model: `gemini/${model}` };
+            if (text) {
+              return {
+                text,
+                model: `gemini/${model}`,
+                provider: 'gemini',
+              };
+            }
           } else if (res.status === 429) {
+            lastError = `Gemini rate limited on ${model}`;
             continue;
           }
         }
-      } catch {
-        continue;
+      } catch (err: any) {
+        lastError = err.message;
       }
     }
-    throw new Error('Gemini: All models rate-limited or unavailable.');
+
+    throw new Error(lastError || 'Gemini: All models rate-limited or unavailable.');
   }
 
   /**
-   * Multi-provider LLM caller with automatic failover:
-   * OpenRouter (free models) â†’ Groq â†’ Gemini
-   *
-   * Any subset of keys can be provided; providers with no key are skipped.
-   * Pass groqApiKey and geminiApiKey for maximum resilience.
+   * Universal AI Gateway with Task-Based Routing and Cascading Multi-Provider Fallback.
+   * Priority cascade: User Preference -> Task Optimal -> OpenRouter -> Groq -> Gemini -> Local Ollama.
+   * Retries once on transient failure before cascading to the next provider.
    */
-  public async callLlmMultiProvider(
+  public async callLlmUniversal(
     prompt: string,
     systemPrompt: string,
-    openRouterKey: string,
-    groqApiKey?: string,
-    geminiApiKey?: string,
-    preferredModel?: string
-  ): Promise<{ text: string; model: string }> {
+    taskType: AiTaskType = 'general',
+    profileOverride?: IProfile
+  ): Promise<{ text: string; model: string; provider: 'openrouter' | 'gemini' | 'groq' | 'ollama'; timestamp: string }> {
+    const startTime = Date.now();
+    const config = this.getProviderConfig(profileOverride);
     const errors: string[] = [];
 
-    // 1. Try OpenRouter first (if key present)
-    if (openRouterKey?.trim()) {
-      try {
-        return await this.callLlm(prompt, systemPrompt, openRouterKey, preferredModel);
-      } catch (err: any) {
-        errors.push(`OpenRouter: ${err.message}`);
+    // Build ordered list of providers to attempt based on task and config
+    type ProviderCandidate = {
+      name: 'openrouter' | 'gemini' | 'groq' | 'ollama';
+      execute: () => Promise<{ text: string; model: string; provider: 'openrouter' | 'gemini' | 'groq' | 'ollama' }>;
+    };
+
+    const candidates: ProviderCandidate[] = [];
+
+    const addOpenRouter = () => {
+      if (config.openRouterKey) {
+        candidates.push({
+          name: 'openrouter',
+          execute: () => this.callOpenRouter(prompt, systemPrompt, config.openRouterKey),
+        });
+      }
+    };
+
+    const addGroq = () => {
+      if (config.groqKey) {
+        const preferredModel = taskType === 'cheap_fast' || taskType === 'link_classification'
+          ? 'llama-3.1-8b-instant'
+          : 'llama-3.3-70b-versatile';
+        candidates.push({
+          name: 'groq',
+          execute: () => this.callGroq(prompt, systemPrompt, config.groqKey, preferredModel),
+        });
+      }
+    };
+
+    const addGemini = () => {
+      if (config.geminiKey) {
+        const preferredModel = taskType === 'dump_segmentation' || taskType === 'scoring'
+          ? 'gemini-2.0-flash'
+          : 'gemini-1.5-flash';
+        candidates.push({
+          name: 'gemini',
+          execute: () => this.callGemini(prompt, systemPrompt, config.geminiKey, preferredModel),
+        });
+      }
+    };
+
+    const addOllama = () => {
+      if (config.ollamaEndpoint) {
+        candidates.push({
+          name: 'ollama',
+          execute: () => this.callOllama(prompt, systemPrompt, config.ollamaEndpoint, config.ollamaModel),
+        });
+      }
+    };
+
+    // Arrange order based on preference and task category
+    if (config.preferredProvider === 'groq') {
+      addGroq(); addGemini(); addOpenRouter(); addOllama();
+    } else if (config.preferredProvider === 'gemini') {
+      addGemini(); addGroq(); addOpenRouter(); addOllama();
+    } else if (config.preferredProvider === 'ollama') {
+      addOllama(); addGroq(); addGemini(); addOpenRouter();
+    } else if (config.preferredProvider === 'openrouter') {
+      addOpenRouter(); addGroq(); addGemini(); addOllama();
+    } else {
+      // Auto smart routing
+      if (taskType === 'cheap_fast' || taskType === 'link_classification') {
+        addGroq(); addGemini(); addOpenRouter(); addOllama();
+      } else if (taskType === 'dump_segmentation' || taskType === 'scoring' || taskType === 'interview_guide') {
+        addGemini(); addGroq(); addOpenRouter(); addOllama();
+      } else {
+        addOpenRouter(); addGroq(); addGemini(); addOllama();
       }
     }
 
-    // 2. Try Groq (if key present) â€” 14,400 req/day free
-    if (groqApiKey?.trim()) {
-      try {
-        return await this.callGroq(prompt, systemPrompt, groqApiKey);
-      } catch (err: any) {
-        errors.push(`Groq: ${err.message}`);
+    // Deduplicate candidate providers
+    const seen = new Set<string>();
+    const uniqueCandidates = candidates.filter((c) => {
+      if (seen.has(c.name)) return false;
+      seen.add(c.name);
+      return true;
+    });
+
+    if (uniqueCandidates.length === 0) {
+      throw new Error(
+        'No AI providers configured. Please add an OpenRouter, Gemini, or Groq API key in Settings, or run local Ollama at http://localhost:11434.'
+      );
+    }
+
+    // Attempt cascade with 1 retry per provider
+    for (const candidate of uniqueCandidates) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const res = await candidate.execute();
+          const durationMs = Date.now() - startTime;
+          const timestamp = new Date().toISOString();
+
+          this.logExecution({
+            taskType,
+            provider: res.provider,
+            modelUsed: res.model,
+            timestamp,
+            durationMs,
+            success: true,
+          });
+
+          return {
+            text: res.text,
+            model: res.model,
+            provider: res.provider,
+            timestamp,
+          };
+        } catch (err: any) {
+          if (attempt === 2) {
+            errors.push(`[${candidate.name}]: ${err.message}`);
+          }
+        }
       }
     }
 
-    // 3. Try Gemini (if key present) â€” 1,500 req/day free
-    if (geminiApiKey?.trim()) {
-      try {
-        return await this.callGemini(prompt, systemPrompt, geminiApiKey);
-      } catch (err: any) {
-        errors.push(`Gemini: ${err.message}`);
-      }
-    }
+    const durationMs = Date.now() - startTime;
+    this.logExecution({
+      taskType,
+      provider: uniqueCandidates[0].name,
+      modelUsed: 'none',
+      timestamp: new Date().toISOString(),
+      durationMs,
+      success: false,
+      error: errors.join(' | '),
+    });
 
-    throw new Error(`All AI providers failed. Details: ${errors.join(' | ')}`);
+    throw new Error(`All configured AI providers failed. Details: ${errors.join(' | ')}`);
   }
 
   /**
-   * Test a Groq API key.
+   * Compatibility wrapper for legacy code calling callLlm
    */
-  public async testGroqKey(groqApiKey: string): Promise<{ valid: boolean; model?: string; message?: string }> {
-    try {
-      const res = await this.callGroq('Reply with "OK" only.', 'You are a connectivity test.', groqApiKey);
-      return { valid: true, model: res.model };
-    } catch (err: any) {
-      return { valid: false, message: err.message };
-    }
+  public async callLlm(
+    prompt: string,
+    systemPrompt: string,
+    apiKey?: string,
+    preferredModel?: string,
+    groqKey?: string,
+    geminiKey?: string
+  ): Promise<{ text: string; model: string }> {
+    const res = await this.callLlmUniversal(prompt, systemPrompt, 'general');
+    return { text: res.text, model: res.model };
   }
 
-  /**
-   * Test a Gemini API key.
-   */
-  public async testGeminiKey(geminiApiKey: string): Promise<{ valid: boolean; model?: string; message?: string }> {
+  // ──────────────────────────────────────────────────────────────────
+  // 1. EXTRACTOR AGENT (AI-Powered Structured Extraction)
+  // ──────────────────────────────────────────────────────────────────
+  public async extractJobWithLlm(
+    rawText: string,
+    profileOverride?: IProfile | string
+  ): Promise<ILlmResponse<IExtractedJD>> {
     try {
-      const res = await this.callGemini('Reply with "OK" only.', 'You are a connectivity test.', geminiApiKey);
-      return { valid: true, model: res.model };
-    } catch (err: any) {
-      return { valid: false, message: err.message };
-    }
-  }
+      const systemPrompt = `You are a Principal Technical Recruitment Parser. Extract structured metadata from the provided job posting text.
+Return strictly valid JSON matching the schema with no markdown outside the JSON block. Do not hallucinate or make up details not present in the text.`;
 
-
-  /**
-   * 1. EXTRACTOR AGENT (LLM Mode):
-   * Extracts structured JD metadata from unstructured text dumps.
-   */
-  public async extractJobWithLlm(rawText: string, apiKey: string): Promise<ILlmResponse<IExtractedJD>> {
-    try {
-      const systemPrompt = `You are a Technical Recruitment Parser. Extract structured metadata from this job posting text. Return strictly valid JSON matching the requested schema with no markdown formatting.`;
       const prompt = `Extract all details from this job posting into JSON:
 POSTING TEXT:
 ${rawText}
@@ -454,404 +768,903 @@ SCHEMA:
   "location": "City or Remote",
   "isRemote": true or false or null,
   "ctcMentioned": true or false,
-  "ctcRange": "e.g. â‚¹12 - 18 LPA or null",
-  "applicationLink": "Valid application URL or null",
+  "ctcRange": "e.g. ₹12 - 18 LPA or null",
+  "applicationLink": "Valid direct apply URL or null",
   "applicationDeadline": "Deadline or null",
   "skillsRequired": ["Skill 1", "Skill 2", "Skill 3"],
   "experienceRequired": "e.g. Freshers / 0-2 years or null"
 }`;
 
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const prof = typeof profileOverride === 'object' ? profileOverride : undefined;
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'extraction', prof);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleaned);
 
       const result: IExtractedJD = {
         companyName: parsed.companyName || 'Unknown Company',
         jobTitle: parsed.jobTitle || 'Software Engineer',
         jobType: parsed.jobType || 'Full-Time',
-        location: parsed.location || 'India',
+        location: parsed.location || 'India / Remote',
         isRemote: parsed.isRemote ?? false,
         ctcMentioned: parsed.ctcMentioned ?? false,
         ctcRange: parsed.ctcRange || null,
         applicationLink: parsed.applicationLink || null,
         applicationDeadline: parsed.applicationDeadline || null,
-        skillsRequired: Array.isArray(parsed.skillsRequired) ? parsed.skillsRequired : ['React', 'JavaScript'],
-        experienceRequired: parsed.experienceRequired || 'Freshers / 2026 Batch',
+        skillsRequired: Array.isArray(parsed.skillsRequired) ? parsed.skillsRequired : [],
+        experienceRequired: parsed.experienceRequired || null,
         rawDescription: rawText,
         dedupHash: `${parsed.companyName || ''}-${parsed.jobTitle || ''}`.toLowerCase().replace(/[^a-z0-9]/g, ''),
       };
 
-      return { success: true, data: result, modelUsed: model };
+      const provenance: IAiProvenance = {
+        modelUsed: res.model,
+        provider: res.provider,
+        generatedAt: res.timestamp,
+        taskType: 'extraction',
+      };
+
+      return {
+        success: true,
+        data: result,
+        modelUsed: res.model,
+        provider: res.provider,
+        provenance,
+      };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
-  /**
-   * 2. SCORER & RUBRIC AGENT (RAG-Augmented LLM Mode):
-   * Evaluates candidate fit against JD with evidence retrieved from knowledge vault.
-   */
+  // ──────────────────────────────────────────────────────────────────
+  // 2. SCORER & RUBRIC AGENT (AI-Powered Fit & Dealbreaker Evaluation)
+  // ──────────────────────────────────────────────────────────────────
   public async scoreJobWithLlm(
     job: Partial<IJob | IExtractedJD>,
     profile: IProfile,
-    apiKey: string
+    _apiKey?: string
   ): Promise<ILlmResponse<IScoreResult>> {
     try {
       const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
-      const systemPrompt = `You are a Principal Engineering Hiring Evaluator. Assess candidate fit for this opening using a 0-100 score and 1.0-5.0 rubric ratings across skills, tech stack, experience, and location. Ground your evaluation in the candidate's actual projects, case studies, and credentials retrieved from their knowledge base. Return strictly valid JSON.`;
+      const candidateProjects = (profile.projects || [])
+        .map((p) => `- ${p.title} (${p.tech}): ${p.description}`)
+        .join('\n');
+
+      const systemPrompt = `You are a Senior Technical Staff Evaluator and Hiring Committee Member.
+Evaluate the candidate's authentic fit against the Job Description.
+Check for hard dealbreakers (visa/citizenship restrictions, 10+ YOE disconnect, non-technical jobs, foreign onsite with no relocation).
+Score each dimension honestly from 0-100 and produce 1.0-5.0 rubric scores, an overall A-F letter grade, and strategic pros/cons with explicit quotes from the JD where applicable.
+Return strictly valid JSON with no markdown wrapping.`;
+
       const prompt = `EVALUATE CANDIDATE FIT:
-JOB:
+
+JOB DESCRIPTION:
 Company: ${job.companyName}
 Title: ${job.jobTitle}
-Skills Required: ${(job.skillsRequired || []).join(', ')}
-Location: ${job.location}
+Location: ${job.location || 'Not specified'}
+Required Skills: ${(job.skillsRequired || []).join(', ')}
+Experience Required: ${job.experienceRequired || 'Not specified'}
+Full Text:
+${(job.rawDescription || '').slice(0, 3000)}
 
-CANDIDATE BASE PROFILE:
+CANDIDATE PROFILE:
 Name: ${profile.name}
-Degree: ${profile.education}
-Primary Skills: ${profile.primarySkills.join(', ')}
+Title: ${profile.title}
+Education: ${profile.education}
 Experience: ${profile.experience}
+Primary Skills: ${(profile.primarySkills || []).join(', ')}
+Projects:
+${candidateProjects || 'Full-stack engineering projects'}
 
-RETRIEVED CANDIDATE KNOWLEDGE VAULT EVIDENCE (GROUND TRUTH):
-${ragContext.formattedContext || 'AUSVMS (MERN, Socket.io, MongoDB), Guard Hub (MERN, Scheduling), Matrix Library (MERN, Python NLP), JobRadar (Electron, React, TypeScript).'}
+KNOWLEDGE BASE EVIDENCE:
+${ragContext.formattedContext || 'Candidate has verified full stack development experience.'}
 
 SCHEMA:
 {
   "matchScore": 88,
-  "matchConfidence": "high | medium | low",
+  "matchConfidence": 0.95,
   "gapAnalysis": {
-    "missingSkills": ["Skills mentioned in JD not in profile"],
-    "strongMatches": ["Skills candidate excels in based on retrieved evidence"]
+    "missingKeywords": ["Skill A", "Skill B"],
+    "strongMatches": ["Skill 1", "Skill 2"]
   },
   "fitBreakdown": {
     "techFitScore": 90,
     "experienceFitScore": 85,
-    "locationFitScore": 90
+    "locationFitScore": 95
   },
   "rubricScores": {
+    "overallRubricRating": 4.6,
+    "letterGrade": "A | B | C | D | F",
+    "recommendation": "APPLY | BORDERLINE | SKIP",
     "skillsScore": 4.8,
     "techStackScore": 4.7,
     "experienceScore": 4.5,
-    "locationScore": 4.5,
-    "overallRubricRating": 4.6
+    "cultureFitScore": 4.5,
+    "rubricTier": "Tier 1 - Strong Fit | Tier 2 - Good Match | Tier 3 - Borderline | Tier 4 - Stretch | Tier 5 - Low Fit",
+    "technicalStackMatchScore": 4.7,
+    "seniorityExperienceScore": 4.5,
+    "domainRelevanceScore": 4.6,
+    "compensationLocationScore": 4.5
   },
-  "skillMatched": true
+  "dealbreakersFound": ["Exact quote or explanation of dealbreaker if any"],
+  "isDealbreaker": false,
+  "pros": ["Pro 1 with rationale", "Pro 2"],
+  "cons": ["Con 1 with rationale"],
+  "executiveSummary": "3-sentence clear executive summary explaining recommendation"
 }`;
 
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed: IScoreResult = JSON.parse(cleaned);
-      parsed.scoreFlag = parsed.matchScore >= 80 ? 'auto' : parsed.matchScore >= 60 ? 'borderline' : 'low_match';
-
-      return { success: true, data: parsed, modelUsed: model };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }
-
-  /**
-   * 3. RESUME TAILORING AGENT (RAG-Augmented LLM Mode):
-   * Customizes candidate project highlights with authentic metrics retrieved from knowledge vault.
-   */
-  public async tailorResumeBulletsWithLlm(
-    job: Partial<IJob | IExtractedJD>,
-    profile: IProfile,
-    apiKey: string
-  ): Promise<ILlmResponse<{ summary: string; customizedBullets: string[] }>> {
-    try {
-      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
-      const { prompt, systemPrompt } = ragAugmentor.buildAugmentedResumePrompt(job, profile, ragContext);
-
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'scoring', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleaned);
 
-      return { success: true, data: parsed, modelUsed: model };
+      const isDealbreaker = Boolean(parsed.isDealbreaker || (parsed.dealbreakersFound && parsed.dealbreakersFound.length > 0));
+      const letterGrade = parsed.rubricScores?.letterGrade || (parsed.matchScore >= 85 ? 'A' : parsed.matchScore >= 70 ? 'B' : parsed.matchScore >= 55 ? 'C' : 'F');
+      const recommendation = isDealbreaker ? 'SKIP' : parsed.rubricScores?.recommendation || (parsed.matchScore >= 75 ? 'APPLY' : parsed.matchScore >= 60 ? 'BORDERLINE' : 'SKIP');
+
+      const structuredFitReport = {
+        recommendation,
+        letterGrade,
+        numericalScore: parsed.rubricScores?.overallRubricRating || Number((parsed.matchScore / 20).toFixed(1)),
+        matchPercentage: parsed.matchScore || 70,
+        pros: Array.isArray(parsed.pros) ? parsed.pros : ['Matches primary development criteria.'],
+        cons: Array.isArray(parsed.cons) ? parsed.cons : [],
+        missingSkills: parsed.gapAnalysis?.missingKeywords || [],
+        dealbreakersFound: Array.isArray(parsed.dealbreakersFound) ? parsed.dealbreakersFound : [],
+        isDealbreaker,
+        executiveSummary: parsed.executiveSummary || 'Candidate evaluated against job description requirements.',
+      };
+
+      const scoreResult: IScoreResult = {
+        matchScore: parsed.matchScore || 70,
+        matchConfidence: parsed.matchConfidence || 0.9,
+        gapAnalysis: {
+          missingKeywords: parsed.gapAnalysis?.missingKeywords || [],
+          strongMatches: parsed.gapAnalysis?.strongMatches || [],
+        },
+        fitBreakdown: {
+          techFitScore: parsed.fitBreakdown?.techFitScore || 75,
+          experienceFitScore: parsed.fitBreakdown?.experienceFitScore || 75,
+          locationFitScore: parsed.fitBreakdown?.locationFitScore || 80,
+        },
+        rubricScores: {
+          overallRubricRating: parsed.rubricScores?.overallRubricRating || Number((parsed.matchScore / 20).toFixed(1)),
+          letterGrade,
+          recommendation,
+          skillsScore: parsed.rubricScores?.skillsScore || 4.0,
+          techStackScore: parsed.rubricScores?.techStackScore || 4.0,
+          experienceScore: parsed.rubricScores?.experienceScore || 4.0,
+          cultureFitScore: parsed.rubricScores?.cultureFitScore || 4.0,
+          rubricTier: parsed.rubricScores?.rubricTier || 'Tier 2 - Good Match',
+          technicalStackMatchScore: parsed.rubricScores?.technicalStackMatchScore || 4.0,
+          seniorityExperienceScore: parsed.rubricScores?.seniorityExperienceScore || 4.0,
+          domainRelevanceScore: parsed.rubricScores?.domainRelevanceScore || 4.0,
+          compensationLocationScore: parsed.rubricScores?.compensationLocationScore || 4.0,
+        },
+        scoreFlag: recommendation === 'APPLY' ? 'auto' : recommendation === 'BORDERLINE' ? 'borderline' : 'low_match',
+        skillMatched: !isDealbreaker && (parsed.fitBreakdown?.techFitScore || 0) >= 60,
+        structuredFitReport,
+      };
+
+      const provenance: IAiProvenance = {
+        modelUsed: res.model,
+        provider: res.provider,
+        generatedAt: res.timestamp,
+        taskType: 'scoring',
+      };
+
+      return {
+        success: true,
+        data: scoreResult,
+        modelUsed: res.model,
+        provider: res.provider,
+        provenance,
+      };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
-  /**
-   * 4. INTERVIEW PREP AGENT (RAG-Augmented LLM Mode):
-   * Generates dynamic role-specific questions and authentic STAR answers from candidate vault.
-   */
+  // ──────────────────────────────────────────────────────────────────
+  // 3. INTERVIEW MASTER GUIDE AGENT (AI-Tailored DSA, System Design, Salary, Culture)
+  // ──────────────────────────────────────────────────────────────────
+  public async generateAiInterviewMasterGuide(
+    job: IJob,
+    profile: IProfile,
+    _apiKey?: string
+  ): Promise<ILlmResponse<IInterviewMasterGuide>> {
+    try {
+      const candidateProjects = (profile.projects || [])
+        .map((p) => `${p.title} (${p.tech}) - ${p.description}`)
+        .join('; ');
+
+      const systemPrompt = `You are a Principal Software Engineer & Staff Technical Interviewer.
+Generate a genuinely tailored, high-caliber interview master guide for this specific company and role.
+1. DSA Challenges: 3 realistic coding challenges genuinely tailored to the JD's tech stack, framework nuances, and seniority (with starter code, optimal solution, complexities, and key insights).
+2. System Design Blueprint: Architect a scalable system specifically scoped to what this company's product does (e.g. food delivery, fintech payments, cloud devtools), with a valid Mermaid diagram and candidate project mapping referencing the candidate's actual projects.
+3. 48-Hour Cram Sheet: Focus on missing skills from the JD with actionable code snippets and winning talking points.
+4. Salary Benchmarking: Ground salary numbers in real market signals for this company tier, role, level, and location (never generic numbers). Include negotiation script.
+5. Company Culture & Red-Flag Audit: Realistic evaluation of tech stack modernity, interview format tips, and insider advice.
+Return strictly valid JSON with no markdown wrapping.`;
+
+      const prompt = `COMPANY: ${job.companyName}
+ROLE: ${job.jobTitle}
+LOCATION: ${job.location || 'India / Remote'}
+POSTED CTC: ${job.ctcRange || 'Not explicitly stated'}
+REQUIRED SKILLS: ${(job.skillsRequired || []).join(', ')}
+EXPERIENCE LEVEL: ${job.experienceRequired || 'Early Career / Associate'}
+CANDIDATE NAME: ${profile.name}
+CANDIDATE BACKGROUND: ${profile.education}, ${profile.experience}
+CANDIDATE PRIMARY SKILLS: ${(profile.primarySkills || []).join(', ')}
+CANDIDATE PROJECTS: ${candidateProjects || 'Full-stack web applications'}
+
+SCHEMA:
+{
+  "generatedAt": "${new Date().toISOString()}",
+  "dsaChallenges": [
+    {
+      "title": "Real Round Problem Title",
+      "difficulty": "Easy | Medium | Hard",
+      "topic": "Topic Name",
+      "companyFrequency": "Context about where this is asked",
+      "problemStatement": "Full problem description",
+      "starterCode": "Clean starter code",
+      "solutionCode": "Optimal solution with comments",
+      "timeComplexity": "O(...)",
+      "spaceComplexity": "O(...)",
+      "keyInsight": "Key technical insight"
+    }
+  ],
+  "systemDesign": {
+    "systemTitle": "Domain-specific scalable architecture title",
+    "architectureOverview": "Comprehensive architecture breakdown",
+    "diagramMermaid": "graph TD\\n  Client --> Gateway\\n  Gateway --> ServiceA",
+    "coreComponents": ["Component 1", "Component 2"],
+    "scalingStrategy": "Detailed scaling approach",
+    "candidateProjectMapping": "How candidate's projects prove capability for this design"
+  },
+  "cramSheet": {
+    "missingSkillsCovered": ["Skill 1", "Skill 2"],
+    "rapidRevisionTopics": [
+      {
+        "topic": "Core topic name",
+        "quickExplanation": "Clear technical explanation",
+        "codeSnippet": "Illustrative code snippet",
+        "commonInterviewPitfall": "Pitfall to avoid",
+        "winningTalkingPoint": "Impactful answer"
+      }
+    ]
+  },
+  "salaryBenchmark": {
+    "tierClassification": "e.g. Tier-1 Tech / Product Startup",
+    "minLpa": "₹... LPA",
+    "maxLpa": "₹... LPA",
+    "medianLpa": "₹... LPA",
+    "variablePayPct": "e.g. 10-15%",
+    "leveragePoints": ["Leverage point 1", "Leverage point 2"],
+    "negotiationScript": "Personalized script referencing candidate skills",
+    "counterOfferTemplate": "Professional counter-offer letter template"
+  },
+  "companyCultureAudit": {
+    "workLifeBalanceScore": 8.5,
+    "techStackModernityScore": 9.0,
+    "layOffRisk": "Low | Moderate | Elevated",
+    "greenFlags": ["Green flag 1", "Green flag 2"],
+    "redFlags": ["Red flag 1"],
+    "interviewFormatTips": ["Round 1: ...", "Round 2: ..."],
+    "insiderAdvice": "Tactical interview guidance"
+  }
+}`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'interview_guide', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed: IInterviewMasterGuide = JSON.parse(cleaned);
+
+      const provenance: IAiProvenance = {
+        modelUsed: res.model,
+        provider: res.provider,
+        generatedAt: res.timestamp,
+        taskType: 'interview_guide',
+      };
+      parsed.provenance = provenance;
+
+      return {
+        success: true,
+        data: parsed,
+        modelUsed: res.model,
+        provider: res.provider,
+        provenance,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 4. COVER LETTER AGENT (AI Grounded in Actual JD & Resume)
+  // ──────────────────────────────────────────────────────────────────
+  public async generateAiCoverLetter(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile,
+    _apiKey?: string
+  ): Promise<ILlmResponse<string>> {
+    try {
+      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
+      const candidateProjects = (profile.projects || [])
+        .map((p) => `- ${p.title} (${p.tech}): ${p.description}`)
+        .join('\n');
+
+      const systemPrompt = `You are an Executive Tech Career Coach & Talent Strategist.
+Write a compelling, authentic, tailored cover letter for a candidate applying to this specific company and role.
+Ground the letter directly in the candidate's actual projects, skills, and background—never invent fake projects.
+Vary the tone to match the company profile (e.g. fast-paced startup vs high-scale enterprise).
+Do not include boilerplate placeholders. Return only the clean, complete letter text.`;
+
+      const prompt = `JOB:
+Company: ${job.companyName}
+Role: ${job.jobTitle}
+Location: ${job.location || 'India / Remote'}
+Required Skills: ${(job.skillsRequired || []).join(', ')}
+Description: ${(job.rawDescription || '').slice(0, 2000)}
+
+CANDIDATE:
+Name: ${profile.name}
+Education: ${profile.education}
+Experience: ${profile.experience}
+Primary Skills: ${(profile.primarySkills || []).join(', ')}
+Projects:
+${candidateProjects}
+
+RETRIEVED KNOWLEDGE VAULT CONTEXT:
+${ragContext.formattedContext || 'Candidate has strong full stack software engineering background.'}
+
+Generate a polished 3-4 paragraph cover letter.`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'cover_letter', profile);
+      const letter = res.text.replace(/```markdown/g, '').replace(/```/g, '').trim();
+
+      return {
+        success: true,
+        data: letter,
+        modelUsed: res.model,
+        provider: res.provider,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 5. REFERRAL PERSONA AGENT
+  // ──────────────────────────────────────────────────────────────────
+  public async generateAiReferralContacts(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile
+  ): Promise<ILlmResponse<IReferralContact[]>> {
+    try {
+      const systemPrompt = `You are an Executive Inbound Networking & Referral Strategist.
+Identify 3-4 optimal employee personas to contact for a warm employee referral at this target company.
+For each persona, write a tailored 100-150 word outreach message grounded in the candidate's actual background and target team needs.
+Return strictly valid JSON without markdown wrapping.`;
+
+      const prompt = `JOB:
+Company: ${job.companyName}
+Role: ${job.jobTitle}
+Skills: ${(job.skillsRequired || []).join(', ')}
+
+CANDIDATE:
+Name: ${profile.name}
+Education: ${profile.education}
+Primary Skills: ${(profile.primarySkills || []).join(', ')}
+Portfolio: ${profile.portfolio}
+GitHub: ${profile.github}
+LinkedIn: ${profile.linkedin}
+
+SCHEMA:
+[
+  {
+    "personaTitle": "Target Persona Name (e.g. Senior Frontend Engineer)",
+    "targetRole": "Target Role / Level (e.g. Engineering Lead)",
+    "department": "Department (e.g. Core Platform)",
+    "searchQuery": "Search keywords",
+    "subject": "Subject line",
+    "linkedinSearchUrl": "https://linkedin.com/company/${(job.companyName || 'tech').toLowerCase().replace(/[^a-z0-9]/g, '')}",
+    "outreachDraft": "Personalized, concise message text referencing candidate skills"
+  }
+]`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'referrals', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed: any[] = JSON.parse(cleaned);
+
+      const contacts: IReferralContact[] = parsed.map((c: any) => ({
+        personaTitle: c.personaTitle || c.name || 'Senior Software Engineer',
+        targetRole: c.targetRole || c.role || 'Senior Software Engineer',
+        department: c.department || 'Engineering',
+        linkedinSearchUrl: c.linkedinSearchUrl || c.linkedinUrl || `https://linkedin.com/search/results/people/?keywords=${encodeURIComponent((job.companyName || '') + ' ' + (c.targetRole || c.role || 'Engineer'))}`,
+        searchQuery: c.searchQuery || `${job.companyName} ${c.targetRole || c.role || 'Engineer'}`,
+        subject: c.subject || `Inquiring about ${job.jobTitle} opening at ${job.companyName}`,
+        outreachDraft: c.outreachDraft || '',
+      }));
+
+      return {
+        success: true,
+        data: contacts,
+        modelUsed: res.model,
+        provider: res.provider,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  public async generateAiReferrals(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile
+  ): Promise<ILlmResponse<IReferralContact[]>> {
+    return this.generateAiReferralContacts(job, profile);
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 6. COLD OUTREACH SUITE AGENT (Email Finder, 3-Step Cadence, InMail)
+  // ──────────────────────────────────────────────────────────────────
+  public async generateAiOutreachSuite(
+    job: IJob,
+    profile: IProfile,
+    _apiKey?: string
+  ): Promise<ILlmResponse<IColdOutreachSuite>> {
+    try {
+      const systemPrompt = `You are an Executive Career Coach & Inbound Growth Specialist.
+1. Infer or determine the company's real corporate email pattern conventions based on standard industry naming styles (e.g. first.last@domain, firstInitialLast@domain, etc.) and state the realistic confidence level with reasoning.
+2. Generate an automated 3-Step Follow-Up Sequence (Day 1 concise value pitch, Day 4 value-add bump, Day 9 graceful keep-in-touch close) personalized to the candidate's actual background and target company.
+3. Write 3 tailored LinkedIn connection/InMail notes (under 300 chars, direct recruiter pitch, alumni introduction).
+Return strictly valid JSON with no markdown wrapping.`;
+
+      const prompt = `COMPANY: ${job.companyName}
+ROLE: ${job.jobTitle}
+REQUIRED SKILLS: ${(job.skillsRequired || []).join(', ')}
+
+CANDIDATE:
+Name: ${profile.name}
+Education: ${profile.education}
+Primary Skills: ${(profile.primarySkills || []).join(', ')}
+Portfolio: ${profile.portfolio}
+GitHub: ${profile.github}
+LinkedIn: ${profile.linkedin}
+
+SCHEMA:
+{
+  "companyDomain": "company.com",
+  "emailPatterns": [
+    {
+      "pattern": "{first}.{last}@company.com",
+      "example": "john.doe@company.com",
+      "confidence": "High | Medium | Estimated",
+      "domain": "company.com"
+    }
+  ],
+  "cadenceSequence": [
+    {
+      "stepNumber": 1,
+      "dayLabel": "Day 1 — The Concise Value Pitch",
+      "triggerCondition": "Immediate application or initial cold email",
+      "channel": "Email",
+      "subject": "Subject line",
+      "body": "Full body text"
+    },
+    {
+      "stepNumber": 2,
+      "dayLabel": "Day 4 — The Engineering Value-Add Bump",
+      "triggerCondition": "No response after 3 business days",
+      "channel": "Email",
+      "subject": "Re: Subject line",
+      "body": "Full body text"
+    },
+    {
+      "stepNumber": 3,
+      "dayLabel": "Day 9 — The Graceful Keep-in-Touch Close",
+      "triggerCondition": "No response after 8-10 days",
+      "channel": "Email",
+      "subject": "Final note: Subject line",
+      "body": "Full body text"
+    }
+  ],
+  "linkedInNotes": {
+    "connectionRequestNote300Char": "Connection note under 300 characters",
+    "recruiterDirectPitch": "Recruiter InMail pitch",
+    "alumniWarmIntroduction": "Alumni warm outreach note"
+  }
+}`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'outreach', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed: IColdOutreachSuite = JSON.parse(cleaned);
+
+      const provenance: IAiProvenance = {
+        modelUsed: res.model,
+        provider: res.provider,
+        generatedAt: res.timestamp,
+        taskType: 'outreach',
+      };
+      parsed.provenance = provenance;
+
+      return {
+        success: true,
+        data: parsed,
+        modelUsed: res.model,
+        provider: res.provider,
+        provenance,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 7. INTERVIEW PREP AGENT (STAR Questions & Suggested Answers)
+  // ──────────────────────────────────────────────────────────────────
   public async generateAiInterviewPrep(
     job: Partial<IJob | IExtractedJD>,
     profile: IProfile,
-    apiKey: string
+    _apiKey?: string
   ): Promise<ILlmResponse<IInterviewPrep>> {
     try {
       const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 5 });
       const { prompt, systemPrompt } = ragAugmentor.buildAugmentedInterviewPrepPrompt(job, profile, ragContext);
 
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'interview_prep', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed: IInterviewPrep = JSON.parse(cleaned);
+
+      const provenance: IAiProvenance = {
+        modelUsed: res.model,
+        provider: res.provider,
+        generatedAt: res.timestamp,
+        taskType: 'interview_prep',
+      };
 
       return {
         success: true,
         data: parsed,
-        modelUsed: model,
+        modelUsed: res.model,
+        provider: res.provider,
+        provenance,
       };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message,
-      };
-    }
-  }
-
-  /**
-   * 5. COVER LETTER AGENT (RAG-Augmented LLM Mode):
-   * Generates high-converting tailored cover letter grounded in retrieved project evidence.
-   */
-  public async generateAiCoverLetter(
-    job: Partial<IJob | IExtractedJD>,
-    profile: IProfile,
-    apiKey: string
-  ): Promise<ILlmResponse<string>> {
-    try {
-      const ragContext = ragAugmentor.getRagContextForJob(job, { topK: 4 });
-      const { prompt, systemPrompt } = ragAugmentor.buildAugmentedCoverLetterPrompt(job, profile, ragContext);
-
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      return {
-        success: true,
-        data: text.trim(),
-        modelUsed: model,
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message,
-      };
-    }
-  }
-
-
-  /**
-   * 6. REFERRAL OUTREACH AGENT (LLM Mode):
-   * Generates a tailored referral outreach message for a specific employee persona.
-   */
-  public async generateAiReferralMessage(
-    job: Partial<IJob | IExtractedJD>,
-    profile: IProfile,
-    personaTitle: string,
-    apiKey: string
-  ): Promise<ILlmResponse<string>> {
-    try {
-      const systemPrompt = `You are a Career Networking Expert. Write a warm, polite, and persuasive 3-sentence LinkedIn connection / referral outreach message that highlights relevant skills and links without being pushy.`;
-      const prompt = `Write a referral outreach request to an employee at ${job.companyName} who works as a "${personaTitle}".
-ROLE APPLIED FOR: ${job.jobTitle}
-CANDIDATE: ${profile.name}, MCA 2026 graduate with MERN stack experience, Portfolio: ${profile.portfolio}, GitHub: ${profile.github}.`;
-
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      return { success: true, data: text.trim(), modelUsed: model };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
-  /**
-   * 7. COLD OUTREACH & CADENCE AGENT (LLM Mode):
-   * Generates highly tailored corporate emails, 3-step follow-up sequences, and InMails.
-   */
-  public async generateAiOutreachSuite(
+  // ──────────────────────────────────────────────────────────────────
+  // 8. SALARY NEGOTIATION AGENT
+  // ──────────────────────────────────────────────────────────────────
+  public async generateAiSalaryNegotiation(
     job: IJob,
-    profile: IProfile,
-    apiKey: string
-  ): Promise<ILlmResponse<IColdOutreachSuite>> {
+    profile: IProfile
+  ): Promise<ILlmResponse<ISalaryNegotiationSuite>> {
     try {
-      const fallback = generateOutreachSuite(job, profile);
-      const systemPrompt = `You are an Executive Job Search Coach & Outreach Strategist. Write a tailored, high-converting cold email outreach and follow-up sequence. Respond with valid JSON matching the schema with no markdown outside the JSON block.`;
-      const prompt = `Generate tailored outreach for:
-COMPANY: ${job.companyName}
+      const systemPrompt = `You are a Principal Executive Compensation Coach.
+Generate a tailored compensation negotiation package for this role and candidate.
+Ground target numbers in the stated CTC or current market benchmarks for this company tier and level in India.
+Produce a polite counter-offer script, remote compensation pushback, competing offer leverage script, and actionable talking points.
+Return strictly valid JSON without markdown wrapping.`;
+
+      const prompt = `COMPANY: ${job.companyName}
 ROLE: ${job.jobTitle}
-CANDIDATE: ${profile.name}, MCA 2026 Aditya University (MERN Stack: React, Node.js, Express, MongoDB, Projects: AUSVMS, Guard Hub).
+STATED CTC: ${job.ctcRange || 'Not stated'}
+LOCATION: ${job.location || 'India / Remote'}
+REQUIRED SKILLS: ${(job.skillsRequired || []).join(', ')}
 
-Return JSON matching:
-{
-  "companyDomain": "${fallback.companyDomain}",
-  "emailPatterns": ${JSON.stringify(fallback.emailPatterns)},
-  "cadenceSequence": [
-    {
-      "stepNumber": 1,
-      "dayLabel": "Day 1 â€” Concise Value Pitch",
-      "triggerCondition": "Immediate application",
-      "channel": "Email",
-      "subject": "string",
-      "body": "string"
-    },
-    {
-      "stepNumber": 2,
-      "dayLabel": "Day 4 â€” Engineering Value-Add Bump",
-      "triggerCondition": "No response after 3 days",
-      "channel": "Email",
-      "subject": "string",
-      "body": "string"
-    },
-    {
-      "stepNumber": 3,
-      "dayLabel": "Day 9 â€” Graceful Keep-in-Touch Close",
-      "triggerCondition": "No response after 8-10 days",
-      "channel": "Email",
-      "subject": "string",
-      "body": "string"
-    }
-  ],
-  "linkedInNotes": {
-    "connectionRequestNote300Char": "Max 300 characters connection note",
-    "recruiterDirectPitch": "Direct InMail pitch",
-    "alumniWarmIntroduction": "Alumni outreach message"
-  }
-}`;
-
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
-      return { success: true, data: { ...fallback, ...parsed }, modelUsed: model };
-    } catch (err: any) {
-      console.warn('[LLM Client] LLM outreach generation fallback:', err.message);
-      return { success: true, data: generateOutreachSuite(job, profile), modelUsed: 'Heuristic Fallback' };
-    }
-  }
-
-  /**
-   * 8. INTERVIEW MASTER GUIDE AGENT (LLM Mode):
-   * Generates tailored DSA challenges, system design architecture, and 48-hour cram sheets.
-   */
-  public async generateAiInterviewMasterGuide(
-    job: IJob,
-    profile: IProfile,
-    apiKey: string
-  ): Promise<ILlmResponse<IInterviewMasterGuide>> {
-    try {
-      const fallback = generateInterviewMasterGuide(job, profile);
-      const systemPrompt = `You are a Principal Software Engineer & Staff Technical Interviewer at a FAANG company. Generate a comprehensive technical interview prep guide for this role. Return strictly valid JSON matching the schema.`;
-      const prompt = `Generate technical interview master guide for:
-COMPANY: ${job.companyName}
-ROLE: ${job.jobTitle}
-REQUIRED SKILLS: ${job.skillsRequired.join(', ')}
-CANDIDATE: ${profile.name}, MCA 2026 (Projects: AUSVMS Vehicle Management System with MongoDB & JWT, Guard Hub Security Platform).
-
-Return JSON matching:
-{
-  "generatedAt": "${new Date().toISOString()}",
-  "dsaChallenges": ${JSON.stringify(fallback.dsaChallenges)},
-  "systemDesign": ${JSON.stringify(fallback.systemDesign)},
-  "skillGapCramSheet": ${JSON.stringify(fallback.skillGapCramSheet)},
-  "salaryBenchmark": ${JSON.stringify(fallback.salaryBenchmark)},
-  "companyCultureAudit": ${JSON.stringify(fallback.companyCultureAudit)}
-}`;
-
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
-      return { success: true, data: { ...fallback, ...parsed }, modelUsed: model };
-    } catch (err: any) {
-      console.warn('[LLM Client] LLM Master Guide generation fallback:', err.message);
-      return { success: true, data: generateInterviewMasterGuide(job, profile), modelUsed: 'Heuristic Fallback' };
-    }
-  }
-
-  /**
-   * 8. SCRAPING OVERSEER & CAREER PORTAL AUDITOR (LLM Agent):
-   * Inspects scraped career page content, strips UI navigation / buttons,
-   * extracts genuine job openings with full titles, skills, and direct apply links.
-   */
-  public async auditAndExtractCareerPageWithAi(
-    rawText: string,
-    pageUrl: string,
-    companyName: string,
-    apiKey: string
-  ): Promise<ILlmResponse<{
-    openings: Array<{
-      jobTitle: string;
-      location: string;
-      skillsRequired: string[];
-      experienceRequired: string;
-      applicationLink?: string;
-      rawDescription: string;
-    }>;
-    rejectedNavElements: string[];
-  }>> {
-    try {
-      const systemPrompt = `You are an Autonomous Scraping Overseer & Quality Auditor AI Agent for a tech job radar.
-Your job is to inspect raw text extracted from a company career portal and:
-1. Reject and filter out all website navigation UI elements, buttons, and headers (e.g. "Home", "Jobs", "Careers", "Support", "How we Hire", "I'm Interested", "SEE ALL JOBS", "About Us", "Login").
-2. Extract ONLY genuine, individual technical and software engineering job openings.
-3. For each opening, extract the authentic job title, location, required skills, and clear job description.
-Return strictly valid JSON with no markdown wrapping.`;
-
-      const prompt = `AUDIT SCRAPED CAREER PORTAL CONTENT:
-COMPANY: ${companyName}
-PAGE URL: ${pageUrl}
-
-RAW SCRAPED CONTENT:
-${rawText.substring(0, 3500)}
+CANDIDATE:
+Name: ${profile.name}
+Education: ${profile.education}
+Primary Skills: ${(profile.primarySkills || []).join(', ')}
 
 SCHEMA:
 {
-  "openings": [
-    {
-      "jobTitle": "Exact Engineering Job Title (e.g. Software Engineer, Full Stack Developer, Frontend Intern)",
-      "location": "Job Location or Remote",
-      "skillsRequired": ["Skill 1", "Skill 2"],
-      "experienceRequired": "e.g. Freshers / 0-2 yrs",
-      "applicationLink": "Direct URL if found, else null",
-      "rawDescription": "Substantive summary of duties and requirements"
-    }
-  ],
-  "rejectedNavElements": ["Junk title 1", "Junk title 2"]
+  "targetCtc": "Realistic target compensation string",
+  "marketBenchmark": "Market benchmark range string",
+  "gapAnalysis": "Strategic summary of gap vs target",
+  "counterOfferEmailScript": "Polite, firm counter-offer letter",
+  "remoteCompPushbackScript": "Script addressing remote/location discount policies",
+  "competingOfferLeverageScript": "Script leveraging competing interest politely",
+  "keyTalkingPoints": ["Point 1", "Point 2", "Point 3"]
 }`;
 
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'salary_negotiation', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed: ISalaryNegotiationSuite = JSON.parse(cleaned);
+
+      const provenance: IAiProvenance = {
+        modelUsed: res.model,
+        provider: res.provider,
+        generatedAt: res.timestamp,
+        taskType: 'salary_negotiation',
+      };
+
+      return {
+        success: true,
+        data: parsed,
+        modelUsed: res.model,
+        provider: res.provider,
+        provenance,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 9. APPLICATION QA GENERATOR
+  // ──────────────────────────────────────────────────────────────────
+  public async generateAiApplicationAnswers(
+    job: IJob,
+    profile: IProfile
+  ): Promise<ILlmResponse<IApplicationAnswersSuite>> {
+    try {
+      const systemPrompt = `You are a Career Application Form Specialist.
+Write 4 concise, high-impact answers for standard ATS application questions:
+1. Motivation & Why Us
+2. Technical Challenge (STAR method)
+3. Salary & Notice Period
+4. Teamwork & Culture
+Ground answers in the candidate's actual projects and skills.
+Return strictly valid JSON without markdown wrapping.`;
+
+      const prompt = `COMPANY: ${job.companyName}
+ROLE: ${job.jobTitle}
+SKILLS: ${(job.skillsRequired || []).join(', ')}
+
+CANDIDATE:
+Name: ${profile.name}
+Skills: ${(profile.primarySkills || []).join(', ')}
+Projects: ${(profile.projects || []).map((p) => p.title).join(', ')}
+
+SCHEMA:
+{
+  "items": [
+    {
+      "id": "qa-1",
+      "category": "Motivation & Why Us",
+      "question": "Why do you want to work at ${job.companyName}?",
+      "suggestedAnswer": "3-4 sentence impactful answer",
+      "groundedEvidence": ["Point 1"]
+    },
+    {
+      "id": "qa-2",
+      "category": "Technical Challenge",
+      "question": "Describe a difficult technical challenge you solved.",
+      "suggestedAnswer": "STAR answer citing candidate projects",
+      "groundedEvidence": ["Project context"]
+    },
+    {
+      "id": "qa-3",
+      "category": "Salary & Notice Period",
+      "question": "What are your salary expectations and notice period?",
+      "suggestedAnswer": "Professional answer",
+      "groundedEvidence": ["Market aligned"]
+    },
+    {
+      "id": "qa-4",
+      "category": "Team & Culture",
+      "question": "How do you handle collaboration and tight deadlines?",
+      "suggestedAnswer": "Collaborative answer",
+      "groundedEvidence": ["Agile practices"]
+    }
+  ]
+}`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'application_answers', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      const data: IApplicationAnswersSuite = {
+        generatedAt: new Date().toISOString(),
+        items,
+      };
+
+      const provenance: IAiProvenance = {
+        modelUsed: res.model,
+        provider: res.provider,
+        generatedAt: res.timestamp,
+        taskType: 'application_answers',
+      };
+
+      return {
+        success: true,
+        data,
+        modelUsed: res.model,
+        provider: res.provider,
+        provenance,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 10. AI CHAT DUMP SEGMENTATION & NOISE FILTERING
+  // ──────────────────────────────────────────────────────────────────
+  public async segmentDumpWithAi(
+    rawDump: string,
+    profileOverride?: IProfile
+  ): Promise<ILlmResponse<{ postings: string[]; discardedNoise: string[] }>> {
+    try {
+      const systemPrompt = `You are an Autonomous Job Radar Data Cleaning Agent.
+Analyze the raw text dump (from WhatsApp / Telegram / forums).
+1. Discard pure noise: casual chit-chat, greetings, course advertisements, promotional spam, payment requests, or group join links.
+2. Segment the meaningful content into individual, distinct job postings.
+Return strictly valid JSON with no markdown wrapping.`;
+
+      const prompt = `RAW CHAT DUMP TEXT:
+${rawDump.slice(0, 8000)}
+
+SCHEMA:
+{
+  "postings": [
+    "Full text of job posting 1",
+    "Full text of job posting 2"
+  ],
+  "discardedNoise": [
+    "Summary of discarded noise/spam chunk 1"
+  ]
+}`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'dump_segmentation', profileOverride);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const postings: string[] = Array.isArray(parsed.postings) ? parsed.postings : [];
+      const discardedNoise: string[] = Array.isArray(parsed.discardedNoise) ? parsed.discardedNoise : [];
+
+      return {
+        success: true,
+        data: { postings, discardedNoise },
+        modelUsed: res.model,
+        provider: res.provider,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 11. AI LINK CLASSIFICATION
+  // ──────────────────────────────────────────────────────────────────
+  public async classifyLinkWithAi(
+    url: string,
+    surroundingContext: string,
+    profileOverride?: IProfile
+  ): Promise<ILlmResponse<{
+    linkType: 'direct_apply' | 'careers_portal' | 'redirect_wrapper' | 'job_board' | 'social_spam';
+    isJobRelated: boolean;
+    confidence: number;
+    reasoning: string;
+  }>> {
+    try {
+      const systemPrompt = `You are a Web Link Classification Agent for a tech job radar.
+Classify the given URL and its surrounding context into:
+- direct_apply: Direct official application form or ATS opening (Greenhouse, Lever, Workday, etc.)
+- careers_portal: Company career page or job listing index
+- redirect_wrapper: Link shortener, referral wrapper, or tracking redirect (bit.ly, kickcharm, redirect url)
+- job_board: Generic job aggregator (Naukri, LinkedIn jobs, Indeed)
+- social_spam: WhatsApp/Telegram group join link, YouTube channel, Instagram promo, course sale
+Return strictly valid JSON without markdown wrapping.`;
+
+      const prompt = `URL: ${url}
+CONTEXT:
+${surroundingContext.slice(0, 1000)}
+
+SCHEMA:
+{
+  "linkType": "direct_apply | careers_portal | redirect_wrapper | job_board | social_spam",
+  "isJobRelated": true or false,
+  "confidence": 95,
+  "reasoning": "Explanation of classification"
+}`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'link_classification', profileOverride);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleaned);
 
       return {
         success: true,
         data: {
-          openings: Array.isArray(parsed.openings) ? parsed.openings : [],
-          rejectedNavElements: Array.isArray(parsed.rejectedNavElements) ? parsed.rejectedNavElements : [],
+          linkType: parsed.linkType || 'direct_apply',
+          isJobRelated: Boolean(parsed.isJobRelated),
+          confidence: parsed.confidence || 85,
+          reasoning: parsed.reasoning || 'Classified by AI gateway.',
         },
-        modelUsed: model,
+        modelUsed: res.model,
+        provider: res.provider,
       };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
-  /**
-   * 9. AI FOLLOW-UP CADENCE SYNTHESIZER:
-   * Generates highly tailored, context-specific follow-up messages across all cadence milestones.
-   */
+  // ──────────────────────────────────────────────────────────────────
+  // 12. BLOCK G LEGITIMACY & GHOST JOB AUDIT
+  // ──────────────────────────────────────────────────────────────────
+  public async auditBlockGLegitimacyWithAi(
+    job: IJob,
+    apiKey?: string
+  ): Promise<ILlmResponse<IBlockGAudit>> {
+    try {
+      const systemPrompt = `You are a Principal Recruiting Fraud & Ghost Job Auditor.
+Analyze the target job description to determine legitimacy:
+1. "Verified Legitimate" (Active authentic hiring with clear scope)
+2. "Low Risk" (Evergreen repost or broad pool listing)
+3. "High Risk Ghost Job" (Deceptive listing, resume harvesting, payment request, scam)
+4. "Work-Auth Blocker" (Explicit citizenship or security clearance requirements)
+Return strictly valid JSON without markdown wrapping.`;
+
+      const prompt = `COMPANY: ${job.companyName}
+TITLE: ${job.jobTitle}
+APPLY URL: ${job.applicationLink || 'None'}
+LOCATION: ${job.location || 'India / Remote'}
+JD TEXT:
+${(job.rawDescription || '').slice(0, 2500)}
+
+SCHEMA:
+{
+  "legitimacyScore": 90,
+  "isGhostJobRisk": false,
+  "isStaleRepost": false,
+  "workAuthBlocker": false,
+  "verdict": "Verified Legitimate | Low Risk | High Risk Ghost Job | Work-Auth Blocker",
+  "signalsFound": ["Signal 1", "Signal 2"],
+  "recommendation": "Advice for candidate"
+}`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'block_g_audit');
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const audit: IBlockGAudit = {
+        legitimacyScore: typeof parsed.legitimacyScore === 'number' ? parsed.legitimacyScore : 85,
+        isGhostJobRisk: Boolean(parsed.isGhostJobRisk),
+        isStaleRepost: Boolean(parsed.isStaleRepost),
+        workAuthBlocker: Boolean(parsed.workAuthBlocker),
+        verdict: parsed.verdict || 'Verified Legitimate',
+        signalsFound: Array.isArray(parsed.signalsFound) ? parsed.signalsFound : ['Verified by AI Reasoner'],
+        recommendation: parsed.recommendation || 'Verified authentic posting.',
+      };
+
+      return {
+        success: true,
+        data: audit,
+        modelUsed: res.model,
+        provider: res.provider,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 13. AI FOLLOW-UP CADENCE SYNTHESIZER
+  // ──────────────────────────────────────────────────────────────────
   public async generateAiFollowupCadence(
     job: IJob,
     profile: IProfile,
-    apiKey: string
-  ): Promise<ILlmResponse<import('./types').IFollowupCadenceSuite>> {
+    apiKey?: string
+  ): Promise<ILlmResponse<IFollowupCadenceSuite>> {
     try {
-      const systemPrompt = `You are a JobRadar Automated Follow-Up Strategist.
-Generate 4 highly tailored follow-up emails for an active job application:
-1. Day 3 Warm Ping (Recruiter / Senior Engineer)
-2. Day 7 Recruiter Check-in (Lead Tech Recruiter)
+      const systemPrompt = `You are an Automated Follow-Up Strategist.
+Generate 4 context-specific follow-up emails for an active job application:
+1. Day 3 Warm Ping (Senior Engineer / Recruiter)
+2. Day 7 Pipeline Check-in (Lead Recruiter)
 3. Day 14 Subsequent Follow-up (Hiring Manager)
 4. Post-Interview 24h Thank-You Note (Interview Panel)
-
-Tailor the emails specifically to the company's tech stack, product mission, and candidate's key strengths.
 Return strictly valid JSON with no markdown formatting.`;
 
-      const prompt = `JOB DETAILS:
-Company: ${job.companyName}
-Role: ${job.jobTitle}
-Skills Required: ${(job.skillsRequired || []).join(', ')}
+      const prompt = `JOB: ${job.companyName} — ${job.jobTitle}
+REQUIRED SKILLS: ${(job.skillsRequired || []).join(', ')}
 
 CANDIDATE:
 Name: ${profile.name}
-Primary Skills: ${profile.primarySkills.join(', ')}
-Portfolio / GitHub: ${profile.github} | LinkedIn: ${profile.linkedin}
+Skills: ${(profile.primarySkills || []).join(', ')}
+Portfolio: ${profile.portfolio || profile.github}
 
 SCHEMA:
 {
@@ -860,35 +1673,35 @@ SCHEMA:
       "milestone": "Day 3 Warm Ping",
       "daysAfterApplication": 3,
       "targetPersona": "Recruiter / Senior Engineer",
-      "subject": "Email subject",
-      "messageBody": "Full email message body"
+      "subject": "Subject",
+      "messageBody": "Body"
     },
     {
       "milestone": "Day 7 Recruiter Check-in",
       "daysAfterApplication": 7,
       "targetPersona": "Lead Tech Recruiter",
-      "subject": "Email subject",
-      "messageBody": "Full email message body"
+      "subject": "Subject",
+      "messageBody": "Body"
     },
     {
       "milestone": "Day 14 Subsequent Follow-up",
       "daysAfterApplication": 14,
-      "targetPersona": "Hiring Manager / Department Head",
-      "subject": "Email subject",
-      "messageBody": "Full email message body"
+      "targetPersona": "Hiring Manager",
+      "subject": "Subject",
+      "messageBody": "Body"
     },
     {
       "milestone": "Post-Interview 24h Thank-You",
       "daysAfterApplication": 1,
-      "targetPersona": "Interview Panel & Hiring Manager",
-      "subject": "Email subject",
-      "messageBody": "Full email message body"
+      "targetPersona": "Interview Panel",
+      "subject": "Subject",
+      "messageBody": "Body"
     }
   ]
 }`;
 
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'general', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleaned);
 
       const baseDate = new Date(job.createdAt || Date.now());
@@ -919,185 +1732,252 @@ SCHEMA:
           appliedDate: baseDate.toISOString().split('T')[0],
           items,
         },
-        modelUsed: model,
+        modelUsed: res.model,
+        provider: res.provider,
       };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
-  /**
-   * 10. AI BLOCK G LEGITIMACY & GHOST JOB DEEP AUDITOR:
-   * Uses LLM reasoning to detect evergreen ghost postings, phantom listings, visa compliance filings, and scams.
-   */
-  public async auditBlockGLegitimacyWithAi(
-    job: IJob,
-    apiKey: string
-  ): Promise<ILlmResponse<import('./types').IBlockGAudit>> {
+  // ──────────────────────────────────────────────────────────────────
+  // COMPATIBILITY HELPERS FOR UI & OVERSEER
+  // ──────────────────────────────────────────────────────────────────
+  public async tailorResumeBulletsWithLlm(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile,
+    _apiKey?: string
+  ): Promise<ILlmResponse<{ summary: string; customizedBullets: string[] }>> {
     try {
-      const systemPrompt = `You are a Principal Technical Recruiting Fraud & Ghost Job Auditor.
-Analyze the target job description, company name, location, and apply link to determine if it is:
-1. "Verified Legitimate" (Genuine active hiring with clear project scope)
-2. "Low Risk" (Evergreen / stale repost, or broad general pool listing)
-3. "High Risk Ghost Job" (Deceptive listing, resume harvesting without intent to hire, scam, or payment requests)
-4. "Work-Auth Blocker" (Strict US/EU citizenship or non-sponsorship blockers)
-
-Return strictly valid JSON with no markdown wrapping.`;
-
-      const prompt = `JOB TO AUDIT:
-Company: ${job.companyName}
-Title: ${job.jobTitle}
-Location: ${job.location || 'India / Remote'}
-Apply URL: ${job.applicationLink || 'None'}
-Job Description Snippet:
-${(job.rawDescription || '').slice(0, 2000)}
-
-SCHEMA:
-{
-  "legitimacyScore": 85,
-  "isGhostJobRisk": false,
-  "workAuthBlocker": false,
-  "verdict": "Verified Legitimate",
-  "signalsFound": ["Positive Signal 1", "Risk Signal 2"],
-  "recommendation": "Strategic guidance for the candidate"
-}`;
-
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
-
+      const { atsOptimizer } = await import('./atsOptimizer');
+      const opt = await atsOptimizer.optimizeResumeForJob(job, profile);
+      const bullets = opt.tailoredProjects.flatMap((tp) => tp.bullets);
       return {
         success: true,
         data: {
-          legitimacyScore: typeof parsed.legitimacyScore === 'number' ? parsed.legitimacyScore : 85,
-          isGhostJobRisk: Boolean(parsed.isGhostJobRisk),
-          isStaleRepost: Boolean(parsed.isStaleRepost),
-          workAuthBlocker: Boolean(parsed.workAuthBlocker),
-          verdict: parsed.verdict || 'Verified Legitimate',
-          signalsFound: Array.isArray(parsed.signalsFound) ? parsed.signalsFound : ['Verified by AI Reasoner'],
-          recommendation: parsed.recommendation || 'Verified authentic posting.',
+          summary: opt.tailoredSummary,
+          customizedBullets: bullets,
         },
-        modelUsed: model,
+        modelUsed: opt.modelUsed,
       };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
-  /**
-   * 11. AI KNOWLEDGE VAULT STAR STORY SYNTHESIZER:
-   * Ingests candidate resumes/documents and automatically synthesizes high-impact STAR project case studies.
-   */
-  public async synthesizeKnowledgeVaultWithAi(
-    rawDocsText: string,
+  public async generateAiReferralMessage(
+    job: Partial<IJob | IExtractedJD>,
     profile: IProfile,
-    apiKey: string
+    personaRole: string,
+    _apiKey?: string
+  ): Promise<ILlmResponse<string>> {
+    try {
+      const { generateReferralContactsWithAi } = await import('./referralGenerator');
+      const contacts = await generateReferralContactsWithAi(job, profile);
+      const matched = contacts.find((c) =>
+        (c.targetRole && c.targetRole.toLowerCase().includes(personaRole.toLowerCase())) ||
+        (c.personaTitle && c.personaTitle.toLowerCase().includes(personaRole.toLowerCase()))
+      ) || contacts[0];
+      return {
+        success: true,
+        data: matched?.outreachDraft || '',
+        modelUsed: 'multi_provider_ai_gateway',
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  public async auditAndExtractCareerPageWithAi(
+    rawText: string,
+    pageUrl: string,
+    companyName: string,
+    _apiKey?: string
+  ): Promise<ILlmResponse<{
+    openings: Array<{
+      jobTitle: string;
+      location: string;
+      skillsRequired: string[];
+      experienceRequired: string;
+      applicationLink?: string;
+      rawDescription: string;
+    }>;
+  }>> {
+    try {
+      const systemPrompt = `You are a Career Portal Parsing Agent. Extract all active job openings listed on this careers webpage.
+Return strictly valid JSON matching schema with no markdown wrapping.`;
+
+      const prompt = `COMPANY: ${companyName}
+PAGE URL: ${pageUrl}
+PAGE TEXT:
+${rawText.slice(0, 4000)}
+
+SCHEMA:
+{
+  "openings": [
+    {
+      "jobTitle": "Exact Job Title",
+      "location": "Location or Remote",
+      "skillsRequired": ["Skill 1", "Skill 2"],
+      "experienceRequired": "Freshers / 0-2 Years",
+      "url": "Apply or detail link",
+      "rawDescription": "Short JD snippet"
+    }
+  ]
+}`;
+
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'extraction');
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const openings = (Array.isArray(parsed.openings) ? parsed.openings : []).map((o: any) => ({
+        jobTitle: o.jobTitle || 'Software Engineer',
+        location: o.location || 'India / Remote',
+        skillsRequired: Array.isArray(o.skillsRequired) ? o.skillsRequired : [],
+        experienceRequired: o.experienceRequired || 'Freshers / 0-2 Years',
+        applicationLink: o.url || o.applicationLink || undefined,
+        rawDescription: o.rawDescription || `${companyName} is hiring for ${o.jobTitle || 'Software Engineer'}.`,
+      }));
+
+      return {
+        success: true,
+        data: { openings },
+        modelUsed: res.model,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  public async synthesizeKnowledgeVaultWithAi(
+    combinedDocs: string,
+    profile: IProfile,
+    _apiKey?: string
   ): Promise<ILlmResponse<{
     caseStudies: Array<{
       title: string;
-      category: 'project' | 'experience' | 'system_design' | 'soft_skill';
+      category: string;
       problem: string;
       solution: string;
-      metricsAchieved: string[];
       technologiesUsed: string[];
+      metricsAchieved: string[];
       fullNarrative: string;
     }>;
-    extractedKeySkills: string[];
   }>> {
     try {
-      const systemPrompt = `You are a Principal Engineering Career Strategist & Knowledge Synthesizer.
-Extract structured STAR (Situation, Task, Action, Result) engineering case studies and verified hard skills from candidate documents.
+      const systemPrompt = `You are an Executive Technical Talent Architect.
+Analyze the candidate's career documents, resume text, and project histories to synthesize rich, production-grade STAR (Situation-Task-Action-Result) case study narratives.
+Ground every narrative strictly in verified technical achievements.
 Return strictly valid JSON with no markdown wrapping.`;
 
-      const prompt = `CANDIDATE: ${profile.name}
-RAW DOCUMENTS TEXT:
-${rawDocsText.slice(0, 4000)}
+      const prompt = `CANDIDATE:
+Name: ${profile.name}
+Background: ${profile.education}, ${profile.experience}
+Skills: ${(profile.primarySkills || []).join(', ')}
+
+RAW KNOWLEDGE DOCUMENTS:
+${combinedDocs.slice(0, 5000)}
 
 SCHEMA:
 {
   "caseStudies": [
     {
-      "title": "Project or Feature Name",
-      "category": "project",
-      "problem": "Challenge or bottleneck faced",
-      "solution": "Technical architecture and implementation built",
-      "metricsAchieved": ["Latency reduced by 40%", "Handled 10k concurrent reqs"],
-      "technologiesUsed": ["React", "TypeScript", "Node.js", "Redis"],
-      "fullNarrative": "Complete 4-sentence STAR story"
+      "title": "Concise Case Study Title",
+      "category": "Architecture | Performance | Full-Stack | Security",
+      "problem": "Clear problem statement",
+      "solution": "Technical architecture and implementation steps",
+      "technologiesUsed": ["React", "Node.js", "MongoDB"],
+      "metricsAchieved": ["Metric 1 with quantifiable impact"],
+      "fullNarrative": "Comprehensive STAR narrative"
     }
-  ],
-  "extractedKeySkills": ["Skill 1", "Skill 2"]
+  ]
 }`;
 
-      const { groqKey, geminiKey } = this.getProfileProviderKeys(); const { text, model } = await this.callLlm(prompt, systemPrompt, apiKey, undefined, groqKey, geminiKey);
-      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const res = await this.callLlmUniversal(prompt, systemPrompt, 'interview_prep', profile);
+      const cleaned = res.text.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleaned);
-
       return {
         success: true,
         data: {
           caseStudies: Array.isArray(parsed.caseStudies) ? parsed.caseStudies : [],
-          extractedKeySkills: Array.isArray(parsed.extractedKeySkills) ? parsed.extractedKeySkills : [],
         },
-        modelUsed: model,
+        modelUsed: res.model,
       };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
-  /**
-   * Validates if an API Key is active using OpenRouter's official Auth Check API.
-   */
+  // ──────────────────────────────────────────────────────────────────
+  // 14. AUTH & CONNECTIVITY TESTS
+  // ──────────────────────────────────────────────────────────────────
   public async testApiKey(apiKey: string): Promise<{ valid: boolean; message: string; model?: string }> {
     if (!apiKey || !apiKey.trim()) {
       return { valid: false, message: 'Please provide an OpenRouter API key.' };
     }
-
     const key = apiKey.trim();
+    const endpoint = 'https://openrouter.ai/api/v1/auth/key';
+    const headers = { Authorization: `Bearer ${key}` };
     const electronApi = typeof window !== 'undefined' ? (window as any)?.electronAPI : null;
 
     try {
-      const endpoint = 'https://openrouter.ai/api/v1/auth/key';
-      const headers = { Authorization: `Bearer ${key}` };
-
       if (electronApi?.callLlmApi) {
-        try {
-          const res = await electronApi.callLlmApi({ endpoint, headers, method: 'GET' });
-          if (res.success && res.data?.data) {
-            const info = res.data.data;
-            const statusTag = info.is_free_tier ? 'Free Tier' : 'Active Account';
-            return {
-              valid: true,
-              message: `OpenRouter key verified (${statusTag})!`,
-              model: 'OpenRouter Unified API',
-            };
-          }
-        } catch {
-          // Fall through to direct fetch
+        const res = await electronApi.callLlmApi({ endpoint, headers, method: 'GET' });
+        if (res.success && res.data?.data) {
+          const statusTag = res.data.data.is_free_tier ? 'Free Tier' : 'Active Account';
+          return { valid: true, message: `OpenRouter key verified (${statusTag})!`, model: 'OpenRouter Unified API' };
+        }
+      } else {
+        const res = await fetch(endpoint, { method: 'GET', headers });
+        if (res.ok) {
+          const data = await res.json();
+          const statusTag = data?.data?.is_free_tier ? 'Free Tier' : 'Active Account';
+          return { valid: true, message: `OpenRouter key verified (${statusTag})!`, model: 'OpenRouter Unified API' };
         }
       }
-
-      // Direct Browser/Node fetch fallback
-      const res = await fetch(endpoint, { method: 'GET', headers });
-      if (res.ok) {
-        const data = await res.json();
-        const info = data?.data;
-        const statusTag = info?.is_free_tier ? 'Free Tier' : 'Active Account';
-        return {
-          valid: true,
-          message: `OpenRouter key verified (${statusTag})!`,
-          model: 'OpenRouter Unified API',
-        };
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        return { valid: false, message: errData?.error?.message || `HTTP ${res.status}: Invalid key` };
-      }
+      return { valid: false, message: 'Invalid OpenRouter key or unauthorized.' };
     } catch (err: any) {
       return { valid: false, message: err.message };
     }
   }
+
+  public async testGroqKey(groqApiKey: string): Promise<{ valid: boolean; model?: string; message?: string }> {
+    try {
+      const res = await this.callGroq('Reply with "OK" only.', 'You are a connectivity test.', groqApiKey);
+      return { valid: true, model: res.model };
+    } catch (err: any) {
+      return { valid: false, message: err.message };
+    }
+  }
+
+  public async testGeminiKey(geminiApiKey: string): Promise<{ valid: boolean; model?: string; message?: string }> {
+    try {
+      const res = await this.callGemini('Reply with "OK" only.', 'You are a connectivity test.', geminiApiKey);
+      return { valid: true, model: res.model };
+    } catch (err: any) {
+      return { valid: false, message: err.message };
+    }
+  }
+
+  public async testOllama(endpoint: string = 'http://localhost:11434'): Promise<{
+    valid: boolean;
+    models: string[];
+    message?: string;
+  }> {
+    const res = await this.detectOllamaModels(endpoint);
+    if (res.available && res.models.length > 0) {
+      return {
+        valid: true,
+        models: res.models,
+        message: `Connected to Ollama (${res.models.length} models installed: ${res.models.slice(0, 3).join(', ')})`,
+      };
+    }
+    return {
+      valid: false,
+      models: [],
+      message: res.error || 'Ollama connection failed or no models found.',
+    };
+  }
 }
 
 export const llmClient = new LlmClientService();
-

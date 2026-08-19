@@ -84,7 +84,7 @@ export function RagVaultView({ profile }: RagVaultViewProps) {
       const res = await llmClient.synthesizeKnowledgeVaultWithAi(combinedDocs, profile, key);
       if (res.success && res.data) {
         let added = 0;
-        res.data.caseStudies.forEach((cs) => {
+        res.data.caseStudies.forEach((cs: any) => {
           knowledgeVault.addDocument({
             title: `STAR: ${cs.title}`,
             category: 'star_story',

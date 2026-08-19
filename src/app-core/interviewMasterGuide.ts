@@ -1,138 +1,152 @@
-import { IJob, IProfile, IInterviewMasterGuide, IDsaChallenge, ISystemDesignBlueprint, ISkillGapCramSheet, ISalaryBenchmark, ICompanyCultureAudit } from './types';
+import {
+  IJob,
+  IProfile,
+  IInterviewMasterGuide,
+  IDsaChallenge,
+  ISystemDesignBlueprint,
+  ISkillGapCramSheet,
+  ISalaryBenchmark,
+  ICompanyCultureAudit,
+} from './types';
+import { llmClient } from './llmClient';
 
 /**
- * Generates the complete Interview Master Guide for any job posting.
+ * Primary AI-Native Interview Master Guide Generator.
+ */
+export async function generateInterviewMasterGuideWithAi(
+  job: IJob,
+  profile: IProfile
+): Promise<IInterviewMasterGuide> {
+  const aiRes = await llmClient.generateAiInterviewMasterGuide(job, profile);
+  if (aiRes.success && aiRes.data) {
+    return aiRes.data;
+  }
+  // If AI generation threw or returned error, throw to avoid silent hardcoded fallback
+  throw new Error(aiRes.error || 'AI Interview Master Guide generation failed.');
+}
+
+/**
+ * Dynamic candidate-grounded generator used when offline or initializing defaults.
+ * Zero hardcoded candidate names or static project literals.
  */
 export function generateInterviewMasterGuide(job: IJob, profile: IProfile): IInterviewMasterGuide {
-  const company = job.companyName;
-  const role = job.jobTitle;
-  const skills = job.skillsRequired || ['React.js', 'Node.js', 'MongoDB', 'JavaScript'];
-  const primarySkill = skills[0] || 'Full Stack';
+  const company = job.companyName || 'Target Company';
+  const role = job.jobTitle || 'Software Engineer';
+  const skills = job.skillsRequired && job.skillsRequired.length > 0
+    ? job.skillsRequired
+    : profile.primarySkills && profile.primarySkills.length > 0
+    ? profile.primarySkills
+    : ['Full Stack Development', 'Data Structures', 'System Design'];
+
+  const primarySkill = skills[0] || 'Software Engineering';
+  const secondarySkill = skills[1] || 'Distributed Systems';
   const missingSkills = job.gapAnalysis?.missingKeywords || [];
 
-  // 1. DSA & Live Coding Challenges (Company-Tailored)
+  const candidateProjectRef = profile.projects && profile.projects.length > 0
+    ? profile.projects.map((p) => `${p.title} (${p.tech})`).join(' and ')
+    : 'production full-stack applications';
+
+  // 1. Dynamic Skill-Matched Technical Challenges
   const dsaChallenges: IDsaChallenge[] = [
     {
-      title: `${company} Real Round: LRU Cache / Concurrency Cache Manager`,
+      title: `${company} Real Round: Optimal Data Pipeline & Cache for ${primarySkill}`,
       difficulty: 'Medium',
-      topic: 'Hash Map + Doubly Linked List',
-      companyFrequency: `Asked 12x in ${company} Technical Round 1`,
-      problemStatement: `Design a data structure that follows the constraints of a Least Recently Used (LRU) cache with O(1) get() and put() operations. This is frequently asked at ${company} to test core memory and pointer management.`,
-      starterCode: `class LRUCache {\n  constructor(capacity) {\n    this.capacity = capacity;\n    this.map = new Map();\n  }\n\n  get(key) {\n    if (!this.map.has(key)) return -1;\n    const val = this.map.get(key);\n    this.map.delete(key);\n    this.map.set(key, val); // Move to most recently used\n    return val;\n  }\n\n  put(key, value) {\n    if (this.map.has(key)) this.map.delete(key);\n    this.map.set(key, value);\n    if (this.map.size > this.capacity) {\n      const firstKey = this.map.keys().next().value;\n      this.map.delete(firstKey);\n    }\n  }\n}`,
-      solutionCode: `// Optimal O(1) Solution using Javascript Map (preserves insertion order)\n// Space Complexity: O(N) | Time Complexity: O(1) get, O(1) put`,
-      timeComplexity: 'O(1) for both Get and Put operations',
+      topic: `${primarySkill} Data Structures & Cache Strategy`,
+      companyFrequency: `Frequently assessed in ${company} Technical Screening`,
+      problemStatement: `Design an optimal in-memory caching and eviction mechanism tailored for high-throughput ${primarySkill} service workloads at ${company}.`,
+      starterCode: `class HighThroughputCache {\n  constructor(capacity) {\n    this.capacity = capacity;\n    this.store = new Map();\n  }\n  get(key) {\n    if (!this.store.has(key)) return null;\n    const val = this.store.get(key);\n    this.store.delete(key);\n    this.store.set(key, val);\n    return val;\n  }\n  put(key, value) {\n    if (this.store.has(key)) this.store.delete(key);\n    this.store.set(key, value);\n    if (this.store.size > this.capacity) {\n      this.store.delete(this.store.keys().next().value);\n    }\n  }\n}`,
+      solutionCode: `// Optimized O(1) time complexity per operation leveraging native ordered map entries.`,
+      timeComplexity: 'O(1) average lookup and mutation',
       spaceComplexity: 'O(Capacity) auxiliary memory',
       keyInsights: [
-        'JavaScript Map maintains key insertion order, allowing clean LRU eviction.',
-        'In low-level Java/C++ rounds, implement explicit Doubly Linked List nodes with head and tail pointers.',
-        'Emphasize thread-safety or concurrency locking if asked about multi-threaded distributed caches.',
+        `Align cache sizing with ${company}'s production scale constraints.`,
+        'Demonstrate understanding of TTL eviction vs least-recently-used eviction.',
       ],
     },
     {
-      title: `${company} Live Coding: Token Bucket Rate Limiter / Debounce Engine`,
+      title: `${company} Machine Coding: Resilient ${secondarySkill} Architecture Challenge`,
       difficulty: 'Medium',
-      topic: 'Concurrency & Backend Systems',
-      companyFrequency: `Standard Machine Coding question for ${role}`,
-      problemStatement: `Implement an API Rate Limiter middleware in Node.js/JavaScript that permits up to N requests per window time T per client IP.`,
-      starterCode: `function createRateLimiter(maxRequests, windowMs) {\n  const clients = new Map();\n\n  return function rateLimiter(req, res, next) {\n    const ip = req.ip || 'default';\n    const now = Date.now();\n    const clientData = clients.get(ip) || { count: 0, startTime: now };\n\n    if (now - clientData.startTime > windowMs) {\n      clientData.count = 1;\n      clientData.startTime = now;\n    } else {\n      clientData.count++;\n      if (clientData.count > maxRequests) {\n        return res.status(429).json({ error: 'Too Many Requests' });\n      }\n    }\n    clients.set(ip, clientData);\n    next();\n  };\n}`,
-      solutionCode: `// Middleware handles sliding window rate limiting efficiently in memory.\n// In production, explain migrating this to Redis sliding window sorted sets (ZREMRANGEBYSCORE).`,
-      timeComplexity: 'O(1) request evaluation',
-      spaceComplexity: 'O(Unique Clients) in-memory storage',
+      topic: `${secondarySkill} & Concurrency`,
+      companyFrequency: `Standard implementation round for ${role}`,
+      problemStatement: `Implement a resilient asynchronous queue processor with rate limiting and exponential backoff retry for ${role} operations.`,
+      starterCode: `async function processWithRetry(taskFn, maxRetries = 3, baseDelayMs = 200) {\n  let attempt = 0;\n  while (attempt < maxRetries) {\n    try {\n      return await taskFn();\n    } catch (err) {\n      attempt++;\n      if (attempt >= maxRetries) throw err;\n      await new Promise(r => setTimeout(r, baseDelayMs * Math.pow(2, attempt)));\n    }\n  }\n}`,
+      solutionCode: `// Resilient retry with exponential backoff and error bubbling.`,
+      timeComplexity: 'O(1) execution overhead per task',
+      spaceComplexity: 'O(1) stack memory',
       keyInsights: [
-        'Highlight memory leak prevention by setting TTL or background cleanup on idle client IPs.',
-        'Explain Redis token bucket migration for horizontal scale across multiple server instances.',
-      ],
-    },
-    {
-      title: `${company} Frontend Round: Custom React Hook with Retry & Exponential Backoff`,
-      difficulty: 'Easy',
-      topic: 'React Internals & Asynchronous Flow',
-      companyFrequency: `Asked in React / UI engineering interviews`,
-      problemStatement: `Build a custom React hook \`useFetchWithRetry(url, options, maxRetries)\` that gracefully retries failed network requests with exponential backoff before throwing.`,
-      starterCode: `import { useState, useEffect } from 'react';\n\nexport function useFetchWithRetry(url, maxRetries = 3) {\n  const [data, setData] = useState(null);\n  const [loading, setLoading] = useState(true);\n  const [error, setError] = useState(null);\n\n  useEffect(() => {\n    let isMounted = true;\n    let attempt = 0;\n\n    const execute = async () => {\n      try {\n        setLoading(true);\n        const res = await fetch(url);\n        if (!res.ok) throw new Error(\`HTTP \${res.status}\`);\n        const json = await res.json();\n        if (isMounted) {\n          setData(json);\n          setLoading(false);\n        }\n      } catch (err) {\n        if (attempt < maxRetries) {\n          attempt++;\n          const delay = Math.pow(2, attempt) * 500;\n          setTimeout(execute, delay);\n        } else if (isMounted) {\n          setError(err.message);\n          setLoading(false);\n        }\n      }\n    };\n    execute();\n    return () => { isMounted = false; };\n  }, [url]);\n\n  return { data, loading, error };\n}`,
-      solutionCode: `// Fully handled unmounting race conditions and exponential backoff retry.`,
-      timeComplexity: 'O(1) Hook instantiation',
-      spaceComplexity: 'O(1) state footprint',
-      keyInsights: [
-        'Always clean up asynchronous state updates with `isMounted` flag or `AbortController`.',
-        'Use jitter in production backoff calculations to avoid thundering herd problem.',
+        'Prevent thundering herds by incorporating jitter in retry delays.',
+        'Ensure idempotency across distributed worker nodes.',
       ],
     },
   ];
 
-  // 2. System Design Architecture Blueprint
+  // 2. Dynamic System Design Blueprint
   const systemDesign: ISystemDesignBlueprint = {
     title: `Scalable Distributed Architecture for ${company} (${role})`,
-    architectureSummary: `High-availability, microservices architecture designed to handle 50,000+ RPS with sub-50ms latency, utilizing MongoDB shard clustering, Redis caching, and asynchronous event streaming.`,
-    mermaidDiagram: `graph TD\n    Client[Web & Mobile Clients] -->|HTTPS / WSS| CDN[Cloudflare / AWS CloudFront]\n    CDN --> LB[NGINX / AWS ALB Load Balancer]\n    LB --> API1[API Gateway & Auth Service]\n    API1 --> Cache[(Redis Distributed Cache - Cluster)]\n    API1 --> SvcCore[Core Business Services / Node.js]\n    SvcCore --> DB[(MongoDB / PostgreSQL Replica Set)]\n    SvcCore --> Queue[RabbitMQ / Apache Kafka Message Broker]\n    Queue --> Worker[Async Background Workers & PDF Generator]\n    Worker --> S3[(AWS S3 Object Storage)]`,
+    architectureSummary: `High-availability microservices architecture tailored for ${company}'s domain, utilizing API Gateways, distributed caching, and event-driven async workers.`,
+    mermaidDiagram: `graph TD\n    Client[Clients] --> LB[Load Balancer]\n    LB --> Gateway[API Gateway / Auth]\n    Gateway --> Service[Core ${primarySkill} Services]\n    Service --> Cache[(Distributed Cache)]\n    Service --> DB[(Primary Database)]\n    Service --> Broker[Event Broker]\n    Broker --> Workers[Async Workers]`,
     keyComponents: [
-      'Edge CDN & Load Balancer: SSL termination and DDoS mitigation.',
-      'API Gateway: JWT validation, rate limiting, and request routing.',
-      'Redis Cache Layer: Sub-millisecond reads for high-frequency candidate & job data.',
-      'MongoDB Replicated Cluster: Horizontal sharding on tenant and company IDs.',
-      'Asynchronous Event Queue: Decouples compute-heavy tasks like resume compiling.',
+      `Edge routing and rate-limiting tailored to ${role} endpoints.`,
+      `Service isolation for high-throughput ${primarySkill} domains.`,
+      'Distributed caching for sub-millisecond query offloading.',
     ],
     scalingBottlenecksAndFixes: [
-      'Database Hotspots: Solved by composite indexing and read-replicas for query offloading.',
-      'Memory Pressure on Node.js Event Loop: Solved by clustering and stream-based JSON parsing.',
-      'Cache Invalidation Drift: Implemented Cache-Aside pattern with deterministic TTLs.',
+      'Database Hotspots: Mitigated via read replicas and consistent partition keys.',
+      'Worker Backpressure: Mitigated via dynamic autoscaling worker pools.',
     ],
-    candidateProjectMapping: `Connect your master resume project **AUSVMS** (Vehicle Management System) and **Guard Hub** to explain real-world experience managing multi-role auth, role-based access control (RBAC), and transactional integrity.`,
+    candidateProjectMapping: `Connect your verified background building ${candidateProjectRef} to illustrate real-world proficiency with schema design, state management, and transactional integrity.`,
   };
 
-  // 3. 48-Hour Skill Gap Cram Sheet
-  const fallbackMissing = missingSkills.length > 0 ? missingSkills : ['Docker', 'Redis', 'TypeScript Generics', 'REST vs GraphQL'];
-  const crashCourseModules = fallbackMissing.map((skill) => {
-    return {
-      skill,
-      oneLinerConcept: `${skill} is an essential standard for modern high-scale engineering pipelines.`,
-      essentialCodeSnippet: `// Practical ${skill} Usage Example\nconst config = { enabled: true, mode: '${skill.toLowerCase()}' };`,
-      commonInterviewPitfall: `Mistake: Treating ${skill} as a silver bullet without understanding trade-offs in operational complexity.`,
-      winningTalkingPoint: `"In my full-stack projects, I prioritize clean architectural separation so that adopting ${skill} minimizes friction and accelerates deployment reliability."`,
-    };
-  });
+  // 3. Skill Gap Cram Sheet
+  const fallbackMissing = missingSkills.length > 0 ? missingSkills : skills.slice(0, 3);
+  const crashCourseModules = fallbackMissing.map((skill) => ({
+    skill,
+    oneLinerConcept: `${skill} is a core requirement for high-scale ${role} responsibilities at ${company}.`,
+    essentialCodeSnippet: `// Key architectural pattern in ${skill}\nexport const use${skill.replace(/[^a-zA-Z]/g, '')} = () => ({ status: 'ready' });`,
+    commonInterviewPitfall: `Mistake: Treating ${skill} as a standalone tool rather than understanding its architectural trade-offs.`,
+    winningTalkingPoint: `"In my development workflow, I structure components so that integrating ${skill} enhances observability and maintains clean separation of concerns."`,
+  }));
 
   const skillGapCramSheet: ISkillGapCramSheet = {
     missingSkills: fallbackMissing,
     crashCourseModules,
   };
 
-  // 4. Salary Benchmarking & Negotiation Script
+  // 4. Salary Benchmark Grounded in Job Posting or Stated Market Tier
+  const statedCtc = job.ctcRange || (job.ctcMentioned ? 'Competitive Market Range' : null);
   const salaryBenchmark: ISalaryBenchmark = {
-    tierClassification: job.matchScore >= 85 ? 'Top 10% Market Tier (High Leverage)' : 'Competitive Market Standard',
-    minLpa: '₹8.5 LPA',
-    maxLpa: '₹18.0 LPA',
-    medianLpa: '₹12.5 LPA',
-    variablePayPct: '10 - 15% Performance Bonus + Joining Bonus',
+    tierClassification: job.matchScore >= 85 ? 'Top Tier Strategic Fit' : 'Competitive Market Standard',
+    minLpa: statedCtc ? statedCtc.split('-')[0]?.trim() || 'Market Standard' : 'Competitive',
+    maxLpa: statedCtc ? statedCtc.split('-')[1]?.trim() || 'Market Standard' : 'Competitive',
+    medianLpa: statedCtc || 'Market Aligned',
+    variablePayPct: '10 - 15% Performance Component',
     leveragePoints: [
-      'Strong end-to-end full stack proficiency across modern React.js, Node.js, Express, and MongoDB.',
-      'Demonstrated high-concurrency production project implementations (AUSVMS, Guard Hub).',
-      'Immediate availability / early-career high-velocity contribution.',
+      `Verified proficiency in ${skills.slice(0, 3).join(', ')}.`,
+      `Demonstrated capability delivering projects including ${candidateProjectRef}.`,
+      'Immediate readiness to execute high-impact engineering milestones.',
     ],
-    negotiationScript: `"Thank you so much for this exciting offer to join ${company} as ${role}! I am genuinely thrilled about the team's roadmap. Based on current industry benchmarks for full-stack engineers with production full-stack capabilities, I was anticipating a compensation package closer to ₹14 - 16 LPA base. If we can reach that benchmark, I am prepared to sign and accept immediately."`,
-    counterOfferTemplate: `Dear [Recruiter Name],\n\nThank you for sharing the offer details for the ${role} position. I am very enthusiastic about the opportunity to contribute to ${company}.\n\nAfter reviewing the overall compensation structure against industry benchmarks and my technical capabilities in ${primarySkill}, I would like to request a base salary adjustment to [Target LPA] or an additional joining bonus of [Amount].\n\nI am eager to finalize terms and begin onboarding with the team.\n\nWarm regards,\n${profile.name}`,
+    negotiationScript: `"Hello, this is ${profile.name}. Thank you for this opportunity to join ${company} as ${role}! Based on current market benchmarks for ${primarySkill} engineering and my verified record delivering ${candidateProjectRef}, I am confident I can contribute immediate value."`,
+    counterOfferTemplate: `Dear Hiring Team,\n\nThank you for extending the offer for the ${role} position at ${company}.\n\nBased on the scope of responsibilities and my technical background in ${primarySkill}, I would like to explore whether we can adjust the compensation structure to reflect current market benchmarks.\n\nWarm regards,\n${profile.name}`,
   };
 
-  // 5. Company Culture & Red-Flag Auditor
+  // 5. Company Culture & Red-Flag Audit
   const companyCultureAudit: ICompanyCultureAudit = {
-    workLifeBalanceScore: 8.4,
-    techStackModernityScore: 9.1,
+    workLifeBalanceScore: 8.5,
+    techStackModernityScore: 9.0,
     layOffRisk: 'Low',
     greenFlags: [
-      'Modern cloud-native tech stack with active open source contributions.',
-      'Strong engineering mentorship and clear promotion ladders for early-career developers.',
-      'High peer review standards and automated CI/CD deployment pipelines.',
+      `Active adoption of modern engineering workflows around ${primarySkill}.`,
+      'Continuous deployment pipelines and established code review culture.',
     ],
     redFlags: [
-      'Fast-paced quarterly sprints may occasionally require tight milestone turnaround.',
-      'Ensure clarity on on-call rotation expectations during the hiring manager conversation.',
+      'Confirm sprint pacing and on-call expectations during team interview.',
     ],
     interviewFormatTips: [
-      'Round 1: 45 min DSA & Core Computer Science fundamentals (Focus on Arrays, Trees, HashMaps).',
-      'Round 2: 60 min Machine Coding / Live Component implementation (Keep components clean and modular).',
-      'Round 3: 45 min Engineering Manager & Behavioral fit (Answer using the STAR framework).',
+      'Round 1: Technical & Core Computer Science fundamentals.',
+      `Round 2: Practical ${primarySkill} live implementation & system review.`,
+      'Round 3: Leadership & culture alignment (STAR methodology).',
     ],
-    insiderAdvice: `When discussing your technical choices at ${company}, always explain *why* you selected a certain tool or algorithm over alternative approaches. Interviewers at ${company} value structured decision-making over raw memorization.`,
+    insiderAdvice: `When discussing engineering trade-offs at ${company}, articulate your reasoning clearly and tie technical choices directly to product stability and scalability.`,
   };
 
   return {
@@ -142,5 +156,11 @@ export function generateInterviewMasterGuide(job: IJob, profile: IProfile): IInt
     skillGapCramSheet,
     salaryBenchmark,
     companyCultureAudit,
+    provenance: {
+      modelUsed: 'local_parameterized_generator',
+      provider: 'local_heuristic',
+      generatedAt: new Date().toISOString(),
+      taskType: 'interview_guide',
+    },
   };
 }
