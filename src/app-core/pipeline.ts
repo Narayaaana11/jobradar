@@ -29,6 +29,9 @@ export async function processIngestion(
   useLlm: boolean = false
 ): Promise<IngestionResult> {
   const profile = store.getProfile();
+  const activeAiKey = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || '';
+  const hasAiKey = Boolean(activeAiKey);
+  const shouldRunAi = useLlm || hasAiKey;
   const trimmedInput = input.trim();
   const processedJobs: IJob[] = [];
   const queueIds: string[] = [];
@@ -49,8 +52,8 @@ export async function processIngestion(
       // 1. Fetch & extract full JD content from live web page
       let extracted: IExtractedJD = await fetchAndExtractJobFromUrl(trimmedInput);
 
-      if (useLlm && profile.apiKey) {
-        const llmExtracted = await llmClient.extractJobWithLlm(extracted.rawDescription, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmExtracted = await llmClient.extractJobWithLlm(extracted.rawDescription, activeAiKey);
         if (llmExtracted.success && llmExtracted.data) {
           extracted = {
             ...llmExtracted.data,
@@ -62,8 +65,8 @@ export async function processIngestion(
 
       // 2. Score against candidate profile (RAG-Augmented)
       let scoreResult = scoreJobAgainstProfile(extracted, profile);
-      if (useLlm && profile.apiKey) {
-        const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, activeAiKey);
         if (llmScore.success && llmScore.data) {
           scoreResult = llmScore.data;
         }
@@ -77,8 +80,8 @@ export async function processIngestion(
 
       // 5. Generate AI interview prep (RAG-Augmented)
       let interviewPrep = generateInterviewPrep(extracted, profile);
-      if (useLlm && profile.apiKey) {
-        const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, activeAiKey);
         if (llmPrep.success && llmPrep.data) {
           interviewPrep = llmPrep.data;
         }
@@ -86,8 +89,8 @@ export async function processIngestion(
 
       // 6. Generate tailored cover letter (RAG-Augmented)
       let coverLetter = generateCoverLetter(extracted, profile);
-      if (useLlm && profile.apiKey) {
-        const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, activeAiKey);
         if (llmLetter.success && llmLetter.data) {
           coverLetter = llmLetter.data;
         }
@@ -146,24 +149,24 @@ export async function processIngestion(
       job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
       job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
 
-      if (useLlm && profile.apiKey) {
+      if (shouldRunAi && activeAiKey) {
         try {
-          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, profile.apiKey);
+          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, activeAiKey);
           if (aiCadence.success && aiCadence.data) job.followupCadence = aiCadence.data;
         } catch {}
 
         try {
-          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, profile.apiKey);
+          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, activeAiKey);
           if (aiBlockG.success && aiBlockG.data) job.blockGAudit = aiBlockG.data;
         } catch {}
 
         try {
-          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey);
+          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, activeAiKey);
           if (aiAnswers) job.applicationAnswers = aiAnswers;
         } catch {}
 
         try {
-          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey);
+          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, activeAiKey);
           if (aiSal) job.salaryNegotiation = aiSal;
         } catch {}
       }
@@ -209,21 +212,20 @@ export async function processIngestion(
     }
 
     try {
-      // 3. Extract structured JD (Deterministic first, optional LLM for small batches)
+      // 3. Extract structured JD (Deterministic first, AI if key available)
       let extracted = extractJobDetails(rawPost);
-      const shouldCallLlm = useLlm && Boolean(profile.apiKey) && chunks.length <= 3;
 
-      if (shouldCallLlm && profile.apiKey) {
-        const llmExtracted = await llmClient.extractJobWithLlm(rawPost, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmExtracted = await llmClient.extractJobWithLlm(rawPost, activeAiKey);
         if (llmExtracted.success && llmExtracted.data) {
           extracted = llmExtracted.data;
         }
       }
 
-      // 4. Score against candidate profile (Deterministic first, optional LLM)
+      // 4. Score against candidate profile (RAG-Augmented AI)
       let scoreResult = scoreJobAgainstProfile(extracted, profile);
-      if (shouldCallLlm && profile.apiKey) {
-        const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, activeAiKey);
         if (llmScore.success && llmScore.data) {
           scoreResult = llmScore.data;
         }
@@ -235,19 +237,19 @@ export async function processIngestion(
       // 6. Generate employee referral personas & search queries
       const referrals = generateReferralContacts(extracted, profile);
 
-      // 7. Generate AI interview prep (LLM or Heuristic)
+      // 7. Generate AI interview prep (RAG-Augmented AI)
       let interviewPrep = generateInterviewPrep(extracted, profile);
-      if (shouldCallLlm && profile.apiKey) {
-        const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, activeAiKey);
         if (llmPrep.success && llmPrep.data) {
           interviewPrep = llmPrep.data;
         }
       }
 
-      // 8. Generate tailored cover letter (LLM or Heuristic)
+      // 8. Generate tailored cover letter (RAG-Augmented AI)
       let coverLetter = generateCoverLetter(extracted, profile);
-      if (shouldCallLlm && profile.apiKey) {
-        const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, profile.apiKey);
+      if (shouldRunAi && activeAiKey) {
+        const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, activeAiKey);
         if (llmLetter.success && llmLetter.data) {
           coverLetter = llmLetter.data;
         }
@@ -310,24 +312,24 @@ export async function processIngestion(
       job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
       job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
 
-      if (useLlm && profile.apiKey) {
+      if (shouldRunAi && activeAiKey) {
         try {
-          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, profile.apiKey);
+          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, activeAiKey);
           if (aiCadence.success && aiCadence.data) job.followupCadence = aiCadence.data;
         } catch {}
 
         try {
-          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, profile.apiKey);
+          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, activeAiKey);
           if (aiBlockG.success && aiBlockG.data) job.blockGAudit = aiBlockG.data;
         } catch {}
 
         try {
-          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey);
+          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, activeAiKey);
           if (aiAnswers) job.applicationAnswers = aiAnswers;
         } catch {}
 
         try {
-          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey);
+          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, activeAiKey);
           if (aiSal) job.salaryNegotiation = aiSal;
         } catch {}
       }
