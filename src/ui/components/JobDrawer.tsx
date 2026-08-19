@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { IJob, IProfile } from '../../app-core/types';
 import { store } from '../../app-core/store';
 import { llmClient } from '../../app-core/llmClient';
@@ -22,6 +22,7 @@ import {
 import { aiCouncil } from '../../app-core/aiCouncil';
 import { ragAugmentor } from '../../app-core/rag/ragAugmentor';
 import { getCompanyCareerPortal } from '../../app-core/extractor';
+import { generateReferralContactsWithAi } from '../../app-core/referralGenerator';
 import { generateOutreachSuite } from '../../app-core/outreachAgent';
 import { generateInterviewMasterGuide } from '../../app-core/interviewMasterGuide';
 import { webScrapingAuditor } from '../../app-core/webScrapingAuditor';
@@ -36,8 +37,71 @@ import {
   IBlockGAudit,
   IFollowupCadenceSuite,
   IApplicationAnswersSuite,
-  ISalaryNegotiationSuite
+  ISalaryNegotiationSuite,
+  IFieldGenerationStatus,
+  IJobGenerationStatusMap
 } from '../../app-core/types';
+
+export function SectionStatusBadge({ status }: { status?: IFieldGenerationStatus }) {
+  if (!status) return null;
+  if (status.status === 'ai_generated') {
+    return (
+      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 flex items-center gap-1">
+        <Sparkles className="w-3 h-3 text-purple-400" />
+        <span>AI-Generated</span>
+      </span>
+    );
+  }
+  if (status.status === 'offline_template') {
+    return (
+      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 text-zinc-400 border border-zinc-700">
+        Offline Template
+      </span>
+    );
+  }
+  if (status.status === 'failed') {
+    return (
+      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-800 flex items-center gap-1">
+        <AlertCircle className="w-3 h-3 text-red-400" />
+        <span>Failed</span>
+      </span>
+    );
+  }
+  return null;
+}
+
+export function SectionFailureBanner({
+  title,
+  error,
+  onRetry,
+  isRunning,
+}: {
+  title: string;
+  error?: string;
+  onRetry: () => void;
+  isRunning?: boolean;
+}) {
+  return (
+    <div className="p-6 bg-red-950/20 border border-red-900/50 rounded-2xl space-y-3.5 animate-in fade-in duration-150 shadow-lg">
+      <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+        <AlertCircle className="w-4 h-4 shrink-0" />
+        <span>{title} Generation Failed</span>
+      </div>
+      <p className="text-xs text-zinc-300 leading-relaxed font-mono bg-black/40 p-3.5 rounded-xl border border-red-900/30">
+        {error || `The AI agent was unable to generate ${title}. Click retry below to re-execute with live multi-provider routing.`}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={isRunning}
+        className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold text-xs rounded-full flex items-center gap-1.5 hover:brightness-110 transition shadow-lg disabled:opacity-50"
+      >
+        <RefreshCw className={`w-3.5 h-3.5 ${isRunning ? 'animate-spin' : ''}`} />
+        <span>{isRunning ? 'Synthesizing with AI...' : `Retry ${title} with AI`}</span>
+      </button>
+    </div>
+  );
+}
 
 interface JobDrawerProps {
   job: IJob | null;
@@ -75,23 +139,16 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
   useEffect(() => {
     if (job) {
-      const out = job.outreachSuite || generateOutreachSuite(job, profile);
-      const mg = job.interviewMasterGuide || generateInterviewMasterGuide(job, profile);
-      const appAns = job.applicationAnswers || applicationAnswers.generateAnswersDeterministic(job, profile);
-      const flw = job.followupCadence || generateFollowupCadence(job, profile);
-      const sal = job.salaryNegotiation || salaryNegotiation.generateNegotiationSuite(job, profile);
-      const bg = job.blockGAudit || auditBlockGLegitimacy(job);
-
-      setOutreachData(out);
-      setMasterGuideData(mg);
+      setOutreachData(job.outreachSuite || null);
+      setMasterGuideData(job.interviewMasterGuide || null);
       setWebIntelData(job.webIntelligence || null);
-      setAppAnswersData(appAns);
-      setFollowupData(flw);
-      setSalaryData(sal);
-      setBlockGData(bg);
+      setAppAnswersData(job.applicationAnswers || null);
+      setFollowupData(job.followupCadence || null);
+      setSalaryData(job.salaryNegotiation || null);
+      setBlockGData(job.blockGAudit || null);
       setLiveJdError(null);
     }
-  }, [job, profile]);
+  }, [job]);
 
   const handleFetchLiveJd = async () => {
     if (!job?.applicationLink) return;
@@ -274,7 +331,12 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
       const res = await llmClient.generateAiInterviewPrep(job, profile, key);
       if (res.success && res.data) {
         job.interviewPrep = res.data;
-        store.updateJob(job.id, { interviewPrep: res.data });
+        const newStatus: IJobGenerationStatusMap = {
+          ...(job.generationStatus || {}),
+          interviewPrep: { status: 'ai_generated', modelUsed: res.modelUsed, generatedAt: new Date().toISOString() },
+        };
+        job.generationStatus = newStatus;
+        store.updateJob(job.id, { interviewPrep: res.data, generationStatus: newStatus });
         setAiModelUsed(res.modelUsed || 'OpenRouter Free Model');
         setSaveSuccessMsg(`Interview prep generated via ${res.modelUsed || 'OpenRouter'}!`);
         setTimeout(() => setSaveSuccessMsg(''), 4000);
@@ -305,7 +367,12 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
       const res = await llmClient.generateAiCoverLetter(job, profile, key);
       if (res.success && res.data) {
         job.coverLetterText = res.data;
-        store.updateJob(job.id, { coverLetterText: res.data });
+        const newStatus: IJobGenerationStatusMap = {
+          ...(job.generationStatus || {}),
+          coverLetterText: { status: 'ai_generated', modelUsed: res.modelUsed, generatedAt: new Date().toISOString() },
+        };
+        job.generationStatus = newStatus;
+        store.updateJob(job.id, { coverLetterText: res.data, generationStatus: newStatus });
         setAiModelUsed(res.modelUsed || 'OpenRouter Free Model');
         setSaveSuccessMsg(`Cover letter generated via ${res.modelUsed || 'OpenRouter'}!`);
         setTimeout(() => setSaveSuccessMsg(''), 4000);
@@ -320,7 +387,36 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     }
   };
 
-  // 5. AI Referral Personalizer Agent (OpenRouter)
+  // 5. AI Referral Contacts Generator
+  const handleGenerateAiReferrals = async () => {
+    if (!job) return;
+    setIsLlmRunning(true);
+    setAiActionLabel('Synthesizing Referral Personas & Pitches with AI...');
+    setAiError(null);
+    try {
+      const res = await generateReferralContactsWithAi(job, profile);
+      if (res && res.length > 0) {
+        job.referralContacts = res;
+        const newStatus: IJobGenerationStatusMap = {
+          ...(job.generationStatus || {}),
+          referralContacts: { status: 'ai_generated', generatedAt: new Date().toISOString() },
+        };
+        job.generationStatus = newStatus;
+        store.updateJob(job.id, { referralContacts: res, generationStatus: newStatus });
+        setSaveSuccessMsg('Referral contacts generated with AI!');
+        setTimeout(() => setSaveSuccessMsg(''), 4000);
+      } else {
+        setAiError('Failed to generate referral personas with AI');
+      }
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
+  // 5b. AI Referral Personalizer Agent (Single contact)
   const handleAiPersonalizeReferral = async (idx: number, personaRole: string) => {
     const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
@@ -424,9 +520,16 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
       if (res.success && res.data) {
         setOutreachData(res.data);
         job.outreachSuite = res.data;
-        store.updateJob(job.id, { outreachSuite: res.data });
+        const newStatus: IJobGenerationStatusMap = {
+          ...(job.generationStatus || {}),
+          outreachSuite: { status: 'ai_generated', modelUsed: res.modelUsed, generatedAt: new Date().toISOString() },
+        };
+        job.generationStatus = newStatus;
+        store.updateJob(job.id, { outreachSuite: res.data, generationStatus: newStatus });
         setSaveSuccessMsg(`Outreach suite synthesized via ${res.modelUsed || 'OpenRouter LLM'}!`);
         setTimeout(() => setSaveSuccessMsg(''), 4000);
+      } else {
+        setAiError(res.error || 'Failed to synthesize outreach suite with AI');
       }
     } catch (err: any) {
       setAiError(err.message);
@@ -454,10 +557,71 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
       if (res.success && res.data) {
         setMasterGuideData(res.data);
         job.interviewMasterGuide = res.data;
-        store.updateJob(job.id, { interviewMasterGuide: res.data });
+        const newStatus: IJobGenerationStatusMap = {
+          ...(job.generationStatus || {}),
+          interviewMasterGuide: { status: 'ai_generated', modelUsed: res.modelUsed, generatedAt: new Date().toISOString() },
+        };
+        job.generationStatus = newStatus;
+        store.updateJob(job.id, { interviewMasterGuide: res.data, generationStatus: newStatus });
         setSaveSuccessMsg(`Master Prep Guide synthesized via ${res.modelUsed || 'OpenRouter LLM'}!`);
         setTimeout(() => setSaveSuccessMsg(''), 4000);
+      } else {
+        setAiError(res.error || 'Failed to generate Master Prep Guide with AI');
       }
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
+  // 10. AI Application QA Answers Generator
+  const handleGenerateAiAppAnswers = async () => {
+    if (!job) return;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
+    setIsLlmRunning(true);
+    setAiActionLabel('Synthesizing tailored application answers with AI...');
+    setAiError(null);
+    try {
+      const res = await applicationAnswers.generateAnswersWithAi(job, profile, key);
+      setAppAnswersData(res);
+      job.applicationAnswers = res;
+      const newStatus: IJobGenerationStatusMap = {
+        ...(job.generationStatus || {}),
+        applicationAnswers: { status: 'ai_generated', generatedAt: new Date().toISOString() },
+      };
+      job.generationStatus = newStatus;
+      store.updateJob(job.id, { applicationAnswers: res, generationStatus: newStatus });
+      setSaveSuccessMsg('Application form answers updated with AI grounding!');
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err: any) {
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
+  // 11. AI Salary Negotiation Generator
+  const handleGenerateAiSalary = async () => {
+    if (!job) return;
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
+    setIsLlmRunning(true);
+    setAiActionLabel('Synthesizing compensation counter-offer package with AI...');
+    setAiError(null);
+    try {
+      const res = await salaryNegotiation.generateNegotiationWithAi(job, profile, key);
+      setSalaryData(res);
+      job.salaryNegotiation = res;
+      const newStatus: IJobGenerationStatusMap = {
+        ...(job.generationStatus || {}),
+        salaryNegotiation: { status: 'ai_generated', generatedAt: new Date().toISOString() },
+      };
+      job.generationStatus = newStatus;
+      store.updateJob(job.id, { salaryNegotiation: res, generationStatus: newStatus });
+      setSaveSuccessMsg('Negotiation strategy calibrated with AI market benchmarks!');
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
     } catch (err: any) {
       setAiError(err.message);
     } finally {
@@ -470,7 +634,8 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
   const companyCareerUrl = job.companyPageUrl || getCompanyCareerPortal(job.companyName, job.applicationLink);
   const cleanCompany = cleanFilenameSlug(job.companyName || 'Company');
   const cleanRole = cleanFilenameSlug(job.jobTitle || 'Role');
-  const pdfFileName = `Narayana_Thota_${cleanRole}_${cleanCompany}.pdf`;
+  const candidateNameSlug = cleanFilenameSlug(profile.name || 'Candidate');
+  const pdfFileName = `${candidateNameSlug}_${cleanRole}_${cleanCompany}.pdf`;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 lg:p-6 animate-in fade-in duration-200">
@@ -1502,23 +1667,32 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
               )}
 
               {/* â”€â”€ ðŸ”¥ 2. MASTER PREP GUIDE TAB (DSA, SYSTEM DESIGN, CRAM SHEET, SALARY, CULTURE) â”€â”€ */}
-              {activeTab === 'masterguide' && masterGuideData && (
-                <div className="space-y-5 animate-in fade-in-50 duration-200">
-                  {/* AI Regenerate Banner */}
-                  <div className="p-4 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[20px] flex flex-wrap items-center justify-between gap-4 shadow">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="p-1 rounded bg-amber-950/60 border border-amber-800/60 text-amber-400">
-                          <Sparkles className="w-3.5 h-3.5" />
-                        </span>
-                        <h4 className="text-xs font-extrabold text-white">
-                          AI Master Prep Guide Generator (OpenRouter API)
-                        </h4>
+              {activeTab === 'masterguide' && (
+                !masterGuideData || job.generationStatus?.interviewMasterGuide?.status === 'failed' ? (
+                  <SectionFailureBanner
+                    title="Interview Master Prep Guide"
+                    error={job.generationStatus?.interviewMasterGuide?.error}
+                    onRetry={handleGenerateAiMasterGuide}
+                    isRunning={isLlmRunning}
+                  />
+                ) : (
+                  <div className="space-y-5 animate-in fade-in-50 duration-200">
+                    {/* AI Regenerate Banner */}
+                    <div className="p-4 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[20px] flex flex-wrap items-center justify-between gap-4 shadow">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="p-1 rounded bg-amber-950/60 border border-amber-800/60 text-amber-400">
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </span>
+                          <h4 className="text-xs font-extrabold text-white">
+                            AI Master Prep Guide
+                          </h4>
+                          <SectionStatusBadge status={job.generationStatus?.interviewMasterGuide} />
+                        </div>
+                        <p className="text-[11px] text-zinc-400">
+                          Synthesizes company-specific DSA challenges, system design architectures, and 48-hr cram sheets using OpenRouter LLM.
+                        </p>
                       </div>
-                      <p className="text-[11px] text-zinc-400">
-                        Synthesizes company-specific DSA challenges, system design architectures, and 48-hr cram sheets using OpenRouter LLM.
-                      </p>
-                    </div>
 
                     <button
                       type="button"
@@ -1880,37 +2054,47 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     </div>
                   )}
                 </div>
-              )}
+              )
+            )}
 
-              {/* â”€â”€ ðŸ”¥ 3. COLD EMAIL & 3-STEP CADENCE TAB â”€â”€ */}
-              {activeTab === 'outreach' && outreachData && (
-                <div className="space-y-5 animate-in fade-in-50 duration-200">
-                  {/* AI Regenerate Banner */}
-                  <div className="p-4 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[20px] flex flex-wrap items-center justify-between gap-4 shadow">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="p-1 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-400">
-                          <Sparkles className="w-3.5 h-3.5" />
-                        </span>
-                        <h4 className="text-xs font-extrabold text-white">
-                          AI Outreach & Follow-Up Sequence Generator (OpenRouter API)
-                        </h4>
+              {/* ── 🔥 3. COLD EMAIL & 3-STEP CADENCE TAB ── */}
+              {activeTab === 'outreach' && (
+                !outreachData || job.generationStatus?.outreachSuite?.status === 'failed' ? (
+                  <SectionFailureBanner
+                    title="Cold Outreach Suite"
+                    error={job.generationStatus?.outreachSuite?.error}
+                    onRetry={handleGenerateAiOutreach}
+                    isRunning={isLlmRunning}
+                  />
+                ) : (
+                  <div className="space-y-5 animate-in fade-in-50 duration-200">
+                    {/* AI Regenerate Banner */}
+                    <div className="p-4 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[20px] flex flex-wrap items-center justify-between gap-4 shadow">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="p-1 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-400">
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </span>
+                          <h4 className="text-xs font-extrabold text-white">
+                            AI Outreach & Follow-Up Sequence
+                          </h4>
+                          <SectionStatusBadge status={job.generationStatus?.outreachSuite} />
+                        </div>
+                        <p className="text-[11px] text-zinc-400">
+                          Drafts high-converting 3-step cadence emails and LinkedIn InMails tailored to hiring managers using OpenRouter LLM.
+                        </p>
                       </div>
-                      <p className="text-[11px] text-zinc-400">
-                        Drafts high-converting 3-step cadence emails and LinkedIn InMails tailored to hiring managers using OpenRouter LLM.
-                      </p>
-                    </div>
 
-                    <button
-                      type="button"
-                      onClick={handleGenerateAiOutreach}
-                      disabled={isLlmRunning}
-                      className="px-4 py-2 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Synthesizing with AI...' : 'âš¡ AI Re-Generate Cadence'}</span>
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={handleGenerateAiOutreach}
+                        disabled={isLlmRunning}
+                        className="px-4 py-2 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                        <span>{isLlmRunning ? 'Synthesizing with AI...' : '⚡ AI Re-Generate Cadence'}</span>
+                      </button>
+                    </div>
 
                   {/* Corporate Email Predictor Header */}
                   <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] space-y-3 shadow-xl">
@@ -2028,7 +2212,8 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     </div>
                   </div>
                 </div>
-              )}
+              )
+            )}
 
               {/* â”€â”€ ðŸ”¥ 4. LIVE WEB INTELLIGENCE AGENT TAB â”€â”€ */}
               {activeTab === 'webintel' && (
@@ -2126,138 +2311,177 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* â”€â”€ 4. REFERRALS TAB â”€â”€ */}
+              {/* ── 4. REFERRALS TAB ── */}
               {activeTab === 'referral' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
-                    <h3 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                      <UserCheck className="w-4 h-4 text-emerald-400" /> {job.referralContacts?.length || 6} Targeted Referral Personas @ {job.companyName}
-                    </h3>
-                  </div>
-
-                  {(job.referralContacts || []).map((contact, idx) => (
-                    <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow-lg">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h4 className="font-extrabold text-sm text-white">{contact.personaTitle || (contact as any).name}</h4>
-                          <p className="text-xs font-mono text-zinc-400 mt-0.5">{contact.targetRole || (contact as any).role}</p>
-                          <p className="text-[11px] font-mono text-zinc-500 mt-1 flex items-center gap-1.5">
-                            <Users className="w-3.5 h-3.5 text-zinc-500" />
-                            <span>{contact.department}</span>
-                          </p>
-                        </div>
-                        <a
-                          href={contact.linkedinSearchUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-[#0a66c2] hover:bg-[#0856a5] text-white flex items-center gap-1.5 transition shadow shrink-0"
-                        >
-                          <Linkedin className="w-3.5 h-3.5" /> LinkedIn
-                        </a>
+                !job.referralContacts || job.referralContacts.length === 0 || job.generationStatus?.referralContacts?.status === 'failed' ? (
+                  <SectionFailureBanner
+                    title="Referral Contacts & Pitches"
+                    error={job.generationStatus?.referralContacts?.error}
+                    onRetry={handleGenerateAiReferrals}
+                    isRunning={isLlmRunning}
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                          <UserCheck className="w-4 h-4 text-emerald-400" /> {job.referralContacts.length} Targeted Referral Personas @ {job.companyName}
+                        </h3>
+                        <SectionStatusBadge status={job.generationStatus?.referralContacts} />
                       </div>
+                      <button
+                        type="button"
+                        onClick={handleGenerateAiReferrals}
+                        disabled={isLlmRunning}
+                        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-bold transition disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                        <span>AI Re-Generate</span>
+                      </button>
+                    </div>
 
-                      <div className="pt-2 border-t border-zinc-800/80 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-mono font-bold text-zinc-400 uppercase truncate max-w-xs">
-                            Subject: {contact.subject}
-                          </span>
-                          <button
-                            onClick={() => copyToClipboard(`Subject: ${contact.subject}\n\n${contact.outreachDraft}`, idx)}
-                            className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow shrink-0"
+                    {(job.referralContacts || []).map((contact, idx) => (
+                      <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow-lg">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-extrabold text-sm text-white">{contact.personaTitle || (contact as any).name}</h4>
+                            <p className="text-xs font-mono text-zinc-400 mt-0.5">{contact.targetRole || (contact as any).role}</p>
+                            <p className="text-[11px] font-mono text-zinc-500 mt-1 flex items-center gap-1.5">
+                              <Users className="w-3.5 h-3.5 text-zinc-500" />
+                              <span>{contact.department}</span>
+                            </p>
+                          </div>
+                          <a
+                            href={contact.linkedinSearchUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-[#0a66c2] hover:bg-[#0856a5] text-white flex items-center gap-1.5 transition shadow shrink-0"
                           >
-                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx ? 'Copied!' : 'Copy Draft'}
-                          </button>
+                            <Linkedin className="w-3.5 h-3.5" /> LinkedIn
+                          </a>
                         </div>
-                        <textarea
-                          readOnly
-                          value={contact.outreachDraft}
-                          className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
 
-              {/* â”€â”€ 5. INTERVIEW PREP TAB â”€â”€ */}
-              {activeTab === 'interview' && (
-                <div className="space-y-5">
-                  <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="p-1.5 rounded-lg bg-amber-950/60 border border-amber-800/60 text-amber-400">
-                          <Sparkles className="w-4 h-4" />
-                        </span>
-                        <h3 className="text-sm font-extrabold text-white">AI Interview Prep Agent</h3>
-                      </div>
-                      <p className="text-xs text-zinc-400">
-                        Generate technical and system design questions customized to {job.companyName}.
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleGenerateRealAiPrep}
-                      disabled={isLlmRunning}
-                      className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Reasoning...' : 'âš¡ Generate Questions'}</span>
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    {(job.interviewPrep?.questions || []).map((q, idx) => (
-                      <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
-                        <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 uppercase">
-                          Question #{idx + 1}
-                        </span>
-                        <h4 className="text-sm font-extrabold text-white">{q.question}</h4>
-                        <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-2xl text-xs text-zinc-300 font-mono leading-relaxed">
-                          <p className="text-emerald-400 font-bold mb-1">Suggested Candidate Answer:</p>
-                          {q.suggestedAnswer}
+                        <div className="pt-2 border-t border-zinc-800/80 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-mono font-bold text-zinc-400 uppercase truncate max-w-xs">
+                              Subject: {contact.subject}
+                            </span>
+                            <button
+                              onClick={() => copyToClipboard(`Subject: ${contact.subject}\n\n${contact.outreachDraft}`, idx)}
+                              className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow shrink-0"
+                            >
+                              <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx ? 'Copied!' : 'Copy Draft'}
+                            </button>
+                          </div>
+                          <textarea
+                            readOnly
+                            value={contact.outreachDraft}
+                            className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                          />
                         </div>
                       </div>
                     ))}
                   </div>
-                </div>
+                )
               )}
 
-              {/* â”€â”€ 6. COVER LETTER TAB â”€â”€ */}
-              {activeTab === 'coverletter' && (
-                <div className="space-y-5">
-                  <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="p-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800/60 text-cyan-400">
-                          <Mail className="w-4 h-4" />
-                        </span>
-                        <h3 className="text-sm font-extrabold text-white">AI Cover Letter Drafter</h3>
+              {/* ── 5. INTERVIEW PREP TAB ── */}
+              {activeTab === 'interview' && (
+                !job.interviewPrep || job.generationStatus?.interviewPrep?.status === 'failed' ? (
+                  <SectionFailureBanner
+                    title="Role-Specific Interview Prep"
+                    error={job.generationStatus?.interviewPrep?.error}
+                    onRetry={handleGenerateRealAiPrep}
+                    isRunning={isLlmRunning}
+                  />
+                ) : (
+                  <div className="space-y-5">
+                    <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="p-1.5 rounded-lg bg-amber-950/60 border border-amber-800/60 text-amber-400">
+                            <Sparkles className="w-4 h-4" />
+                          </span>
+                          <h3 className="text-sm font-extrabold text-white">AI Interview Prep Agent</h3>
+                          <SectionStatusBadge status={job.generationStatus?.interviewPrep} />
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          Generate technical and system design questions customized to {job.companyName}.
+                        </p>
                       </div>
-                      <p className="text-xs text-zinc-400">
-                        Write a highly personalized pitch letter for {job.companyName}.
-                      </p>
+
+                      <button
+                        type="button"
+                        onClick={handleGenerateRealAiPrep}
+                        disabled={isLlmRunning}
+                        className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                        <span>{isLlmRunning ? 'Reasoning...' : '⚡ Generate Questions'}</span>
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleGenerateRealAiLetter}
-                      disabled={isLlmRunning}
-                      className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Drafting...' : 'âš¡ Generate Cover Letter'}</span>
-                    </button>
+                    <div className="space-y-3">
+                      {(job.interviewPrep?.questions || []).map((q, idx) => (
+                        <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                          <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 uppercase">
+                            Question #{idx + 1}
+                          </span>
+                          <h4 className="text-sm font-extrabold text-white">{q.question}</h4>
+                          <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-2xl text-xs text-zinc-300 font-mono leading-relaxed">
+                            <p className="text-emerald-400 font-bold mb-1">Suggested Candidate Answer:</p>
+                            {q.suggestedAnswer}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                )
+              )}
 
-                  {job.coverLetterText && (
+              {/* ── 6. COVER LETTER TAB ── */}
+              {activeTab === 'coverletter' && (
+                !job.coverLetterText || job.generationStatus?.coverLetterText?.status === 'failed' ? (
+                  <SectionFailureBanner
+                    title="Tailored Cover Letter"
+                    error={job.generationStatus?.coverLetterText?.error}
+                    onRetry={handleGenerateRealAiLetter}
+                    isRunning={isLlmRunning}
+                  />
+                ) : (
+                  <div className="space-y-5">
+                    <div className="p-5 bg-gradient-to-r from-[#18181b] via-[#121215] to-[#18181b] border border-[#27272a] rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="p-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800/60 text-cyan-400">
+                            <Mail className="w-4 h-4" />
+                          </span>
+                          <h3 className="text-sm font-extrabold text-white">AI Cover Letter Drafter</h3>
+                          <SectionStatusBadge status={job.generationStatus?.coverLetterText} />
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          Write a highly personalized pitch letter for {job.companyName}.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleGenerateRealAiLetter}
+                        disabled={isLlmRunning}
+                        className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                        <span>{isLlmRunning ? 'Drafting...' : '⚡ Generate Cover Letter'}</span>
+                      </button>
+                    </div>
+
                     <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-4 shadow-lg">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
                           <Mail className="w-4 h-4 text-emerald-400" /> Tailored Cover Letter
                         </span>
                         <button
-                          onClick={() => copyToClipboard(job.coverLetterText)}
+                          onClick={() => copyToClipboard(job.coverLetterText!)}
                           className="text-xs font-bold px-3 py-1.5 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition"
                         >
                           <Copy className="w-3.5 h-3.5" /> {copiedText ? 'Copied!' : 'Copy Letter'}
@@ -2267,92 +2491,86 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         {job.coverLetterText}
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )
               )}
 
-              {/* â”€â”€ 7. APPLICATION QA ANSWERS TAB (JobRadar Autonomous) â”€â”€ */}
+              {/* ── 7. APPLICATION QA ANSWERS TAB (JobRadar Autonomous) ── */}
               {activeTab === 'appanswers' && (
-                <div className="space-y-5">
-                  <div className="p-5 bg-gradient-to-r from-emerald-950/40 via-[#18181b] to-teal-950/40 border border-emerald-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="p-1.5 rounded-lg bg-emerald-950 border border-emerald-700 text-emerald-400">
-                          <CheckSquare className="w-4 h-4" />
-                        </span>
-                        <h3 className="text-sm font-extrabold text-white">Application QA Answers Generator</h3>
+                !appAnswersData || job.generationStatus?.applicationAnswers?.status === 'failed' ? (
+                  <SectionFailureBanner
+                    title="Application QA Answers"
+                    error={job.generationStatus?.applicationAnswers?.error}
+                    onRetry={handleGenerateAiAppAnswers}
+                    isRunning={isLlmRunning}
+                  />
+                ) : (
+                  <div className="space-y-5">
+                    <div className="p-5 bg-gradient-to-r from-emerald-950/40 via-[#18181b] to-teal-950/40 border border-emerald-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="p-1.5 rounded-lg bg-emerald-950 border border-emerald-700 text-emerald-400">
+                            <CheckSquare className="w-4 h-4" />
+                          </span>
+                          <h3 className="text-sm font-extrabold text-white">Application QA Answers Generator</h3>
+                          <SectionStatusBadge status={job.generationStatus?.applicationAnswers} />
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          Tailored, 1-click copyable answers for tricky ATS portal questions grounded in your master resume.
+                        </p>
                       </div>
-                      <p className="text-xs text-zinc-400">
-                        Tailored, 1-click copyable answers for tricky ATS portal questions grounded in your master resume.
-                      </p>
+
+                      <button
+                        type="button"
+                        onClick={handleGenerateAiAppAnswers}
+                        disabled={isLlmRunning}
+                        className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                        <span>{isLlmRunning ? 'Generating...' : '⚡ AI Re-Generate Answers'}</span>
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setIsLlmRunning(true);
-                        setAiActionLabel('Synthesizing tailored application answers with AI...');
-                        try {
-                          const res = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "");
-                          setAppAnswersData(res);
-                          job.applicationAnswers = res;
-                          store.updateJob(job.id, { applicationAnswers: res });
-                          setSaveSuccessMsg('Application form answers updated with AI grounding!');
-                          setTimeout(() => setSaveSuccessMsg(''), 4000);
-                        } catch (err: any) {
-                          setAiError(err.message);
-                        } finally {
-                          setIsLlmRunning(false);
-                          setAiActionLabel('');
-                        }
-                      }}
-                      disabled={isLlmRunning}
-                      className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Generating...' : 'âš¡ AI Re-Generate Answers'}</span>
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                    {(appAnswersData?.items || []).map((item, idx) => (
-                      <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 uppercase">
-                              {item.category}
-                            </span>
-                            <h4 className="text-sm font-extrabold text-white mt-1.5">{item.question}</h4>
-                          </div>
-
-                          <button
-                            onClick={() => copyToClipboard(item.suggestedAnswer, idx + 100)}
-                            className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1.5 transition shadow shrink-0"
-                          >
-                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx + 100 ? 'Copied!' : 'Copy Answer'}
-                          </button>
-                        </div>
-
-                        <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-sans leading-relaxed whitespace-pre-wrap">
-                          {item.suggestedAnswer}
-                        </div>
-
-                        {item.groundedEvidence && item.groundedEvidence.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 pt-1">
-                            {item.groundedEvidence.map((ev, evIdx) => (
-                              <span key={evIdx} className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
-                                ðŸ“Œ {ev}
+                    <div className="space-y-4">
+                      {(appAnswersData?.items || []).map((item, idx) => (
+                        <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 uppercase">
+                                {item.category}
                               </span>
-                            ))}
+                              <h4 className="text-sm font-extrabold text-white mt-1.5">{item.question}</h4>
+                            </div>
+
+                            <button
+                              onClick={() => copyToClipboard(item.suggestedAnswer, idx + 100)}
+                              className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1.5 transition shadow shrink-0"
+                            >
+                              <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx + 100 ? 'Copied!' : 'Copy Answer'}
+                            </button>
                           </div>
-                        )}
-                      </div>
-                    ))}
+
+                          <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-sans leading-relaxed whitespace-pre-wrap">
+                            {item.suggestedAnswer}
+                          </div>
+
+                          {item.groundedEvidence && item.groundedEvidence.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {item.groundedEvidence.map((ev, evIdx) => (
+                                <span key={evIdx} className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+                                  📌 {ev}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )
               )}
 
-              {/* â”€â”€ 8. FOLLOW-UP CADENCE TAB (JobRadar Autonomous) â”€â”€ */}
+              {/* ── 8. FOLLOW-UP CADENCE TAB (JobRadar Autonomous) ── */}
               {activeTab === 'followup' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-blue-950/40 via-[#18181b] to-indigo-950/40 border border-blue-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
@@ -2362,6 +2580,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <Clock className="w-4 h-4" />
                         </span>
                         <h3 className="text-sm font-extrabold text-white">Automated Follow-Up Cadence Engine</h3>
+                        <SectionStatusBadge status={job.generationStatus?.followupCadence} />
                       </div>
                       <p className="text-xs text-zinc-400">
                         Multi-touch follow-up schedule and pre-drafted check-ins to maximize recruiter response rates.
@@ -2392,7 +2611,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         className="flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                        <span>{isLlmRunning ? 'Generating...' : 'âš¡ AI Re-Generate Cadence'}</span>
+                        <span>{isLlmRunning ? 'Generating...' : '⚡ AI Re-Generate Cadence'}</span>
                       </button>
 
                       <div className="text-right font-mono shrink-0">
@@ -2420,7 +2639,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                               </span>
                               {step.isOverdue && (
                                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800 animate-pulse">
-                                  âš ï¸ Due for follow-up
+                                  ⚠️ Due for follow-up
                                 </span>
                               )}
                             </div>
@@ -2453,133 +2672,127 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* â”€â”€ 9. OFFER & SALARY NEGOTIATION TAB (JobRadar Autonomous) â”€â”€ */}
+              {/* ── 9. OFFER & SALARY NEGOTIATION TAB (JobRadar Autonomous) ── */}
               {activeTab === 'negotiation' && (
-                <div className="space-y-5">
-                  <div className="p-5 bg-gradient-to-r from-yellow-950/40 via-[#18181b] to-amber-950/40 border border-yellow-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="p-1.5 rounded-lg bg-yellow-950 border border-yellow-700 text-yellow-400">
-                          <DollarSign className="w-4 h-4" />
-                        </span>
-                        <h3 className="text-sm font-extrabold text-white">Compensation Benchmark & Negotiation Advisor</h3>
+                !salaryData || job.generationStatus?.salaryNegotiation?.status === 'failed' ? (
+                  <SectionFailureBanner
+                    title="Salary & Negotiation Advisory"
+                    error={job.generationStatus?.salaryNegotiation?.error}
+                    onRetry={handleGenerateAiSalary}
+                    isRunning={isLlmRunning}
+                  />
+                ) : (
+                  <div className="space-y-5">
+                    <div className="p-5 bg-gradient-to-r from-yellow-950/40 via-[#18181b] to-amber-950/40 border border-yellow-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="p-1.5 rounded-lg bg-yellow-950 border border-yellow-700 text-yellow-400">
+                            <DollarSign className="w-4 h-4" />
+                          </span>
+                          <h3 className="text-sm font-extrabold text-white">Compensation Benchmark & Negotiation Advisor</h3>
+                          <SectionStatusBadge status={job.generationStatus?.salaryNegotiation} />
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                          Strategic salary counter-offer scripts, market benchmarking, and remote compensation pushback.
+                        </p>
                       </div>
-                      <p className="text-xs text-zinc-400">
-                        Strategic salary counter-offer scripts, market benchmarking, and remote compensation pushback.
-                      </p>
+
+                      <button
+                        type="button"
+                        onClick={handleGenerateAiSalary}
+                        disabled={isLlmRunning}
+                        className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-yellow-500 to-amber-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                        <span>{isLlmRunning ? 'Calibrating...' : '⚡ AI Recalibrate CTC'}</span>
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setIsLlmRunning(true);
-                        setAiActionLabel('Synthesizing compensation counter-offer package with AI...');
-                        try {
-                          const res = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "");
-                          setSalaryData(res);
-                          job.salaryNegotiation = res;
-                          store.updateJob(job.id, { salaryNegotiation: res });
-                          setSaveSuccessMsg('Negotiation strategy calibrated with AI market benchmarks!');
-                          setTimeout(() => setSaveSuccessMsg(''), 4000);
-                        } catch (err: any) {
-                          setAiError(err.message);
-                        } finally {
-                          setIsLlmRunning(false);
-                          setAiActionLabel('');
-                        }
-                      }}
-                      disabled={isLlmRunning}
-                      className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-yellow-500 to-amber-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Calibrating...' : 'âš¡ AI Recalibrate CTC'}</span>
-                    </button>
+                    {/* Benchmark Summary Card */}
+                    <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                      <h4 className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-wider">
+                        📊 Market Compensation Analysis
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+                        <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl">
+                          <span className="text-zinc-500 block text-[10px]">TARGET CTC BENCHMARK</span>
+                          <span className="text-white text-base font-extrabold">{salaryData.targetCtc}</span>
+                        </div>
+                        <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl">
+                          <span className="text-zinc-500 block text-[10px]">MARKET ROLE BASELINE</span>
+                          <span className="text-emerald-400 text-base font-extrabold">{salaryData.marketBenchmark}</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-zinc-400 font-sans">{salaryData.gapAnalysis}</p>
+                    </div>
+
+                    {/* Counter Offer Script */}
+                    {salaryData.counterOfferEmailScript && (
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
+                            <span>✉️ Counter-Offer Email Script</span>
+                          </h4>
+                          <button
+                            onClick={() => copyToClipboard(salaryData.counterOfferEmailScript!, 301)}
+                            className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === 301 ? 'Copied!' : 'Copy Script'}
+                          </button>
+                        </div>
+                        <textarea
+                          readOnly
+                          value={salaryData.counterOfferEmailScript}
+                          className="w-full h-32 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                        />
+                      </div>
+                    )}
+
+                    {/* Remote / Geographic Comp Pushback */}
+                    {salaryData.remoteCompPushbackScript && (
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
+                            <span>🌐 Geographic / Remote Discount Pushback</span>
+                          </h4>
+                          <button
+                            onClick={() => copyToClipboard(salaryData.remoteCompPushbackScript!, 302)}
+                            className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === 302 ? 'Copied!' : 'Copy Script'}
+                          </button>
+                        </div>
+                        <textarea
+                          readOnly
+                          value={salaryData.remoteCompPushbackScript}
+                          className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                        />
+                      </div>
+                    )}
+
+                    {/* Competing Offer Script */}
+                    {salaryData.competingOfferLeverageScript && (
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
+                            <span>⚡ Competing Offer Leverage Script</span>
+                          </h4>
+                          <button
+                            onClick={() => copyToClipboard(salaryData.competingOfferLeverageScript!, 303)}
+                            className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === 303 ? 'Copied!' : 'Copy Script'}
+                          </button>
+                        </div>
+                        <textarea
+                          readOnly
+                          value={salaryData.competingOfferLeverageScript}
+                          className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                        />
+                      </div>
+                    )}
                   </div>
-
-                  {/* Benchmark Summary Card */}
-                  <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
-                    <h4 className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-wider">
-                      ðŸ“Š Market Compensation Analysis
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
-                      <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl">
-                        <span className="text-zinc-500 block text-[10px]">TARGET CTC BENCHMARK</span>
-                        <span className="text-white text-base font-extrabold">{salaryData?.targetCtc}</span>
-                      </div>
-                      <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl">
-                        <span className="text-zinc-500 block text-[10px]">MARKET ROLE BASELINE</span>
-                        <span className="text-emerald-400 text-base font-extrabold">{salaryData?.marketBenchmark}</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-zinc-400 font-sans">{salaryData?.gapAnalysis}</p>
-                  </div>
-
-                  {/* Counter Offer Script */}
-                  {salaryData?.counterOfferEmailScript && (
-                    <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
-                          <span>âœ‰ï¸ Counter-Offer Email Script</span>
-                        </h4>
-                        <button
-                          onClick={() => copyToClipboard(salaryData.counterOfferEmailScript, 301)}
-                          className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
-                        >
-                          <Copy className="w-3.5 h-3.5" /> {copiedIdx === 301 ? 'Copied!' : 'Copy Script'}
-                        </button>
-                      </div>
-                      <textarea
-                        readOnly
-                        value={salaryData.counterOfferEmailScript}
-                        className="w-full h-32 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
-                      />
-                    </div>
-                  )}
-
-                  {/* Remote / Geographic Comp Pushback */}
-                  {salaryData?.remoteCompPushbackScript && (
-                    <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
-                          <span>ðŸŒ Geographic / Remote Discount Pushback</span>
-                        </h4>
-                        <button
-                          onClick={() => copyToClipboard(salaryData.remoteCompPushbackScript, 302)}
-                          className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
-                        >
-                          <Copy className="w-3.5 h-3.5" /> {copiedIdx === 302 ? 'Copied!' : 'Copy Script'}
-                        </button>
-                      </div>
-                      <textarea
-                        readOnly
-                        value={salaryData.remoteCompPushbackScript}
-                        className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
-                      />
-                    </div>
-                  )}
-
-                  {/* Competing Offer Script */}
-                  {salaryData?.competingOfferLeverageScript && (
-                    <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
-                          <span>âš¡ Competing Offer Leverage Script</span>
-                        </h4>
-                        <button
-                          onClick={() => copyToClipboard(salaryData.competingOfferLeverageScript, 303)}
-                          className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
-                        >
-                          <Copy className="w-3.5 h-3.5" /> {copiedIdx === 303 ? 'Copied!' : 'Copy Script'}
-                        </button>
-                      </div>
-                      <textarea
-                        readOnly
-                        value={salaryData.competingOfferLeverageScript}
-                        className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
-                      />
-                    </div>
-                  )}
-                </div>
+                )
               )}
             </div>
           </div>

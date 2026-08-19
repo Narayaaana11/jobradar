@@ -157,7 +157,7 @@ Compensation: $160,000 - $190,000 USD
     assert(job.coverLetterText !== undefined && job.coverLetterText.length > 100, 'Cover letter generated');
     assert(job.interviewMasterGuide !== undefined, 'Interview master guide generated');
     assert(job.outreachSuite !== undefined, 'Outreach suite generated');
-    assert(job.provenance !== undefined, 'Feed card contains AI provenance metadata');
+    assert(job.generationStatus !== undefined, 'Feed card contains per-field generation status map');
   }
 
   // ── TEST 5: Telemetry Logging Verification ──

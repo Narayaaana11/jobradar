@@ -2,6 +2,7 @@ import { IDiscoveredJobListing } from './careerCrawler';
 import { fetchWebPageHtml, cleanHtmlToText } from './webFetcher';
 import { scrapingOverseer } from './scrapingOverseer';
 import { atsAdapters } from './atsAdapters';
+import { playwrightConcurrencyLimiter } from './concurrency';
 
 /**
  * JobRadar Headless & Playwright Browser Scraping Engine
@@ -53,61 +54,63 @@ export class PlaywrightScraperService {
     url: string,
     options: IPlaywrightScrapeOptions = {}
   ): Promise<{ success: boolean; html: string; method: 'playwright' | 'native_fetch'; error?: string }> {
-    const timeout = options.timeoutMs || 15000;
+    return playwrightConcurrencyLimiter.run(async () => {
+      const timeout = options.timeoutMs || 15000;
 
-    // 1. Try Playwright if installed
-    if (await this.isPlaywrightAvailable()) {
-      try {
-        const { chromium } = require('playwright');
-        const browser = await chromium.launch({
-          headless: options.headless !== false,
-          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-        });
+      // 1. Try Playwright if installed
+      if (await this.isPlaywrightAvailable()) {
+        try {
+          const { chromium } = require('playwright');
+          const browser = await chromium.launch({
+            headless: options.headless !== false,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+          });
 
-        const context = await browser.newContext({
-          userAgent: options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          viewport: { width: 1440, height: 900 },
-        });
+          const context = await browser.newContext({
+            userAgent: options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            viewport: { width: 1440, height: 900 },
+          });
 
-        const page = await context.newPage();
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+          const page = await context.newPage();
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
 
-        if (options.waitForSelector) {
-          await page.waitForSelector(options.waitForSelector, { timeout: 5000 }).catch(() => {});
-        } else {
-          // Wait briefly for client-side frameworks (React/Vue/Next.js) to hydrate
-          await page.waitForTimeout(1500).catch(() => {});
+          if (options.waitForSelector) {
+            await page.waitForSelector(options.waitForSelector, { timeout: 5000 }).catch(() => {});
+          } else {
+            // Wait briefly for client-side frameworks (React/Vue/Next.js) to hydrate
+            await page.waitForTimeout(1500).catch(() => {});
+          }
+
+          const html = await page.content();
+          await browser.close();
+
+          return {
+            success: true,
+            html,
+            method: 'playwright',
+          };
+        } catch (err: any) {
+          console.warn(`[PlaywrightScraper] Playwright run failed (${err.message}). Falling back to native fetch.`);
         }
+      }
 
-        const html = await page.content();
-        await browser.close();
-
+      // 2. High-speed native zero-CORS fetch fallback
+      try {
+        const html = await fetchWebPageHtml(url);
         return {
           success: true,
-          html,
-          method: 'playwright',
+          html: html || '',
+          method: 'native_fetch',
         };
       } catch (err: any) {
-        console.warn(`[PlaywrightScraper] Playwright run failed (${err.message}). Falling back to native fetch.`);
+        return {
+          success: false,
+          html: '',
+          method: 'native_fetch',
+          error: err.message,
+        };
       }
-    }
-
-    // 2. High-speed native zero-CORS fetch fallback
-    try {
-      const html = await fetchWebPageHtml(url);
-      return {
-        success: true,
-        html: html || '',
-        method: 'native_fetch',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        html: '',
-        method: 'native_fetch',
-        error: err.message,
-      };
-    }
+    });
   }
 
   /**

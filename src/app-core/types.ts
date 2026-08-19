@@ -148,10 +148,10 @@ export interface IJob {
   approvalStatus: 'pending' | 'approved' | 'rejected';
   applicationStatus: 'not_applied' | 'applied' | 'interview' | 'offer' | 'rejected';
 
-  // Referral & Tailored Assets
-  referralContacts: IReferralContact[];
-  interviewPrep: IInterviewPrep;
-  coverLetterText: string;
+  // Referral & Tailored Assets (Populated on successful AI generation or explicit offline mode)
+  referralContacts?: IReferralContact[];
+  interviewPrep?: IInterviewPrep;
+  coverLetterText?: string;
   resumeNotes?: string;
   resumePdfDataUri?: string;
   appliedAt?: string | null;
@@ -171,9 +171,31 @@ export interface IJob {
   applicationAnswers?: IApplicationAnswersSuite;
   salaryNegotiation?: ISalaryNegotiationSuite;
   provenance?: IAiProvenance;
+  generationStatus?: IJobGenerationStatusMap;
 
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IFieldGenerationStatus {
+  status: 'ai_generated' | 'failed' | 'pending' | 'offline_template';
+  modelUsed?: string;
+  provider?: string;
+  error?: string;
+  generatedAt?: string;
+}
+
+export interface IJobGenerationStatusMap {
+  referralContacts?: IFieldGenerationStatus;
+  interviewPrep?: IFieldGenerationStatus;
+  coverLetterText?: IFieldGenerationStatus;
+  outreachSuite?: IFieldGenerationStatus;
+  interviewMasterGuide?: IFieldGenerationStatus;
+  applicationAnswers?: IFieldGenerationStatus;
+  salaryNegotiation?: IFieldGenerationStatus;
+  followupCadence?: IFieldGenerationStatus;
+  scoring?: IFieldGenerationStatus;
+  extraction?: IFieldGenerationStatus;
 }
 
 export interface IBlockGAudit {

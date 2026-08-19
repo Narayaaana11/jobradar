@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw, Brain, Globe } from 'lucide-react';
+import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw, Brain, Globe, AlertCircle } from 'lucide-react';
 import { RadarLogoBadge } from './RadarLogo';
 import { s3Cloud, S3SyncStatus } from '../../app-core/s3Client';
+import { store, isProfileConfigured } from '../../app-core/store';
 
 interface NavbarProps {
   currentTab: 'feed' | 'careers' | 'queue' | 'analytics' | 'settings' | 'rag';
@@ -12,6 +13,8 @@ interface NavbarProps {
 export function Navbar({ currentTab, setCurrentTab, onOpenIngestModal }: NavbarProps) {
   const [s3Status, setS3Status] = useState<S3SyncStatus>(s3Cloud.getStatus().status);
   const [lastSync, setLastSync] = useState<string | null>(s3Cloud.getStatus().lastSyncTime);
+  const profile = store.getProfile();
+  const profileReady = isProfileConfigured(profile);
 
   useEffect(() => {
     const unsub = s3Cloud.subscribe((st) => {
@@ -95,12 +98,15 @@ export function Navbar({ currentTab, setCurrentTab, onOpenIngestModal }: NavbarP
 
         <button
           onClick={() => setCurrentTab('settings')}
-          className={`flex items-center space-x-1.5 text-xs font-bold px-4 py-1.5 rounded-full transition ${
+          className={`flex items-center space-x-1.5 text-xs font-bold px-4 py-1.5 rounded-full transition relative ${
             currentTab === 'settings' ? 'bg-white text-black shadow-md' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
           }`}
         >
           <Settings className="w-3.5 h-3.5" />
           <span>Profile & S3</span>
+          {!profileReady && (
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute top-1 right-1" title="Profile Setup Required" />
+          )}
         </button>
       </nav>
 

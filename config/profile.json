@@ -1,38 +1,22 @@
 {
-  "name": "Narayana Thota",
-  "title": "Full Stack Developer / LLM Systems Engineer",
+  "name": "",
+  "title": "",
   "education": {
-    "degree": "Master of Computer Applications (MCA)",
-    "batch": "2026",
-    "status": "Fresher / Final Year Student"
+    "degree": "",
+    "batch": "",
+    "status": ""
   },
   "location": {
-    "city": "Hyderabad",
-    "state": "Telangana",
-    "country": "India",
+    "city": "",
+    "state": "",
+    "country": "",
     "openToRemote": true
   },
-  "primarySkills": [
-    "JavaScript", "TypeScript", "React", "Next.js", "Node.js", "Express",
-    "MongoDB", "HTML5", "CSS3", "Tailwind CSS"
-  ],
-  "specializations": [
-    "MERN Stack Development",
-    "TallyPrime API / SDK Integrations",
-    "LLM Agent Orchestration & Prompt Engineering",
-    "RESTful API Design & Background Workers"
-  ],
-  "experienceLevel": "Fresher / 0-1 Year",
+  "primarySkills": [],
+  "specializations": [],
+  "experienceLevel": "",
   "yearsOfExperience": {
-    "overall": 1,
-    "JavaScript": 2,
-    "TypeScript": 2,
-    "React": 2,
-    "Node.js": 2,
-    "Express": 2,
-    "MongoDB": 2,
-    "Next.js": 1.5,
-    "Python": 1
+    "overall": 0
   },
   "workAuthorization": {
     "authorizedInIndia": true,
@@ -42,11 +26,13 @@
   "preferences": {
     "noticePeriodDays": 0,
     "immediateJoiner": true,
-    "expectedSalaryINR": "600000 - 1000000 PA",
+    "expectedSalaryINR": "",
     "workMode": ["Remote", "Hybrid", "On-site"]
   },
   "targetRoles": [
-    "Software Engineer", "Full Stack Developer", "Frontend Engineer",
-    "Backend Engineer", "AI/LLM Agent Developer", "MERN Developer"
+    "Software Engineer",
+    "Full Stack Developer",
+    "Frontend Engineer",
+    "Backend Engineer"
   ]
 }

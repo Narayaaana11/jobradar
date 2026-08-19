@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { store } from '../../app-core/store';
-import { processIngestion } from '../../app-core/pipeline';
+import { store, isProfileConfigured } from '../../app-core/store';
+import { processIngestion, IIngestProgress } from '../../app-core/pipeline';
 import {
   X, Sparkles, MessageSquare, Globe, Bot, Zap,
-  CheckCircle2, Loader2, Link as LinkIcon
+  CheckCircle2, Loader2, Link as LinkIcon, AlertCircle
 } from 'lucide-react';
 
 interface IngestModalProps {
@@ -35,33 +35,45 @@ Skills: JavaScript, HTML5, CSS3, Data Structures, OOP.
 
 export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
   const profile = store.getProfile();
+  const profileReady = isProfileConfigured(profile);
   const hasAiKey = Boolean(profile.apiKey || profile.groqApiKey || profile.geminiApiKey);
   const [ingestMode, setIngestMode] = useState<'whatsapp' | 'single'>('whatsapp');
   const [useAiDeepExtraction, setUseAiDeepExtraction] = useState(hasAiKey);
   const [inputText, setInputText] = useState('');
   const [channelName, setChannelName] = useState('WhatsApp Hyderabad Tech Jobs');
   const [processing, setProcessing] = useState(false);
+  const [progressInfo, setProgressInfo] = useState<IIngestProgress | null>(null);
   const [resultMsg, setResultMsg] = useState('');
 
   if (!isOpen) return null;
 
   const handleProcess = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || !profileReady) return;
 
     setProcessing(true);
     setResultMsg('');
+    setProgressInfo(null);
     try {
       const platform = ingestMode === 'whatsapp' ? 'whatsapp' : 'web';
-      const result = await processIngestion(inputText, channelName, platform, useAiDeepExtraction);
+      const result = await processIngestion(
+        inputText,
+        channelName,
+        platform,
+        useAiDeepExtraction,
+        (prog) => {
+          setProgressInfo(prog);
+        }
+      );
 
-      setResultMsg(`Successfully parsed & queued ${result.totalExtracted} job postings with AI scoring!`);
+      setResultMsg(`Successfully parsed & processed ${result.totalExtracted} job postings with real AI pipeline!`);
       setTimeout(() => {
         onSuccess();
         onClose();
         setInputText('');
         setResultMsg('');
-      }, 1000);
+        setProgressInfo(null);
+      }, 1200);
     } catch (err: any) {
       setResultMsg(`Error: ${err.message}`);
     } finally {
@@ -99,6 +111,19 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
         </div>
 
         <form onSubmit={handleProcess} className="p-6 space-y-4 overflow-y-auto flex-1">
+          {/* Mandatory Profile Configuration Alert */}
+          {!profileReady && (
+            <div className="p-4 bg-amber-950/30 border border-amber-800/70 rounded-2xl flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-amber-300">Profile Setup Required Before Ingestion</h4>
+                <p className="text-[11px] text-zinc-300 leading-relaxed">
+                  JobRadar requires your candidate details (name, core skills, experience/projects) to perform AI matching and asset generation. Please configure your profile in Settings before ingesting jobs.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Ingest Mode Switcher */}
           <div className="grid grid-cols-2 gap-2 p-1 bg-[#18181b] border border-[#27272a] rounded-2xl">
             <button
@@ -210,6 +235,25 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
             />
           </div>
 
+          {/* Live Ingest Progress Box */}
+          {processing && progressInfo && (
+            <div className="p-4 rounded-2xl bg-purple-950/20 border border-purple-800/50 space-y-2 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-purple-300 font-bold flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                  Processing Job {progressInfo.currentJob} of {progressInfo.totalJobs}
+                </span>
+                {typeof progressInfo.inFlightAiCount === 'number' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-900/60 text-purple-200 border border-purple-700">
+                    {progressInfo.inFlightAiCount} Active AI Streams
+                  </span>
+                )}
+              </div>
+              <p className="text-xs font-bold text-white truncate">{progressInfo.jobTitle}</p>
+              <p className="text-[11px] text-zinc-400 font-mono">{progressInfo.stage}</p>
+            </div>
+          )}
+
           {/* Status feedback */}
           {resultMsg && (
             <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-800 text-xs font-mono text-emerald-300 flex items-center gap-2">
@@ -229,7 +273,7 @@ export function IngestModal({ isOpen, onClose, onSuccess }: IngestModalProps) {
             </button>
             <button
               type="submit"
-              disabled={processing || !inputText.trim()}
+              disabled={processing || !inputText.trim() || !profileReady}
               className="flex items-center space-x-2 px-6 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-black font-extrabold text-xs transition hover:brightness-110 shadow-lg disabled:opacity-50"
             >
               {processing && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -1,5 +1,5 @@
 import { store } from './store';
-import { IJob, IJobSource, IAiProvenance } from './types';
+import { IJob, IJobSource, IJobGenerationStatusMap, IReferralContact, IInterviewPrep, IInterviewMasterGuide, IColdOutreachSuite, IApplicationAnswersSuite, ISalaryNegotiationSuite } from './types';
 import { splitBulkChatText } from './bulkSplitter';
 import { extractJobDetails, extractJobDetailsWithAi, IExtractedJD } from './extractor';
 import { scoreJobAgainstProfile, scoreJobAgainstProfileWithAi, auditBlockGLegitimacy } from './scorer';
@@ -17,11 +17,145 @@ import { atsOptimizer } from './atsOptimizer';
 import { isWebUrl, fetchAndExtractJobFromUrl } from './webFetcher';
 import { evaluateNoiseTriage } from './noiseFilter';
 import { llmClient } from './llmClient';
+import { aiConcurrencyLimiter } from './concurrency';
+
+export interface IIngestProgress {
+  currentJob: number;
+  totalJobs: number;
+  jobTitle: string;
+  stage: string;
+  inFlightAiCount?: number;
+}
 
 export interface IngestionResult {
   totalExtracted: number;
   jobs: IJob[];
   queueIds: string[];
+}
+
+interface IDownstreamAssetResult {
+  referralContacts?: IReferralContact[];
+  interviewPrep?: IInterviewPrep;
+  coverLetterText?: string;
+  outreachSuite?: IColdOutreachSuite;
+  interviewMasterGuide?: IInterviewMasterGuide;
+  applicationAnswers?: IApplicationAnswersSuite;
+  salaryNegotiation?: ISalaryNegotiationSuite;
+  generationStatus: IJobGenerationStatusMap;
+}
+
+/**
+ * Generates downstream assets for an extracted job.
+ * In AI mode: each call independently succeeds or explicitly records failure (never silently backfilled with templates).
+ * In explicit Offline mode: marks status as 'offline_template'.
+ */
+async function generateDownstreamAssets(
+  extracted: IExtractedJD,
+  profile: any,
+  useLlm: boolean
+): Promise<IDownstreamAssetResult> {
+  const generationStatus: IJobGenerationStatusMap = {};
+  const mockJob = extracted as IJob;
+
+  if (!useLlm) {
+    // Explicit Offline / Heuristic Template Mode
+    return {
+      referralContacts: generateReferralContacts(extracted, profile),
+      interviewPrep: generateInterviewPrep(extracted, profile),
+      coverLetterText: generateCoverLetter(extracted, profile),
+      outreachSuite: generateOutreachSuite(mockJob, profile),
+      interviewMasterGuide: generateInterviewMasterGuide(mockJob, profile),
+      applicationAnswers: applicationAnswers.generateAnswersDeterministic(mockJob, profile),
+      salaryNegotiation: salaryNegotiation.generateNegotiationSuite(mockJob, profile),
+      generationStatus: {
+        referralContacts: { status: 'offline_template' },
+        interviewPrep: { status: 'offline_template' },
+        coverLetterText: { status: 'offline_template' },
+        outreachSuite: { status: 'offline_template' },
+        interviewMasterGuide: { status: 'offline_template' },
+        applicationAnswers: { status: 'offline_template' },
+        salaryNegotiation: { status: 'offline_template' },
+      },
+    };
+  }
+
+  // AI-Native Generation with Concurrency Limiting across independent tasks
+  const [refRes, prepRes, letterRes, outRes, guideRes, ansRes, salRes] = await Promise.allSettled([
+    aiConcurrencyLimiter.run(() => generateReferralContactsWithAi(extracted, profile)),
+    aiConcurrencyLimiter.run(() => generateInterviewPrepWithAi(extracted, profile)),
+    aiConcurrencyLimiter.run(() => generateCoverLetterWithAi(extracted, profile)),
+    aiConcurrencyLimiter.run(() => generateOutreachSuiteWithAi(mockJob, profile)),
+    aiConcurrencyLimiter.run(() => generateInterviewMasterGuideWithAi(mockJob, profile)),
+    aiConcurrencyLimiter.run(() => applicationAnswers.generateAnswersWithAi(mockJob, profile)),
+    aiConcurrencyLimiter.run(() => salaryNegotiation.generateNegotiationWithAi(mockJob, profile)),
+  ]);
+
+  let referralContacts: IReferralContact[] | undefined;
+  if (refRes.status === 'fulfilled') {
+    referralContacts = refRes.value;
+    generationStatus.referralContacts = { status: 'ai_generated', generatedAt: new Date().toISOString() };
+  } else {
+    generationStatus.referralContacts = { status: 'failed', error: refRes.reason?.message || 'Referral AI generation failed' };
+  }
+
+  let interviewPrep: IInterviewPrep | undefined;
+  if (prepRes.status === 'fulfilled') {
+    interviewPrep = prepRes.value;
+    generationStatus.interviewPrep = { status: 'ai_generated', generatedAt: new Date().toISOString() };
+  } else {
+    generationStatus.interviewPrep = { status: 'failed', error: prepRes.reason?.message || 'Interview prep AI generation failed' };
+  }
+
+  let coverLetterText: string | undefined;
+  if (letterRes.status === 'fulfilled') {
+    coverLetterText = letterRes.value;
+    generationStatus.coverLetterText = { status: 'ai_generated', generatedAt: new Date().toISOString() };
+  } else {
+    generationStatus.coverLetterText = { status: 'failed', error: letterRes.reason?.message || 'Cover letter AI generation failed' };
+  }
+
+  let outreachSuite: IColdOutreachSuite | undefined;
+  if (outRes.status === 'fulfilled') {
+    outreachSuite = outRes.value;
+    generationStatus.outreachSuite = { status: 'ai_generated', generatedAt: new Date().toISOString() };
+  } else {
+    generationStatus.outreachSuite = { status: 'failed', error: outRes.reason?.message || 'Outreach suite AI generation failed' };
+  }
+
+  let interviewMasterGuide: IInterviewMasterGuide | undefined;
+  if (guideRes.status === 'fulfilled') {
+    interviewMasterGuide = guideRes.value;
+    generationStatus.interviewMasterGuide = { status: 'ai_generated', generatedAt: new Date().toISOString() };
+  } else {
+    generationStatus.interviewMasterGuide = { status: 'failed', error: guideRes.reason?.message || 'Interview guide AI generation failed' };
+  }
+
+  let appAnswers: IApplicationAnswersSuite | undefined;
+  if (ansRes.status === 'fulfilled') {
+    appAnswers = ansRes.value;
+    generationStatus.applicationAnswers = { status: 'ai_generated', generatedAt: new Date().toISOString() };
+  } else {
+    generationStatus.applicationAnswers = { status: 'failed', error: ansRes.reason?.message || 'Application answers AI generation failed' };
+  }
+
+  let salaryNeg: ISalaryNegotiationSuite | undefined;
+  if (salRes.status === 'fulfilled') {
+    salaryNeg = salRes.value;
+    generationStatus.salaryNegotiation = { status: 'ai_generated', generatedAt: new Date().toISOString() };
+  } else {
+    generationStatus.salaryNegotiation = { status: 'failed', error: salRes.reason?.message || 'Salary negotiation AI generation failed' };
+  }
+
+  return {
+    referralContacts,
+    interviewPrep,
+    coverLetterText,
+    outreachSuite,
+    interviewMasterGuide,
+    applicationAnswers: appAnswers,
+    salaryNegotiation: salaryNeg,
+    generationStatus,
+  };
 }
 
 /**
@@ -32,7 +166,8 @@ export async function processIngestion(
   input: string,
   channelName: string = 'WhatsApp Ingest',
   platform: IJobSource['platform'] = 'whatsapp',
-  useLlm: boolean = true
+  useLlm: boolean = true,
+  onProgress?: (progress: IIngestProgress) => void
 ): Promise<IngestionResult> {
   const profile = store.getProfile();
   const trimmedInput = input.trim();
@@ -54,9 +189,25 @@ export async function processIngestion(
     queueIds.push(queueItem.id);
 
     try {
+      onProgress?.({
+        currentJob: 1,
+        totalJobs: 1,
+        jobTitle: 'Resolving Job URL',
+        stage: 'Resolving multi-hop redirects and canonical apply URL...',
+        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
+      });
+
       // Step 3 & 4: Link Resolution Agent
       const resolvedLink = await linkResolver.resolveLink(trimmedInput, '', { profile });
       const targetUrl = resolvedLink.canonicalUrl || trimmedInput;
+
+      onProgress?.({
+        currentJob: 1,
+        totalJobs: 1,
+        jobTitle: 'Extracting Job Details',
+        stage: 'Extracting structured JD with AI recruitment parser...',
+        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
+      });
 
       // Step 5: JD Extraction (Live text + AI structured parser)
       let extracted: IExtractedJD;
@@ -71,6 +222,14 @@ export async function processIngestion(
         }
       }
 
+      onProgress?.({
+        currentJob: 1,
+        totalJobs: 1,
+        jobTitle: `${extracted.companyName} — ${extracted.jobTitle}`,
+        stage: 'Scoring match and optimizing ATS resume...',
+        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
+      });
+
       // Step 6: AI Eligibility & Fit Evaluation
       const scoreResult = useLlm
         ? await scoreJobAgainstProfileWithAi(extracted, profile)
@@ -81,46 +240,18 @@ export async function processIngestion(
       const atsAnalysis = analyzeAtsCompliance(extracted, profile);
       atsAnalysis.overallAtsScore = Math.max(atsAnalysis.overallAtsScore ?? 0, atsOpt.finalScore);
 
-      // Step 8: Downstream AI Asset Generators
-      let referrals = generateReferralContacts(extracted, profile);
-      let interviewPrep = generateInterviewPrep(extracted, profile);
-      let coverLetter = generateCoverLetter(extracted, profile);
-      let outreach = generateOutreachSuite(extracted as IJob, profile);
-      let masterGuide = generateInterviewMasterGuide(extracted as IJob, profile);
-      let appAnswers = applicationAnswers.generateAnswersDeterministic(extracted as IJob, profile);
-      let salaryNeg = salaryNegotiation.generateNegotiationSuite(extracted as IJob, profile);
+      onProgress?.({
+        currentJob: 1,
+        totalJobs: 1,
+        jobTitle: `${extracted.companyName} — ${extracted.jobTitle}`,
+        stage: 'Generating tailored interview guide, referrals, and outreach assets...',
+        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
+      });
 
-      if (useLlm) {
-        try {
-          const [refRes, prepRes, letterRes, outRes, guideRes, ansRes, salRes] = await Promise.allSettled([
-            generateReferralContactsWithAi(extracted, profile),
-            generateInterviewPrepWithAi(extracted, profile),
-            generateCoverLetterWithAi(extracted, profile),
-            generateOutreachSuiteWithAi(extracted as IJob, profile),
-            generateInterviewMasterGuideWithAi(extracted as IJob, profile),
-            applicationAnswers.generateAnswersWithAi(extracted as IJob, profile),
-            salaryNegotiation.generateNegotiationWithAi(extracted as IJob, profile),
-          ]);
-
-          if (refRes.status === 'fulfilled') referrals = refRes.value;
-          if (prepRes.status === 'fulfilled') interviewPrep = prepRes.value;
-          if (letterRes.status === 'fulfilled') coverLetter = letterRes.value;
-          if (outRes.status === 'fulfilled') outreach = outRes.value;
-          if (guideRes.status === 'fulfilled') masterGuide = guideRes.value;
-          if (ansRes.status === 'fulfilled') appAnswers = ansRes.value;
-          if (salRes.status === 'fulfilled') salaryNeg = salRes.value;
-        } catch {
-          // Keep parameter-driven fallbacks
-        }
-      }
+      // Step 8: Downstream AI Asset Generators (Zero silent backfill)
+      const downstream = await generateDownstreamAssets(extracted, profile, useLlm);
 
       const jobId = `job-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-      const provenance: IAiProvenance = {
-        modelUsed: scoreResult.structuredFitReport ? 'multi_provider_ai_gateway' : 'local_heuristic',
-        provider: 'openrouter',
-        generatedAt: new Date().toISOString(),
-        taskType: 'ingestion_pipeline',
-      };
 
       // Step 9: Final Job Feed Card Assembly
       const job: IJob = {
@@ -160,17 +291,17 @@ export async function processIngestion(
         stage: scoreResult.matchScore >= 75 ? 'approved' : 'pending_approval',
         approvalStatus: scoreResult.matchScore >= 75 ? 'approved' : 'pending',
         applicationStatus: 'not_applied',
-        referralContacts: referrals,
-        interviewPrep,
-        coverLetterText: coverLetter,
+        referralContacts: downstream.referralContacts,
+        interviewPrep: downstream.interviewPrep,
+        coverLetterText: downstream.coverLetterText,
         resumeNotes: `Tailored resume for ${extracted.companyName} (${extracted.jobTitle})`,
         blockGAudit: auditBlockGLegitimacy(extracted),
-        outreachSuite: outreach,
-        interviewMasterGuide: masterGuide,
+        outreachSuite: downstream.outreachSuite,
+        interviewMasterGuide: downstream.interviewMasterGuide,
         followupCadence: generateFollowupCadence(extracted as IJob, profile),
-        applicationAnswers: appAnswers,
-        salaryNegotiation: salaryNeg,
-        provenance,
+        applicationAnswers: downstream.applicationAnswers,
+        salaryNegotiation: downstream.salaryNegotiation,
+        generationStatus: downstream.generationStatus,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -179,7 +310,7 @@ export async function processIngestion(
       store.updateQueueItem(queueItem.id, { processed: true });
       processedJobs.push(job);
     } catch (err: any) {
-      console.error(`Failed to ingest web URL "${trimmedInput}":`, err);
+      console.error('Failed to process single URL job:', err);
     }
 
     return {
@@ -190,7 +321,7 @@ export async function processIngestion(
   }
 
   // ──────────────────────────────────────────────────────────────────
-  // CASE B: Bulk Dump Ingestion (WhatsApp / Telegram / Raw Text)
+  // CASE B: Bulk Chat Dump Ingestion (WhatsApp / Telegram)
   // ──────────────────────────────────────────────────────────────────
   const messageId = `bulk-${Date.now()}`;
   const queueItem = store.addQueueItem({
@@ -202,39 +333,55 @@ export async function processIngestion(
   });
   queueIds.push(queueItem.id);
 
-  // Step 2: Cleaning & Segmentation
-  let candidateChunks: string[] = splitBulkChatText(trimmedInput);
-
-  if (candidateChunks.length === 1 && trimmedInput.length > 600 && useLlm) {
+  // Step 1: Segmentation & Cleaning
+  let rawChunks: string[] = [];
+  if (useLlm) {
     try {
       const segRes = await llmClient.segmentDumpWithAi(trimmedInput, profile);
-      if (segRes.success && segRes.data?.postings && segRes.data.postings.length > 1) {
-        candidateChunks = segRes.data.postings;
+      if (segRes.success && segRes.data && segRes.data.postings.length > 0) {
+        rawChunks = segRes.data.postings;
+      } else {
+        rawChunks = splitBulkChatText(trimmedInput);
       }
     } catch {
-      // Retain heuristic chunks
+      rawChunks = splitBulkChatText(trimmedInput);
     }
+  } else {
+    rawChunks = splitBulkChatText(trimmedInput);
   }
 
-  for (let i = 0; i < candidateChunks.length; i++) {
-    const chunk = candidateChunks[i].trim();
-    if (!chunk || chunk.length < 25) continue;
-
-    // Noise Pre-Filter
+  // Step 2: Noise Filtering & Triage
+  const validChunks = rawChunks.filter((chunk) => {
     const triage = evaluateNoiseTriage(chunk);
-    if (!triage.isJobPosting) {
-      continue;
-    }
+    return triage.isJobPosting;
+  });
 
+  const totalChunks = validChunks.length;
+
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = validChunks[i];
     try {
-      // Step 3 & 4: Link Extraction and Deep Resolution
-      const rawExtracted = extractJobDetails(chunk);
-      let canonicalApplyLink = rawExtracted.applicationLink;
+      onProgress?.({
+        currentJob: i + 1,
+        totalJobs: totalChunks,
+        jobTitle: `Job #${i + 1}`,
+        stage: 'Extracting structured details and resolving links...',
+        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
+      });
 
-      if (rawExtracted.applicationLink) {
-        const resolved = await linkResolver.resolveLink(rawExtracted.applicationLink, chunk, { profile });
-        if (resolved.isJobPage && resolved.canonicalUrl) {
-          canonicalApplyLink = resolved.canonicalUrl;
+      // Extract raw details first for links and quick fields
+      const rawExtracted = extractJobDetails(chunk);
+
+      // Step 3 & 4: Link Classification & Resolution Agent
+      let canonicalApplyLink = rawExtracted.applicationLink;
+      if (canonicalApplyLink) {
+        try {
+          const resolved = await linkResolver.resolveLink(canonicalApplyLink, chunk, { profile });
+          if (resolved.isJobPage && resolved.canonicalUrl) {
+            canonicalApplyLink = resolved.canonicalUrl;
+          }
+        } catch {
+          // Keep raw apply link if resolution network fails
         }
       }
 
@@ -254,6 +401,14 @@ export async function processIngestion(
         continue;
       }
 
+      onProgress?.({
+        currentJob: i + 1,
+        totalJobs: totalChunks,
+        jobTitle: `${extracted.companyName} — ${extracted.jobTitle}`,
+        stage: 'Scoring match and calculating ATS optimization...',
+        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
+      });
+
       // Step 6: AI Eligibility & Fit Evaluation
       const scoreResult = useLlm
         ? await scoreJobAgainstProfileWithAi(extracted, profile)
@@ -264,46 +419,18 @@ export async function processIngestion(
       const atsAnalysis = analyzeAtsCompliance(extracted, profile);
       atsAnalysis.overallAtsScore = Math.max(atsAnalysis.overallAtsScore ?? 0, atsOpt.finalScore);
 
-      // Step 8: Downstream AI Asset Generators
-      let referrals = generateReferralContacts(extracted, profile);
-      let interviewPrep = generateInterviewPrep(extracted, profile);
-      let coverLetter = generateCoverLetter(extracted, profile);
-      let outreach = generateOutreachSuite(extracted as IJob, profile);
-      let masterGuide = generateInterviewMasterGuide(extracted as IJob, profile);
-      let appAnswers = applicationAnswers.generateAnswersDeterministic(extracted as IJob, profile);
-      let salaryNeg = salaryNegotiation.generateNegotiationSuite(extracted as IJob, profile);
+      onProgress?.({
+        currentJob: i + 1,
+        totalJobs: totalChunks,
+        jobTitle: `${extracted.companyName} — ${extracted.jobTitle}`,
+        stage: 'Generating tailored interview guide, referrals, and outreach assets...',
+        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
+      });
 
-      if (useLlm) {
-        try {
-          const [refRes, prepRes, letterRes, outRes, guideRes, ansRes, salRes] = await Promise.allSettled([
-            generateReferralContactsWithAi(extracted, profile),
-            generateInterviewPrepWithAi(extracted, profile),
-            generateCoverLetterWithAi(extracted, profile),
-            generateOutreachSuiteWithAi(extracted as IJob, profile),
-            generateInterviewMasterGuideWithAi(extracted as IJob, profile),
-            applicationAnswers.generateAnswersWithAi(extracted as IJob, profile),
-            salaryNegotiation.generateNegotiationWithAi(extracted as IJob, profile),
-          ]);
-
-          if (refRes.status === 'fulfilled') referrals = refRes.value;
-          if (prepRes.status === 'fulfilled') interviewPrep = prepRes.value;
-          if (letterRes.status === 'fulfilled') coverLetter = letterRes.value;
-          if (outRes.status === 'fulfilled') outreach = outRes.value;
-          if (guideRes.status === 'fulfilled') masterGuide = guideRes.value;
-          if (ansRes.status === 'fulfilled') appAnswers = ansRes.value;
-          if (salRes.status === 'fulfilled') salaryNeg = salRes.value;
-        } catch {
-          // Keep parameter-driven fallbacks
-        }
-      }
+      // Step 8: Downstream AI Asset Generators (Zero silent backfill)
+      const downstream = await generateDownstreamAssets(extracted, profile, useLlm);
 
       const jobId = `job-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-      const provenance: IAiProvenance = {
-        modelUsed: scoreResult.structuredFitReport ? 'multi_provider_ai_gateway' : 'local_heuristic',
-        provider: 'openrouter',
-        generatedAt: new Date().toISOString(),
-        taskType: 'ingestion_pipeline',
-      };
 
       // Step 9: Final Job Feed Card Assembly
       const job: IJob = {
@@ -343,17 +470,17 @@ export async function processIngestion(
         stage: scoreResult.matchScore >= 75 ? 'approved' : 'pending_approval',
         approvalStatus: scoreResult.matchScore >= 75 ? 'approved' : 'pending',
         applicationStatus: 'not_applied',
-        referralContacts: referrals,
-        interviewPrep,
-        coverLetterText: coverLetter,
+        referralContacts: downstream.referralContacts,
+        interviewPrep: downstream.interviewPrep,
+        coverLetterText: downstream.coverLetterText,
         resumeNotes: `Tailored resume for ${extracted.companyName} (${extracted.jobTitle})`,
         blockGAudit: auditBlockGLegitimacy(extracted),
-        outreachSuite: outreach,
-        interviewMasterGuide: masterGuide,
+        outreachSuite: downstream.outreachSuite,
+        interviewMasterGuide: downstream.interviewMasterGuide,
         followupCadence: generateFollowupCadence(extracted as IJob, profile),
-        applicationAnswers: appAnswers,
-        salaryNegotiation: salaryNeg,
-        provenance,
+        applicationAnswers: downstream.applicationAnswers,
+        salaryNegotiation: downstream.salaryNegotiation,
+        generationStatus: downstream.generationStatus,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
