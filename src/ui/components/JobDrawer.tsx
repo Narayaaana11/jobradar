@@ -23,8 +23,6 @@ import { aiCouncil } from '../../app-core/aiCouncil';
 import { ragAugmentor } from '../../app-core/rag/ragAugmentor';
 import { getCompanyCareerPortal } from '../../app-core/extractor';
 import { generateReferralContactsWithAi } from '../../app-core/referralGenerator';
-import { generateOutreachSuite } from '../../app-core/outreachAgent';
-import { generateInterviewMasterGuide } from '../../app-core/interviewMasterGuide';
 import { webScrapingAuditor } from '../../app-core/webScrapingAuditor';
 import { generateFollowupCadence, generateFollowupCadenceWithAi } from '../../app-core/followupCadence';
 import { applicationAnswers } from '../../app-core/applicationAnswers';

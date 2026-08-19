@@ -33,7 +33,7 @@ export interface IngestionResult {
   queueIds: string[];
 }
 
-interface IDownstreamAssetResult {
+export interface IDownstreamAssetResult {
   referralContacts?: IReferralContact[];
   interviewPrep?: IInterviewPrep;
   coverLetterText?: string;
@@ -49,7 +49,7 @@ interface IDownstreamAssetResult {
  * In AI mode: each call independently succeeds or explicitly records failure (never silently backfilled with templates).
  * In explicit Offline mode: marks status as 'offline_template'.
  */
-async function generateDownstreamAssets(
+export async function generateDownstreamAssets(
   extracted: IExtractedJD,
   profile: any,
   useLlm: boolean

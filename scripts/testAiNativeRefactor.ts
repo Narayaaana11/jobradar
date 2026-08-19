@@ -165,6 +165,29 @@ Compensation: $160,000 - $190,000 USD
   const logs = llmClient.getRecentExecutions();
   assert(Array.isArray(logs), 'Gateway captures structured telemetry logs');
 
+  // ── TEST 6: Career Watchlist Crawler AI Pipeline Verification ──
+  console.log('\n6. Testing Career Watchlist Crawler (Second Ingestion Pipeline):');
+  const { careerCrawler } = await import('../src/app-core/careerCrawler');
+  const mockSite = {
+    id: 'site-test-openai',
+    companyName: 'OpenAI Test',
+    careerUrl: 'https://boards.greenhouse.io/openai',
+    category: 'AI / Machine Learning' as const,
+    enabled: true,
+    searchKeywords: ['Software Engineer', 'Full Stack', 'Frontend', 'Platform'],
+    createdAt: new Date().toISOString(),
+  };
+
+  const crawlResult = await careerCrawler.crawlCareerSite(mockSite, testProfile, 'Master resume text for test');
+  assert(crawlResult !== undefined && Array.isArray(crawlResult.jobs), 'Career crawler returns structured crawl result');
+  if (crawlResult.jobs.length > 0) {
+    const crawledJob = crawlResult.jobs[0];
+    assert(crawledJob.generationStatus !== undefined, 'Career crawler job contains per-field generationStatus map');
+    assert(typeof crawledJob.matchScore === 'number', `Scored career portal job (${crawledJob.matchScore}%)`);
+    assert(crawledJob.blockGAudit !== undefined, 'Career crawler job includes Block G legitimacy audit');
+    assert(crawledJob.companyName === 'OpenAI Test', 'Preserves target watchlist company metadata');
+  }
+
   console.log('\n================================================================');
   console.log(`🏁 TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
   console.log('================================================================\n');

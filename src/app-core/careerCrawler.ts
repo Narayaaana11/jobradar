@@ -1,21 +1,17 @@
 import { store } from './store';
 import { IJob, IProfile, ICareerWatchlistSite, ICareerSyncReport } from './types';
 import { fetchWebPageHtml, cleanHtmlToText, extractHtmlMetadata } from './webFetcher';
-import { extractJobDetails, IExtractedJD, extractValidApplicationLink } from './extractor';
-import { scoreJobAgainstProfile, auditBlockGLegitimacy } from './scorer';
+import { extractJobDetails, extractJobDetailsWithAi, IExtractedJD, extractValidApplicationLink } from './extractor';
+import { scoreJobAgainstProfile, scoreJobAgainstProfileWithAi, auditBlockGLegitimacy, auditBlockGLegitimacyWithAi } from './scorer';
 import { analyzeAtsCompliance } from './atsMatcher';
-import { generateReferralContacts } from './referralGenerator';
-import { generateInterviewPrep } from './interviewPrep';
-import { generateCoverLetter } from './coverLetterGenerator';
-import { generateOutreachSuite } from './outreachAgent';
-import { generateInterviewMasterGuide } from './interviewMasterGuide';
+import { atsOptimizer } from './atsOptimizer';
+import { generateDownstreamAssets } from './pipeline';
 import { generateFollowupCadence } from './followupCadence';
-import { applicationAnswers } from './applicationAnswers';
-import { salaryNegotiation } from './salaryNegotiation';
 import { ragAugmentor } from './rag/ragAugmentor';
 import { scrapingOverseer } from './scrapingOverseer';
 import { atsAdapters } from './atsAdapters';
 import { playwrightScraper } from './playwrightScraper';
+import { aiConcurrencyLimiter } from './concurrency';
 
 export interface IDiscoveredJobListing {
   title: string;
@@ -123,7 +119,7 @@ export function discoverJobsFromCareerHtml(html: string, baseUrl: string): IDisc
 export class CareerPageCrawlerService {
   /**
    * Crawls a single career site using high-speed ATS Adapters (Greenhouse, Lever, Ashby, Workable)
-   * with Playwright headless rendering and Scraping Overseer validation.
+   * with Playwright headless rendering, Scraping Overseer validation, and AI-native reasoning.
    */
   public async crawlCareerSite(
     site: ICareerWatchlistSite,
@@ -131,6 +127,9 @@ export class CareerPageCrawlerService {
     masterResumeText: string
   ): Promise<{ site: ICareerWatchlistSite; jobsFound: number; suitableAdded: number; jobs: IJob[]; error?: string }> {
     store.setCareerSiteSyncStatus(site.id, 'syncing');
+    const hasAiKey = Boolean(profile.apiKey || profile.groqApiKey || profile.geminiApiKey);
+    const useLlm = hasAiKey;
+    const activeKey = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || '';
 
     try {
       let discovered: IDiscoveredJobListing[] = [];
@@ -148,7 +147,7 @@ export class CareerPageCrawlerService {
         }));
       }
 
-      // Step 2: Fallback to Headless Browser / Live HTML Scraping
+      // Step 2: Fallback to Headless Browser / Live HTML Scraping (Playwright concurrency limited)
       if (discovered.length === 0) {
         const scrapeRes = await playwrightScraper.scrapePortalHtml(site.careerUrl);
         if (scrapeRes.success && scrapeRes.html) {
@@ -157,10 +156,10 @@ export class CareerPageCrawlerService {
       }
 
       // Step 3: AI Overseer Discovery Fallback
-      if (discovered.length === 0 && profile.apiKey) {
+      if (discovered.length === 0 && activeKey) {
         const html = await fetchWebPageHtml(site.careerUrl);
         const pageText = cleanHtmlToText(html);
-        const aiOpenings = await scrapingOverseer.auditCareerPageWithAi(pageText, site.careerUrl, site.companyName, profile.apiKey);
+        const aiOpenings = await scrapingOverseer.auditCareerPageWithAi(pageText, site.careerUrl, site.companyName, activeKey);
         if (aiOpenings && aiOpenings.length > 0) {
           discovered = aiOpenings.map((op) => ({
             title: op.jobTitle,
@@ -173,26 +172,51 @@ export class CareerPageCrawlerService {
 
       const suitableJobs: IJob[] = [];
 
-      // 2. Audit each candidate opening with deep extraction
+      // 2. Audit each candidate opening with deep extraction and AI scoring
       if (discovered.length > 0) {
         for (const disc of discovered) {
           try {
             // Overseer Agent audits opening and performs deep-page extraction with AI
-            const extracted = await scrapingOverseer.auditAndDeepExtractJob(
+            let extracted = await scrapingOverseer.auditAndDeepExtractJob(
               disc.title,
               disc.url,
               site.companyName,
               site.searchKeywords,
-              profile.apiKey
+              activeKey
             );
 
             if (!extracted) {
               continue; // Discard non-technical or boilerplate listings
             }
 
-            // Score against profile & LaTeX master resume
-            const scoreResult = scoreJobAgainstProfile(extracted, profile);
+            // If LLM is active and we have rich description, refine extracted JD with AI
+            if (useLlm && (disc.descriptionHtml || disc.plainText || disc.snippet)) {
+              try {
+                const refined = await aiConcurrencyLimiter.run(() =>
+                  extractJobDetailsWithAi(disc.descriptionHtml || disc.plainText || disc.snippet || extracted!.rawDescription, profile)
+                );
+                if (refined && refined.jobTitle) {
+                  extracted = { ...extracted, ...refined, applicationLink: extracted.applicationLink || disc.url };
+                }
+              } catch {
+                // Retain base extracted JD
+              }
+            }
+
+            // Check duplicate
+            if (store.getJobs().some((j) => j.dedupHash === extracted.dedupHash)) {
+              continue;
+            }
+
+            // AI-Native / Rubric Fit Evaluation (concurrency limited)
+            const scoreResult = useLlm
+              ? await aiConcurrencyLimiter.run(() => scoreJobAgainstProfileWithAi(extracted!, profile))
+              : scoreJobAgainstProfile(extracted, profile);
+
+            // ATS Resume Gap Analysis & Iterative Optimization Loop
+            const atsOpt = await atsOptimizer.optimizeResumeForJob(extracted, profile);
             const atsResult = analyzeAtsCompliance(extracted, profile);
+            atsResult.overallAtsScore = Math.max(atsResult.overallAtsScore ?? 0, atsOpt.finalScore);
 
             // Compute RAG vector similarity to candidate's real project case studies
             const ragContext = ragAugmentor.getRagContextForJob(extracted, { topK: 3 });
@@ -206,6 +230,14 @@ export class CareerPageCrawlerService {
             if (isSuitable) {
               const jobId = `job-web-${site.id}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
               const messageId = `web-crawl-${site.id}-${Date.now()}`;
+
+              // Block G Legitimacy Audit with AI
+              const blockGAudit = useLlm
+                ? await aiConcurrencyLimiter.run(() => auditBlockGLegitimacyWithAi(extracted!, profile))
+                : auditBlockGLegitimacy(extracted);
+
+              // Downstream AI Assets Generation (Concurrency-limited & zero silent fallback)
+              const downstream = await generateDownstreamAssets(extracted, profile, useLlm);
 
               const job: IJob = {
                 id: jobId,
@@ -244,20 +276,20 @@ export class CareerPageCrawlerService {
                 stage: scoreResult.matchScore >= 75 ? 'approved' : 'pending_approval',
                 approvalStatus: scoreResult.matchScore >= 75 ? 'approved' : 'pending',
                 applicationStatus: 'not_applied',
-                referralContacts: generateReferralContacts(extracted, profile),
-                interviewPrep: generateInterviewPrep(extracted, profile),
-                coverLetterText: generateCoverLetter(extracted, profile),
+                referralContacts: downstream.referralContacts,
+                interviewPrep: downstream.interviewPrep,
+                coverLetterText: downstream.coverLetterText,
                 resumeNotes: `Verified by Overseer Agent from ${site.companyName} Career Portal. ATS Match: ${scoreResult.matchScore}%`,
-                blockGAudit: auditBlockGLegitimacy(extracted),
+                blockGAudit,
+                outreachSuite: downstream.outreachSuite,
+                interviewMasterGuide: downstream.interviewMasterGuide,
+                followupCadence: generateFollowupCadence(extracted as IJob, profile),
+                applicationAnswers: downstream.applicationAnswers,
+                salaryNegotiation: downstream.salaryNegotiation,
+                generationStatus: downstream.generationStatus,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               };
-
-              job.outreachSuite = generateOutreachSuite(job, profile);
-              job.interviewMasterGuide = generateInterviewMasterGuide(job, profile);
-              job.followupCadence = generateFollowupCadence(job, profile);
-              job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
-              job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
 
               store.addOrUpdateJob(job);
               suitableJobs.push(job);

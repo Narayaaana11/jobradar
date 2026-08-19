@@ -264,7 +264,7 @@ export function scoreJobAgainstProfile(job: IExtractedJD, profile: IProfile): IS
 /**
  * JobRadar Block G: Posting Legitimacy & Ghost Job / Scam Detector
  */
-export function auditBlockGLegitimacy(job: IExtractedJD): import('./types').IBlockGAudit {
+export function auditBlockGLegitimacy(job: Partial<IJob | IExtractedJD>): IBlockGAudit {
   const raw = (job.rawDescription || '').toLowerCase();
   const link = (job.applicationLink || '').toLowerCase();
   const company = (job.companyName || '').toLowerCase();
@@ -367,13 +367,14 @@ export async function scoreJobAgainstProfileWithAi(
  * AI-Augmented Block G Legitimacy & Ghost Job Auditor
  */
 export async function auditBlockGLegitimacyWithAi(
-  job: IJob,
-  apiKey?: string
-): Promise<import('./types').IBlockGAudit> {
-  const res = await llmClient.auditBlockGLegitimacyWithAi(job, apiKey);
+  job: Partial<IJob | IExtractedJD>,
+  profileOrKey?: any
+): Promise<IBlockGAudit> {
+  const res = await llmClient.auditBlockGLegitimacyWithAi(job, profileOrKey);
   if (res.success && res.data) {
     return res.data;
   }
   return auditBlockGLegitimacy(job);
 }
+
 
