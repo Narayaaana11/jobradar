@@ -17,7 +17,7 @@
 | `src/app-core/s3Client.ts` | AWS S3 client service (`@aws-sdk/client-s3`) handling `jobs.json`, `queue.json`, `profile.json`, and PDF resume uploads. |
 | `src/app-core/bulkSplitter.ts` | Chat dump parser splitting single or multi-job WhatsApp/Telegram messages into distinct job postings. |
 | `src/app-core/extractor.ts` | Regex and heuristic JD metadata extractor (Company, Title, Location, Salary, Skills, Links). |
-| `src/app-core/scorer.ts` | 0–100% Fit Scorer and career-ops 5-Tier Rubric rating calculator (1.0 to 5.0). |
+| `src/app-core/scorer.ts` | 0–100% Fit Scorer and JobRadar 5-Tier Rubric rating calculator (1.0 to 5.0). |
 | `src/app-core/atsMatcher.ts` | Resume-Matcher ATS compliance analyzer (Keyword Density %, Format %, Bullet Impact %). |
 | `src/app-core/resumeGenerator.ts` | Client-side ATS PDF resume generator (`jsPDF`) matching FAANG / Jake's resume Overleaf format. |
 | `src/app-core/referralGenerator.ts` | 6-persona referral outreach generator with live LinkedIn Search queries and customized drafts. |

@@ -29,8 +29,8 @@ export function generateInterviewPrep(job: IExtractedJD, profile: IProfile): IIn
     {
       category: 'Behavioral',
       question: `Tell me about a challenging technical bug you encountered in one of your projects and how you diagnosed it.`,
-      suggestedAnswer: `While building the TallyPrime Cloud Sync Engine, I encountered intermittent socket hang-ups during batch uploads of 5,000+ XML vouchers. I used Wireshark and Node.js trace logs to discover that Tally's local server closed keep-alive connections after 30 seconds. I resolved this by implementing an exponential backoff connection pool with automatic chunking.`,
-      keyConcepts: ['STAR Method', 'Root Cause Analysis', 'Connection Pooling', 'Exponential Backoff'],
+      suggestedAnswer: `While developing the Aditya University Smart Vehicle Management System (AUSVMS), I encountered intermittent socket timeout errors and MongoDB connection pool saturation during peak shift changes with 500+ concurrent requests. I traced the query latency and identified an unindexed compound lookup in the vehicle allocation schema. I resolved this by adding compound indexes on status and timestamp, reducing database lookup time from 850ms to under 45ms.`,
+      keyConcepts: ['STAR Method', 'Root Cause Analysis', 'MongoDB Index Optimization', 'Connection Pooling'],
     },
     {
       category: 'Company Fit',

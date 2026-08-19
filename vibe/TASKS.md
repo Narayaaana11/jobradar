@@ -1,5 +1,5 @@
 # TASKS — JobRadar Windows Desktop App
-> Autonomous job-hunting desktop application: WhatsApp/Telegram bulk ingestion → heuristic extraction → profile fit scoring & career-ops 5-tier rubric → 10 employee referral drafting → AI interview prep & cover letter → client-side ATS PDF resume generation → 5-stage Kanban & Table dashboard.
+> Autonomous job-hunting desktop application: WhatsApp/Telegram bulk ingestion → heuristic extraction → profile fit scoring & JobRadar 5-tier rubric → 10 employee referral drafting → AI interview prep & cover letter → client-side ATS PDF resume generation → 5-stage Kanban & Table dashboard.
 > Standalone Windows Desktop App — Zero Backend Server.
 
 ---
@@ -9,7 +9,7 @@
 [x] P1-002 · Define in-app data contracts (`types.ts`) & seed candidate profile & master resume
 [x] P1-003 · Implement high-accuracy bulk chat splitter (`bulkSplitter.ts`) for WhatsApp/Telegram dumps
 [x] P1-004 · Implement heuristic & regex extractor agent (`extractor.ts`)
-[x] P1-005 · Implement multi-criteria fit scorer (`scorer.ts`) with career-ops 5-tier rubric rating
+[x] P1-005 · Implement multi-criteria fit scorer (`scorer.ts`) with JobRadar 5-tier rubric rating
 [x] P1-006 · Implement ATS keyword density & bullet impact analyzer (`atsMatcher.ts`)
 [x] P1-007 · Build client-side pipeline coordinator (`pipeline.ts`) & reactive local store (`store.ts`)
 [x] P1-008 · Build desktop frontend UI (JobTable, KanbanBoard, StatsBar, Navbar, IngestModal)

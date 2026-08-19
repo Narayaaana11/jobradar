@@ -82,10 +82,12 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
     s3Cloud.saveConfig(updatedS3);
     setS3Config(s3Cloud.getConfig());
 
-    if (parsed.openrouterApiKey || parsed.telegramBotToken) {
+    if (parsed.openrouterApiKey || parsed.geminiApiKey || parsed.groqApiKey || parsed.telegramBotToken) {
       const updatedProfile = {
         ...profile,
         apiKey: parsed.openrouterApiKey || profile.apiKey,
+        geminiApiKey: parsed.geminiApiKey || profile.geminiApiKey,
+        groqApiKey: parsed.groqApiKey || profile.groqApiKey,
         telegramToken: parsed.telegramBotToken || profile.telegramToken,
       };
       store.saveProfile(updatedProfile);
@@ -612,86 +614,204 @@ export function SettingsView({ onProfileUpdated, onOpenWizard }: SettingsViewPro
 
       {/* ── 4. API KEYS TAB ── */}
       {activeTab === 'api' && (
-        <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-6 space-y-5 shadow-2xl">
-          <div>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-5 shadow-2xl">
             <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Key className="w-4 h-4 text-purple-400" /> Cloud LLM & AI Engine (OpenRouter)
+              <Key className="w-4 h-4 text-purple-400" /> AI Provider Keys — Multi-Provider Free Tier
             </h3>
-            <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-              JobRadar operates completely offline with built-in heuristic extractors. Providing an OpenRouter API key unlocks real-time LLM reasoning across 20+ free and open-source models with automated rotation and zero cost.
+            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
+              JobRadar works fully offline with heuristic engines. Adding any AI provider key unlocks real-time LLM reasoning.
+              All three providers are <strong className="text-white">100% free</strong> — no billing required.
+              When one provider hits its limit, the system automatically cascades to the next.
             </p>
+
+            {/* Combined capacity banner */}
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
+              {[
+                { label: 'OpenRouter', color: 'purple', note: '200 req/day (free models)' },
+                { label: 'Groq', color: 'orange', note: '14,400 req/day' },
+                { label: 'Gemini', color: 'blue', note: '1,500 req/day' },
+              ].map((p) => (
+                <div key={p.label} className={`px-3 py-1.5 rounded-full bg-${p.color}-950/50 border border-${p.color}-800/50 text-[10px] font-mono text-${p.color}-300`}>
+                  {p.label} — {p.note}
+                </div>
+              ))}
+              <div className="px-3 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-700/50 text-[10px] font-mono text-emerald-400 font-bold">
+                Combined ≈ 16,100+ req/day FREE
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-4 pt-1">
-            <div className="p-4 bg-[#18181b] border border-[#27272a] rounded-2xl space-y-3">
-              <label className="block text-[11px] font-mono text-zinc-300 uppercase font-bold">
-                OpenRouter API Key
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="password"
-                  placeholder="sk-or-v1-..."
-                  value={profile.apiKey || ''}
-                  onChange={(e) => {
-                    const updated = { ...profile, apiKey: e.target.value };
-                    setProfile(updated);
-                    store.saveProfile(updated);
-                  }}
-                  className="flex-1 px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
-                />
-                <button
-                  type="button"
-                  disabled={testingApiKey}
-                  onClick={async () => {
-                    if (!profile.apiKey) {
-                      setSaveMsg('Please enter an OpenRouter API key to test.');
-                      setTimeout(() => setSaveMsg(''), 3000);
-                      return;
-                    }
-                    setTestingApiKey(true);
-                    setSaveMsg('Testing OpenRouter connection via Native IPC...');
-                    try {
-                      const res = await (await import('../../app-core/llmClient')).llmClient.testApiKey(profile.apiKey);
-                      if (res.valid) {
-                        setSaveMsg(`✓ Connected successfully to ${res.model || 'OpenRouter Unified API'}!`);
-                      } else {
-                        setSaveMsg(`✕ Connection failed: ${res.message}`);
-                      }
-                    } catch (err: any) {
-                      setSaveMsg(`✕ Connection error: ${err.message}`);
-                    } finally {
-                      setTestingApiKey(false);
-                      setTimeout(() => setSaveMsg(''), 6000);
-                    }
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${testingApiKey ? 'animate-spin' : ''}`} />
-                  <span>{testingApiKey ? 'Testing...' : 'Test Connection'}</span>
-                </button>
+          {/* ── OPENROUTER ── */}
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-5 space-y-3 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-mono font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-purple-400" />
+                  OpenRouter — Primary Provider
+                </h4>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Rotate 20+ free models (Gemma, GPT-OSS, Nemotron, etc.) •{' '}
+                  <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-purple-400 hover:underline">Get key →</a>
+                </p>
               </div>
-              <p className="text-[11px] text-zinc-500">
-                Enter your OpenRouter key (<code className="text-zinc-400">sk-or-v1-...</code>). All generations leverage rotated free models with zero billing required.
-              </p>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${profile.apiKey ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-zinc-900 text-zinc-500 border border-zinc-700'}`}>
+                {profile.apiKey ? '● configured' : '○ not set'}
+              </span>
             </div>
-
-            <div>
-              <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">Telegram Bot Token (Optional)</label>
+            <div className="flex items-center gap-2">
               <input
                 type="password"
-                placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ..."
-                value={profile.telegramToken || ''}
+                placeholder="sk-or-v1-..."
+                value={profile.apiKey || ''}
                 onChange={(e) => {
-                  const updated = { ...profile, telegramToken: e.target.value };
+                  const updated = { ...profile, apiKey: e.target.value };
                   setProfile(updated);
                   store.saveProfile(updated);
                 }}
-                className="w-full px-3.5 py-2.5 bg-[#18181b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-zinc-400 font-mono"
+                className="flex-1 px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
               />
+              <button
+                type="button"
+                disabled={testingApiKey}
+                onClick={async () => {
+                  if (!profile.apiKey) { setSaveMsg('Please enter an OpenRouter key.'); setTimeout(() => setSaveMsg(''), 3000); return; }
+                  setTestingApiKey(true);
+                  setSaveMsg('Testing OpenRouter...');
+                  try {
+                    const res = await (await import('../../app-core/llmClient')).llmClient.testApiKey(profile.apiKey);
+                    setSaveMsg(res.valid ? `✓ OpenRouter: ${res.model}` : `✕ ${res.message}`);
+                  } catch (err: any) { setSaveMsg(`✕ ${err.message}`); }
+                  finally { setTestingApiKey(false); setTimeout(() => setSaveMsg(''), 6000); }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white font-bold text-xs transition shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${testingApiKey ? 'animate-spin' : ''}`} />
+                Test
+              </button>
             </div>
+            <p className="text-[11px] text-zinc-600">Supports comma-separated multiple keys for key-pool rotation (e.g. key1,key2,key3)</p>
+          </div>
+
+          {/* ── GROQ ── */}
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-5 space-y-3 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-mono font-bold text-orange-300 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-orange-400" />
+                  Groq — 14,400 req/day Free ⚡ Fastest
+                </h4>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Llama 3.1 70B, Mixtral 8x7B, Gemma2 9B — 500 tok/s blazing speed •{' '}
+                  <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline">console.groq.com →</a>
+                </p>
+              </div>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${profile.groqApiKey ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-zinc-900 text-zinc-500 border border-zinc-700'}`}>
+                {profile.groqApiKey ? '● configured' : '○ not set'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                placeholder="gsk_..."
+                value={profile.groqApiKey || ''}
+                onChange={(e) => {
+                  const updated = { ...profile, groqApiKey: e.target.value };
+                  setProfile(updated);
+                  store.saveProfile(updated);
+                }}
+                className="flex-1 px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-orange-500 font-mono"
+              />
+              <button
+                type="button"
+                disabled={testingApiKey}
+                onClick={async () => {
+                  if (!profile.groqApiKey) { setSaveMsg('Please enter a Groq API key.'); setTimeout(() => setSaveMsg(''), 3000); return; }
+                  setTestingApiKey(true);
+                  setSaveMsg('Testing Groq connection...');
+                  try {
+                    const res = await (await import('../../app-core/llmClient')).llmClient.testGroqKey(profile.groqApiKey);
+                    setSaveMsg(res.valid ? `✓ Groq: ${res.model}` : `✕ ${res.message}`);
+                  } catch (err: any) { setSaveMsg(`✕ ${err.message}`); }
+                  finally { setTestingApiKey(false); setTimeout(() => setSaveMsg(''), 6000); }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-orange-700 hover:bg-orange-600 text-white font-bold text-xs transition shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${testingApiKey ? 'animate-spin' : ''}`} />
+                Test
+              </button>
+            </div>
+          </div>
+
+          {/* ── GEMINI ── */}
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-5 space-y-3 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-mono font-bold text-blue-300 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-400" />
+                  Google Gemini — 1,500 req/day Free · 1M Token Context
+                </h4>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Gemini 1.5 Flash — large context window, great for long JD analysis •{' '}
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">aistudio.google.com →</a>
+                </p>
+              </div>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${profile.geminiApiKey ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-zinc-900 text-zinc-500 border border-zinc-700'}`}>
+                {profile.geminiApiKey ? '● configured' : '○ not set'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                placeholder="AIza..."
+                value={profile.geminiApiKey || ''}
+                onChange={(e) => {
+                  const updated = { ...profile, geminiApiKey: e.target.value };
+                  setProfile(updated);
+                  store.saveProfile(updated);
+                }}
+                className="flex-1 px-3.5 py-2.5 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+              />
+              <button
+                type="button"
+                disabled={testingApiKey}
+                onClick={async () => {
+                  if (!profile.geminiApiKey) { setSaveMsg('Please enter a Gemini API key.'); setTimeout(() => setSaveMsg(''), 3000); return; }
+                  setTestingApiKey(true);
+                  setSaveMsg('Testing Gemini connection...');
+                  try {
+                    const res = await (await import('../../app-core/llmClient')).llmClient.testGeminiKey(profile.geminiApiKey);
+                    setSaveMsg(res.valid ? `✓ Gemini: ${res.model}` : `✕ ${res.message}`);
+                  } catch (err: any) { setSaveMsg(`✕ ${err.message}`); }
+                  finally { setTestingApiKey(false); setTimeout(() => setSaveMsg(''), 6000); }
+                }}
+                className="px-4 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-bold text-xs transition shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${testingApiKey ? 'animate-spin' : ''}`} />
+                Test
+              </button>
+            </div>
+          </div>
+
+          {/* Telegram */}
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-5 space-y-2 shadow-xl">
+            <label className="block text-[11px] font-mono text-zinc-400 uppercase font-bold">Telegram Bot Token (Optional)</label>
+            <input
+              type="password"
+              placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ..."
+              value={profile.telegramToken || ''}
+              onChange={(e) => {
+                const updated = { ...profile, telegramToken: e.target.value };
+                setProfile(updated);
+                store.saveProfile(updated);
+              }}
+              className="w-full px-3.5 py-2.5 bg-[#18181b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-zinc-400 font-mono"
+            />
           </div>
         </div>
       )}
+
 
       {/* ── 5. BACKUP & LOCAL STORAGE TAB ── */}
       {activeTab === 'backup' && (

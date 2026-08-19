@@ -127,13 +127,35 @@ export function KanbanBoard({ jobs, onSelectJob, onUpdateApproval, onUpdateAppli
                     onClick={() => onSelectJob(job)}
                     className="p-4 bg-[#18181b] border border-[#27272a] hover:border-zinc-500 rounded-2xl cursor-grab active:cursor-grabbing transition shadow-lg space-y-3 group"
                   >
-                    {/* Header: Source tag + Score badge + Delete */}
+                    {/* Header: Source tag + Score badge + Letter Grade + Delete */}
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono text-zinc-400 px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 truncate max-w-[110px]">
-                        {job.companyName}
-                      </span>
+                      <div className="flex items-center gap-1.5 truncate max-w-[150px]">
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-black font-mono border ${
+                          (job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')) === 'A' ? 'bg-emerald-950 text-emerald-400 border-emerald-700' :
+                          (job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')) === 'B' ? 'bg-blue-950 text-blue-400 border-blue-700' :
+                          (job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')) === 'C' ? 'bg-amber-950 text-amber-400 border-amber-700' :
+                          'bg-red-950 text-red-400 border-red-700'
+                        }`}>
+                          {job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')}
+                        </span>
+                        <span className="text-[10px] font-mono text-zinc-400 px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 truncate">
+                          {job.companyName}
+                        </span>
+                      </div>
                       <div className="flex items-center space-x-1.5">
                         <ScoreBadge score={job.matchScore || 0} />
+                        {job.applicationLink && (
+                          <a
+                            href={job.applicationLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-1 text-emerald-400 hover:text-emerald-300 rounded transition opacity-0 group-hover:opacity-100"
+                            title={`Open Direct Apply Link: ${job.applicationLink}`}
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => handleDelete(job.id, job.jobTitle, e)}
@@ -156,7 +178,7 @@ export function KanbanBoard({ jobs, onSelectJob, onUpdateApproval, onUpdateAppli
                       </p>
                     </div>
 
-                    {/* career-ops Rubric Score & Skills */}
+                    {/* JobRadar Rubric Score & Skills */}
                     <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-[11px] font-mono">
                       <span className="text-amber-400 font-bold">⭐ {job.rubricScores?.overallRubricRating || '4.0'}</span>
                       <span className="text-emerald-400 font-bold">{job.atsAnalysis?.keywordDensityScore || 85}% ATS</span>

@@ -62,24 +62,6 @@ export interface IRagCitation {
   tags: string[];
 }
 
-export interface IRagChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: string;
-  citations?: IRagCitation[];
-  modelUsed?: string;
-  queryTimeMs?: number;
-}
-
-export interface IRagChatSession {
-  id: string;
-  title: string;
-  messages: IRagChatMessage[];
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface IRagPromptContext {
   retrievedChunks: ISearchResult[];
   formattedContext: string;

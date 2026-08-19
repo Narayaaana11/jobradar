@@ -25,7 +25,19 @@ import { getCompanyCareerPortal } from '../../app-core/extractor';
 import { generateOutreachSuite } from '../../app-core/outreachAgent';
 import { generateInterviewMasterGuide } from '../../app-core/interviewMasterGuide';
 import { webScrapingAuditor } from '../../app-core/webScrapingAuditor';
-import { IColdOutreachSuite, IInterviewMasterGuide, IWebScrapingIntelligence } from '../../app-core/types';
+import { generateFollowupCadence, generateFollowupCadenceWithAi } from '../../app-core/followupCadence';
+import { applicationAnswers } from '../../app-core/applicationAnswers';
+import { salaryNegotiation } from '../../app-core/salaryNegotiation';
+import { auditBlockGLegitimacy, auditBlockGLegitimacyWithAi } from '../../app-core/scorer';
+import {
+  IColdOutreachSuite,
+  IInterviewMasterGuide,
+  IWebScrapingIntelligence,
+  IBlockGAudit,
+  IFollowupCadenceSuite,
+  IApplicationAnswersSuite,
+  ISalaryNegotiationSuite
+} from '../../app-core/types';
 
 interface JobDrawerProps {
   job: IJob | null;
@@ -37,7 +49,7 @@ interface JobDrawerProps {
 }
 
 export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApplication, onDeleteJob }: JobDrawerProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'masterguide' | 'outreach' | 'webintel' | 'council' | 'resume' | 'referral' | 'interview' | 'coverletter'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'appanswers' | 'followup' | 'negotiation' | 'masterguide' | 'outreach' | 'webintel' | 'council' | 'resume' | 'referral' | 'interview' | 'coverletter'>('overview');
   const [resumeSubTab, setResumeSubTab] = useState<'pdf' | 'latex'>('pdf');
   const [guideSubTab, setGuideSubTab] = useState<'dsa' | 'systemdesign' | 'cramsheet' | 'salary' | 'culture'>('dsa');
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -50,21 +62,54 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [isMaximized, setIsMaximized] = useState(false);
 
-  // New Agents State
+  // JobRadar Autonomous Suite State
   const [outreachData, setOutreachData] = useState<IColdOutreachSuite | null>(null);
   const [masterGuideData, setMasterGuideData] = useState<IInterviewMasterGuide | null>(null);
   const [webIntelData, setWebIntelData] = useState<IWebScrapingIntelligence | null>(null);
+  const [appAnswersData, setAppAnswersData] = useState<IApplicationAnswersSuite | null>(null);
+  const [followupData, setFollowupData] = useState<IFollowupCadenceSuite | null>(null);
+  const [salaryData, setSalaryData] = useState<ISalaryNegotiationSuite | null>(null);
+  const [blockGData, setBlockGData] = useState<IBlockGAudit | null>(null);
   const [isScrapingLive, setIsScrapingLive] = useState(false);
+  const [liveJdError, setLiveJdError] = useState<string | null>(null);
 
   useEffect(() => {
     if (job) {
       const out = job.outreachSuite || generateOutreachSuite(job, profile);
       const mg = job.interviewMasterGuide || generateInterviewMasterGuide(job, profile);
+      const appAns = job.applicationAnswers || applicationAnswers.generateAnswersDeterministic(job, profile);
+      const flw = job.followupCadence || generateFollowupCadence(job, profile);
+      const sal = job.salaryNegotiation || salaryNegotiation.generateNegotiationSuite(job, profile);
+      const bg = job.blockGAudit || auditBlockGLegitimacy(job);
+
       setOutreachData(out);
       setMasterGuideData(mg);
       setWebIntelData(job.webIntelligence || null);
+      setAppAnswersData(appAns);
+      setFollowupData(flw);
+      setSalaryData(sal);
+      setBlockGData(bg);
+      setLiveJdError(null);
     }
   }, [job, profile]);
+
+  const handleFetchLiveJd = async () => {
+    if (!job?.applicationLink) return;
+    setIsScrapingLive(true);
+    setLiveJdError(null);
+    try {
+      const { fetchWebPageHtml, cleanHtmlToText } = await import('../../app-core/webFetcher');
+      const html = await fetchWebPageHtml(job.applicationLink);
+      const text = cleanHtmlToText(html);
+      const trimmed = text.slice(0, 8000); // keep first 8k chars
+      store.updateJob(job.id, { liveScrapedContent: trimmed, liveScrapedAt: new Date().toISOString() });
+    } catch (err: any) {
+      setLiveJdError(`Failed to fetch: ${err.message}`);
+    } finally {
+      setIsScrapingLive(false);
+    }
+  };
+
 
   // AI Loading & Execution States
   const [isLlmRunning, setIsLlmRunning] = useState(false);
@@ -479,6 +524,18 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
           {/* Quick Metrics & Actions */}
           <div className="flex items-center space-x-3 shrink-0">
+            {job.applicationLink && (
+              <a
+                href={job.applicationLink}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden sm:flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-black bg-emerald-400 hover:bg-emerald-300 text-black transition shadow-lg shadow-emerald-950/50 hover:scale-105 shrink-0"
+                title={`Open Direct Job Application Link: ${job.applicationLink}`}
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Apply on Portal</span>
+              </a>
+            )}
             <ScoreBadge score={job.matchScore} />
             <StatusBadge type="approval" status={job.approvalStatus} />
 
@@ -646,18 +703,51 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
               )}
             </div>
 
-            {/* Raw Job Description */}
+            {/* Raw Job Description / Live Scraped Content */}
             <div className="space-y-2 flex-1 flex flex-col">
               <h4 className="text-[11px] font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                <span>Original Job Description</span>
-                <span className="text-[10px] text-zinc-500 lowercase font-mono">
-                  {job.rawDescription?.length || 0} chars
+                <span className="flex items-center gap-1.5">
+                  {job.liveScrapedContent ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
+                  )}
+                  {job.liveScrapedContent ? 'Live Scraped JD' : 'Original Job Description'}
                 </span>
+                <div className="flex items-center gap-2">
+                  {job.liveScrapedAt && (
+                    <span className="text-[9px] text-emerald-500/70 font-mono">
+                      {new Date(job.liveScrapedAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-zinc-500 lowercase font-mono">
+                    {(job.liveScrapedContent || job.rawDescription)?.length || 0} chars
+                  </span>
+                  {job.applicationLink && (
+                    <button
+                      onClick={handleFetchLiveJd}
+                      disabled={isScrapingLive}
+                      title="Fetch live job description from career portal"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-[10px] font-mono text-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isScrapingLive ? (
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <Globe className="w-2.5 h-2.5" />
+                      )}
+                      {isScrapingLive ? 'Fetching...' : job.liveScrapedContent ? 'Re-fetch JD' : 'Fetch Live JD'}
+                    </button>
+                  )}
+                </div>
               </h4>
+              {liveJdError && (
+                <p className="text-[10px] text-red-400 font-mono px-1">{liveJdError}</p>
+              )}
               <div className="p-4 bg-[#121215] border border-[#27272a] rounded-2xl text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed flex-1 min-h-[160px] max-h-80 lg:max-h-none overflow-y-auto font-sans">
-                {job.rawDescription || 'No description text recorded.'}
+                {job.liveScrapedContent || job.rawDescription || 'No description text recorded.'}
               </div>
             </div>
+
 
             {/* Dual Link Actions: Direct Role Apply + Company Career Portal */}
             <div className="space-y-2 shrink-0">
@@ -666,10 +756,10 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                   href={applyLink}
                   target="_blank"
                   rel="noreferrer"
-                  className="w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-gradient-to-r from-white via-zinc-100 to-zinc-300 text-black font-extrabold text-xs transition hover:brightness-95 shadow shrink-0"
+                  className="w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 text-black font-black text-xs transition hover:brightness-105 shadow-lg shadow-emerald-950/40 shrink-0"
                 >
-                  <span>Open Job Application Link</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Apply on Direct Portal Link</span>
                 </a>
               ) : (
                 <a
@@ -688,11 +778,10 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 href={companyCareerUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-[#18181b] hover:bg-[#202024] text-zinc-300 hover:text-white font-semibold text-xs border border-zinc-800 hover:border-zinc-700 transition shrink-0"
+                className="w-full flex items-center justify-center space-x-2 py-2 px-4 rounded-xl bg-[#18181b] hover:bg-[#202024] text-zinc-400 hover:text-zinc-200 font-medium text-xs border border-zinc-800 transition shrink-0"
               >
-                <Globe className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Visit {job.companyName} Career Portal</span>
-                <ExternalLink className="w-3 h-3 text-zinc-500" />
+                <Globe className="w-3.5 h-3.5 text-zinc-500" />
+                <span>Company Careers Directory ({job.companyName})</span>
               </a>
             </div>
           </div>
@@ -708,6 +797,42 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 }`}
               >
                 <span>AI Match & Rubric</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('appanswers')}
+                className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
+                  activeTab === 'appanswers'
+                    ? 'border-emerald-400 text-emerald-400 font-extrabold'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                <span>📝 App QA Answers</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('followup')}
+                className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
+                  activeTab === 'followup'
+                    ? 'border-blue-400 text-blue-400 font-extrabold'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                <span>⏱️ Follow-Up Cadence</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('negotiation')}
+                className={`pb-2.5 px-3 text-xs font-bold transition flex items-center space-x-1.5 border-b-2 whitespace-nowrap ${
+                  activeTab === 'negotiation'
+                    ? 'border-yellow-400 text-yellow-400 font-extrabold'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <DollarSign className="w-3.5 h-3.5 text-yellow-400" />
+                <span>💰 Offer & Negotiation</span>
               </button>
 
               <button
@@ -807,7 +932,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         )}
                       </div>
                       <p className="text-[11px] text-zinc-400">
-                        Run OpenRouter free model reasoning to evaluate candidate fit and compute 5-tier career-ops rubric.
+                        Run OpenRouter free model reasoning to evaluate candidate fit and compute 5-tier JobRadar fit rubric.
                       </p>
                     </div>
 
@@ -822,67 +947,177 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                     </button>
                   </div>
 
-                  {/* 5-Tier Rubric Breakdown */}
-                  <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[22px] space-y-4 shadow-xl">
-                    <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-                      <div>
-                        <h4 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
-                          Career-Ops Rubric Rating
-                        </h4>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-2xl font-black text-amber-400 font-mono">
-                            ★ {job.rubricScores?.overallRubricRating || 4.8}
-                          </span>
-                          <span className="text-xs text-zinc-500 font-mono">/ 5.0</span>
-                        </div>
-                      </div>
+                  {/* Career-Ops Structured Fit Dossier & A-F Grading */}
+                  {(() => {
+                    const report = job.structuredFitReport || {
+                      recommendation: (job.rubricScores?.recommendation || (job.matchScore >= 75 ? 'APPLY' : job.matchScore >= 50 ? 'BORDERLINE' : 'SKIP')),
+                      letterGrade: (job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : job.matchScore >= 45 ? 'D' : 'F')),
+                      numericalScore: job.rubricScores?.overallRubricRating || Number((job.matchScore / 20).toFixed(1)),
+                      matchPercentage: job.matchScore,
+                      pros: job.gapAnalysis?.strongMatches?.map((s) => `Strong alignment with ${s}`) || [],
+                      cons: job.gapAnalysis?.missingKeywords?.map((s) => `Missing keyword: ${s}`) || [],
+                      missingSkills: job.gapAnalysis?.missingKeywords || [],
+                      dealbreakersFound: [],
+                      isDealbreaker: false,
+                      executiveSummary: `Evaluated ${job.jobTitle} at ${job.companyName} (${job.matchScore}% Match, Rubric ${job.rubricScores?.overallRubricRating || 4.5}/5.0).`,
+                    };
 
-                      <div className="text-right">
-                        <span className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
-                          Resume-Matcher ATS Score
-                        </span>
-                        <div className="flex items-center justify-end gap-1.5 mt-1">
-                          <FileText className="w-4 h-4 text-emerald-400" />
-                          <span className="text-2xl font-black text-emerald-400 font-mono">
-                            {job.atsAnalysis?.overallAtsScore || job.atsAnalysis?.keywordDensityScore || 92}%
-                          </span>
-                          <span className="text-xs text-zinc-500 font-mono">/ 100</span>
-                        </div>
-                      </div>
-                    </div>
+                    const isApply = report.recommendation === 'APPLY';
+                    const isBorderline = report.recommendation === 'BORDERLINE';
+                    const isSkip = report.recommendation === 'SKIP';
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Skills:</span>
-                          <span className="text-white font-bold">{job.rubricScores?.skillsScore || 4.9}</span>
-                        </div>
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Tech Stack:</span>
-                          <span className="text-white font-bold">{job.rubricScores?.techStackScore || 4.8}</span>
-                        </div>
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Experience:</span>
-                          <span className="text-white font-bold">{job.rubricScores?.experienceScore || 4.7}</span>
-                        </div>
-                      </div>
+                    return (
+                      <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[22px] space-y-4 shadow-xl">
+                        {/* Header with Letter Grade & Recommendation */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+                          <div className="flex items-center gap-3">
+                            {/* Big Letter Grade Badge */}
+                            <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center text-xl font-black font-mono shadow-lg ${
+                              report.letterGrade === 'A' ? 'bg-emerald-950/80 border-emerald-500 text-emerald-400' :
+                              report.letterGrade === 'B' ? 'bg-blue-950/80 border-blue-500 text-blue-400' :
+                              report.letterGrade === 'C' ? 'bg-amber-950/80 border-amber-500 text-amber-400' :
+                              'bg-red-950/80 border-red-500 text-red-400'
+                            }`}>
+                              {report.letterGrade}
+                            </div>
 
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-zinc-400">
-                          <span>TF-IDF Match:</span>
-                          <span className="text-emerald-300 font-bold">{job.atsAnalysis?.keywordDensityScore || 92}%</span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-black uppercase tracking-wider border flex items-center gap-1 ${
+                                  isApply ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700' :
+                                  isBorderline ? 'bg-amber-950/90 text-amber-300 border-amber-700' :
+                                  'bg-red-950/90 text-red-300 border-red-700'
+                                }`}>
+                                  {isApply ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> :
+                                   isBorderline ? <AlertCircle className="w-3.5 h-3.5 text-amber-400" /> :
+                                   <XCircle className="w-3.5 h-3.5 text-red-400" />}
+                                  <span>Recommendation: {report.recommendation}</span>
+                                </span>
+
+                                <span className="text-xs text-zinc-400 font-mono">
+                                  Score: <strong className="text-white">{job.matchScore}%</strong>
+                                </span>
+                              </div>
+                              <p className="text-xs text-zinc-400 mt-1">
+                                4-Dimensional Fit Rubric: <strong className="text-amber-400 font-mono">{job.rubricScores?.overallRubricRating || 4.5} / 5.0</strong>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                              ATS TF-IDF Alignment
+                            </span>
+                            <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                              <FileText className="w-4 h-4 text-emerald-400" />
+                              <span className="text-xl font-black text-emerald-400 font-mono">
+                                {job.atsAnalysis?.keywordDensityScore || job.matchScore}%
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Bullet Impact:</span>
-                          <span className="text-emerald-300 font-bold">{job.atsAnalysis?.bulletImpactScore || 90}%</span>
+
+                        {/* Dealbreaker Alert (If Applicable) */}
+                        {(report.isDealbreaker || (report.dealbreakersFound && report.dealbreakersFound.length > 0)) && (
+                          <div className="p-3.5 bg-red-950/60 border border-red-800/80 rounded-xl flex items-start gap-2.5">
+                            <ShieldAlert className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                            <div className="text-xs space-y-1">
+                              <span className="font-bold text-red-300">Hard Dealbreaker / Blocker Detected:</span>
+                              <ul className="list-disc pl-4 text-red-200/90 space-y-0.5">
+                                {report.dealbreakersFound.map((d, i) => (
+                                  <li key={i}>{d}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 4-Dimensional Numerical Rubric Scale */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
+                            <span className="text-[10px] font-mono text-zinc-400 uppercase">Tech Stack Match</span>
+                            <div className="text-base font-black text-white font-mono flex items-center justify-between">
+                              <span>★ {job.rubricScores?.technicalStackMatchScore || job.rubricScores?.skillsScore || 4.8}</span>
+                              <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
+                            <span className="text-[10px] font-mono text-zinc-400 uppercase">Seniority & YOE</span>
+                            <div className="text-base font-black text-white font-mono flex items-center justify-between">
+                              <span>★ {job.rubricScores?.seniorityExperienceScore || job.rubricScores?.experienceScore || 4.7}</span>
+                              <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
+                            <span className="text-[10px] font-mono text-zinc-400 uppercase">Domain Synergy</span>
+                            <div className="text-base font-black text-white font-mono flex items-center justify-between">
+                              <span>★ {job.rubricScores?.domainRelevanceScore || 4.6}</span>
+                              <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
+                            </div>
+                          </div>
+
+                          <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
+                            <span className="text-[10px] font-mono text-zinc-400 uppercase">Comp & Location</span>
+                            <div className="text-base font-black text-white font-mono flex items-center justify-between">
+                              <span>★ {job.rubricScores?.compensationLocationScore || job.rubricScores?.cultureFitScore || 4.9}</span>
+                              <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Format & Parse:</span>
-                          <span className="text-emerald-300 font-bold">{job.atsAnalysis?.atsFormatScore || 98}%</span>
+
+                        {/* Executive Summary Box */}
+                        <div className="p-3 bg-[#18181b]/70 border border-zinc-800/80 rounded-xl text-xs text-zinc-300 leading-relaxed font-sans">
+                          <strong className="text-amber-400 font-mono text-[11px] block mb-1">FIT SUMMARY & DOSSIER:</strong>
+                          {report.executiveSummary || 'Deep match analysis completed across candidate profile and job requirements.'}
+                        </div>
+
+                        {/* Pros & Cons Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                          {/* Pros Card */}
+                          <div className="p-3.5 bg-emerald-950/20 border border-emerald-900/40 rounded-xl space-y-2">
+                            <h5 className="font-bold text-emerald-400 text-xs flex items-center gap-1.5 font-mono">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Key Alignment Points (Pros)</span>
+                            </h5>
+                            <ul className="space-y-1 text-zinc-300 text-[11px]">
+                              {report.pros.length > 0 ? (
+                                report.pros.map((p, i) => (
+                                  <li key={i} className="flex items-start gap-1.5">
+                                    <span className="text-emerald-400 mt-0.5">•</span>
+                                    <span>{p}</span>
+                                  </li>
+                                ))
+                              ) : (
+                                <li className="text-zinc-500 italic">No specific strengths identified.</li>
+                              )}
+                            </ul>
+                          </div>
+
+                          {/* Cons & Missing Skills Card */}
+                          <div className="p-3.5 bg-amber-950/20 border border-amber-900/40 rounded-xl space-y-2">
+                            <h5 className="font-bold text-amber-400 text-xs flex items-center gap-1.5 font-mono">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Friction Points & Missing Skills</span>
+                            </h5>
+                            <ul className="space-y-1 text-zinc-300 text-[11px]">
+                              {report.cons.length > 0 ? (
+                                report.cons.map((c, i) => (
+                                  <li key={i} className="flex items-start gap-1.5">
+                                    <span className="text-amber-400 mt-0.5">•</span>
+                                    <span>{c}</span>
+                                  </li>
+                                ))
+                              ) : (
+                                <li className="text-emerald-400/80 text-[11px]">✓ No critical skill gaps detected.</li>
+                              )}
+                            </ul>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   {/* RAG Candidate Knowledge Evidence & Domain Fit Card */}
                   {(() => {
@@ -960,6 +1195,90 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       </div>
                     );
                   })()}
+
+                  {/* Block G: Posting Legitimacy & Ghost Job Audit Card */}
+                  {blockGData && (
+                    <div className="p-5 rounded-[22px] border border-[#27272a] bg-[#121215] space-y-3 shadow-xl">
+                      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className={`p-1.5 rounded-lg border ${
+                            blockGData.isGhostJobRisk || blockGData.workAuthBlocker
+                              ? 'bg-amber-950 border-amber-700 text-amber-400'
+                              : 'bg-emerald-950 border-emerald-700 text-emerald-400'
+                          }`}>
+                            <ShieldCheck className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <h4 className="text-xs font-black text-white flex items-center gap-2">
+                              <span>Block G: Posting Legitimacy & Ghost Job Audit</span>
+                              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border font-bold ${
+                                blockGData.verdict === 'Verified Legitimate'
+                                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+                                  : blockGData.verdict === 'Work-Auth Blocker'
+                                  ? 'bg-red-950/80 text-red-300 border-red-800'
+                                  : 'bg-amber-950/80 text-amber-300 border-amber-800'
+                              }`}>
+                                {blockGData.verdict}
+                              </span>
+                            </h4>
+                            <p className="text-[11px] text-zinc-400">
+                              {blockGData.recommendation}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setIsLlmRunning(true);
+                              setAiActionLabel('Auditing posting legitimacy and ghost job risk with AI...');
+                              try {
+                                const res = await auditBlockGLegitimacyWithAi(job, profile.apiKey);
+                                setBlockGData(res);
+                                job.blockGAudit = res;
+                                store.updateJob(job.id, { blockGAudit: res });
+                                setSaveSuccessMsg('Block G Legitimacy Audit calibrated with AI reasoning!');
+                                setTimeout(() => setSaveSuccessMsg(''), 4000);
+                              } catch (err: any) {
+                                setAiError(err.message);
+                              } finally {
+                                setIsLlmRunning(false);
+                                setAiActionLabel('');
+                              }
+                            }}
+                            disabled={isLlmRunning}
+                            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-bold transition disabled:opacity-50"
+                          >
+                            <Sparkles className={`w-3.5 h-3.5 text-cyan-400 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                            <span>AI Re-Audit</span>
+                          </button>
+
+                          <div className="text-right font-mono">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-bold">Legitimacy</span>
+                            <span className={`text-base font-black ${
+                              blockGData.legitimacyScore >= 75 ? 'text-emerald-400' : 'text-amber-400'
+                            }`}>
+                              {blockGData.legitimacyScore}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {blockGData.signalsFound.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {blockGData.signalsFound.map((sig, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300 flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-cyan-400" /> {sig}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1947,6 +2266,317 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       <div className="p-5 bg-[#09090b] border border-[#27272a] rounded-2xl text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed font-sans">
                         {job.coverLetterText}
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── 7. APPLICATION QA ANSWERS TAB (JobRadar Autonomous) ── */}
+              {activeTab === 'appanswers' && (
+                <div className="space-y-5">
+                  <div className="p-5 bg-gradient-to-r from-emerald-950/40 via-[#18181b] to-teal-950/40 border border-emerald-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="p-1.5 rounded-lg bg-emerald-950 border border-emerald-700 text-emerald-400">
+                          <CheckSquare className="w-4 h-4" />
+                        </span>
+                        <h3 className="text-sm font-extrabold text-white">Application QA Answers Generator</h3>
+                      </div>
+                      <p className="text-xs text-zinc-400">
+                        Tailored, 1-click copyable answers for tricky ATS portal questions grounded in your master resume.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsLlmRunning(true);
+                        setAiActionLabel('Synthesizing tailored application answers with AI...');
+                        try {
+                          const res = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey);
+                          setAppAnswersData(res);
+                          job.applicationAnswers = res;
+                          store.updateJob(job.id, { applicationAnswers: res });
+                          setSaveSuccessMsg('Application form answers updated with AI grounding!');
+                          setTimeout(() => setSaveSuccessMsg(''), 4000);
+                        } catch (err: any) {
+                          setAiError(err.message);
+                        } finally {
+                          setIsLlmRunning(false);
+                          setAiActionLabel('');
+                        }
+                      }}
+                      disabled={isLlmRunning}
+                      className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                      <span>{isLlmRunning ? 'Generating...' : '⚡ AI Re-Generate Answers'}</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {(appAnswersData?.items || []).map((item, idx) => (
+                      <div key={idx} className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 uppercase">
+                              {item.category}
+                            </span>
+                            <h4 className="text-sm font-extrabold text-white mt-1.5">{item.question}</h4>
+                          </div>
+
+                          <button
+                            onClick={() => copyToClipboard(item.suggestedAnswer, idx + 100)}
+                            className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1.5 transition shadow shrink-0"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx + 100 ? 'Copied!' : 'Copy Answer'}
+                          </button>
+                        </div>
+
+                        <div className="p-4 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-sans leading-relaxed whitespace-pre-wrap">
+                          {item.suggestedAnswer}
+                        </div>
+
+                        {item.groundedEvidence && item.groundedEvidence.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {item.groundedEvidence.map((ev, evIdx) => (
+                              <span key={evIdx} className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+                                📌 {ev}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── 8. FOLLOW-UP CADENCE TAB (JobRadar Autonomous) ── */}
+              {activeTab === 'followup' && (
+                <div className="space-y-5">
+                  <div className="p-5 bg-gradient-to-r from-blue-950/40 via-[#18181b] to-indigo-950/40 border border-blue-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="p-1.5 rounded-lg bg-blue-950 border border-blue-700 text-blue-400">
+                          <Clock className="w-4 h-4" />
+                        </span>
+                        <h3 className="text-sm font-extrabold text-white">Automated Follow-Up Cadence Engine</h3>
+                      </div>
+                      <p className="text-xs text-zinc-400">
+                        Multi-touch follow-up schedule and pre-drafted check-ins to maximize recruiter response rates.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setIsLlmRunning(true);
+                          setAiActionLabel('Synthesizing personalized follow-up cadence emails with AI...');
+                          try {
+                            const res = await generateFollowupCadenceWithAi(job, profile, profile.apiKey);
+                            setFollowupData(res);
+                            job.followupCadence = res;
+                            store.updateJob(job.id, { followupCadence: res });
+                            setSaveSuccessMsg('Follow-up emails personalized with AI reasoning!');
+                            setTimeout(() => setSaveSuccessMsg(''), 4000);
+                          } catch (err: any) {
+                            setAiError(err.message);
+                          } finally {
+                            setIsLlmRunning(false);
+                            setAiActionLabel('');
+                          }
+                        }}
+                        disabled={isLlmRunning}
+                        className="flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                        <span>{isLlmRunning ? 'Generating...' : '⚡ AI Re-Generate Cadence'}</span>
+                      </button>
+
+                      <div className="text-right font-mono shrink-0">
+                        <span className="text-[10px] text-zinc-500 block uppercase font-bold">Application Status</span>
+                        <span className="text-xs font-bold text-blue-400 capitalize">
+                          {job.applicationStatus.replace('_', ' ')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {(followupData?.items || []).map((step, idx) => (
+                      <div key={idx} className={`p-5 rounded-[20px] border space-y-3 shadow ${
+                        step.isOverdue
+                          ? 'bg-amber-950/20 border-amber-800/70'
+                          : 'bg-[#121215] border-[#27272a]'
+                      }`}>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-extrabold text-white">{step.milestone}</span>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300">
+                                Target Date: {step.scheduledDate}
+                              </span>
+                              {step.isOverdue && (
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800 animate-pulse">
+                                  ⚠️ Due for follow-up
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] font-mono text-zinc-400 mt-1">
+                              Persona Target: <strong className="text-zinc-300">{step.targetPersona}</strong>
+                            </p>
+                          </div>
+
+                          <button
+                            onClick={() => copyToClipboard(`Subject: ${step.subject}\n\n${step.messageBody}`, idx + 200)}
+                            className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1.5 transition shadow shrink-0"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> {copiedIdx === idx + 200 ? 'Copied!' : 'Copy Email'}
+                          </button>
+                        </div>
+
+                        <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
+                          <p className="text-[11px] font-mono text-zinc-400 font-bold">
+                            Subject: <span className="text-zinc-200">{step.subject}</span>
+                          </p>
+                          <textarea
+                            readOnly
+                            value={step.messageBody}
+                            className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── 9. OFFER & SALARY NEGOTIATION TAB (JobRadar Autonomous) ── */}
+              {activeTab === 'negotiation' && (
+                <div className="space-y-5">
+                  <div className="p-5 bg-gradient-to-r from-yellow-950/40 via-[#18181b] to-amber-950/40 border border-yellow-800/60 rounded-[22px] flex items-center justify-between gap-4 shadow-xl">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="p-1.5 rounded-lg bg-yellow-950 border border-yellow-700 text-yellow-400">
+                          <DollarSign className="w-4 h-4" />
+                        </span>
+                        <h3 className="text-sm font-extrabold text-white">Compensation Benchmark & Negotiation Advisor</h3>
+                      </div>
+                      <p className="text-xs text-zinc-400">
+                        Strategic salary counter-offer scripts, market benchmarking, and remote compensation pushback.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsLlmRunning(true);
+                        setAiActionLabel('Synthesizing compensation counter-offer package with AI...');
+                        try {
+                          const res = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey);
+                          setSalaryData(res);
+                          job.salaryNegotiation = res;
+                          store.updateJob(job.id, { salaryNegotiation: res });
+                          setSaveSuccessMsg('Negotiation strategy calibrated with AI market benchmarks!');
+                          setTimeout(() => setSaveSuccessMsg(''), 4000);
+                        } catch (err: any) {
+                          setAiError(err.message);
+                        } finally {
+                          setIsLlmRunning(false);
+                          setAiActionLabel('');
+                        }
+                      }}
+                      disabled={isLlmRunning}
+                      className="flex items-center space-x-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-yellow-500 to-amber-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow-lg shrink-0 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLlmRunning ? 'animate-spin' : ''}`} />
+                      <span>{isLlmRunning ? 'Calibrating...' : '⚡ AI Recalibrate CTC'}</span>
+                    </button>
+                  </div>
+
+                  {/* Benchmark Summary Card */}
+                  <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                    <h4 className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-wider">
+                      📊 Market Compensation Analysis
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+                      <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl">
+                        <span className="text-zinc-500 block text-[10px]">TARGET CTC BENCHMARK</span>
+                        <span className="text-white text-base font-extrabold">{salaryData?.targetCtc}</span>
+                      </div>
+                      <div className="p-3 bg-[#09090b] border border-zinc-800 rounded-xl">
+                        <span className="text-zinc-500 block text-[10px]">MARKET ROLE BASELINE</span>
+                        <span className="text-emerald-400 text-base font-extrabold">{salaryData?.marketBenchmark}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-zinc-400 font-sans">{salaryData?.gapAnalysis}</p>
+                  </div>
+
+                  {/* Counter Offer Script */}
+                  {salaryData?.counterOfferEmailScript && (
+                    <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
+                          <span>✉️ Counter-Offer Email Script</span>
+                        </h4>
+                        <button
+                          onClick={() => copyToClipboard(salaryData.counterOfferEmailScript, 301)}
+                          className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
+                        >
+                          <Copy className="w-3.5 h-3.5" /> {copiedIdx === 301 ? 'Copied!' : 'Copy Script'}
+                        </button>
+                      </div>
+                      <textarea
+                        readOnly
+                        value={salaryData.counterOfferEmailScript}
+                        className="w-full h-32 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                      />
+                    </div>
+                  )}
+
+                  {/* Remote / Geographic Comp Pushback */}
+                  {salaryData?.remoteCompPushbackScript && (
+                    <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
+                          <span>🌍 Geographic / Remote Discount Pushback</span>
+                        </h4>
+                        <button
+                          onClick={() => copyToClipboard(salaryData.remoteCompPushbackScript, 302)}
+                          className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
+                        >
+                          <Copy className="w-3.5 h-3.5" /> {copiedIdx === 302 ? 'Copied!' : 'Copy Script'}
+                        </button>
+                      </div>
+                      <textarea
+                        readOnly
+                        value={salaryData.remoteCompPushbackScript}
+                        className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                      />
+                    </div>
+                  )}
+
+                  {/* Competing Offer Script */}
+                  {salaryData?.competingOfferLeverageScript && (
+                    <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-3 shadow">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-2">
+                          <span>⚡ Competing Offer Leverage Script</span>
+                        </h4>
+                        <button
+                          onClick={() => copyToClipboard(salaryData.competingOfferLeverageScript, 303)}
+                          className="text-xs font-bold px-3 py-1 rounded-full bg-white text-black hover:bg-zinc-200 flex items-center gap-1 transition shadow"
+                        >
+                          <Copy className="w-3.5 h-3.5" /> {copiedIdx === 303 ? 'Copied!' : 'Copy Script'}
+                        </button>
+                      </div>
+                      <textarea
+                        readOnly
+                        value={salaryData.competingOfferLeverageScript}
+                        className="w-full h-28 p-3 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-300 font-mono leading-relaxed resize-none"
+                      />
                     </div>
                   )}
                 </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { IJob } from '../../app-core/types';
 import { ScoreBadge } from './ScoreBadge';
 import { StatusBadge } from './StatusBadge';
-import { Building, MapPin, ArrowRight, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Trash2, CheckSquare, Square } from 'lucide-react';
+import { Building, MapPin, ArrowRight, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Trash2, CheckSquare, Square, ExternalLink } from 'lucide-react';
 
 interface JobTableProps {
   jobs: IJob[];
@@ -191,9 +191,17 @@ export function JobTable({ jobs, onSelectJob, onDeleteJob, onDeleteMultipleJobs 
                     </div>
                   </td>
 
-                  {/* Fit Score & 5-tier Rubric */}
+                  {/* Fit Score & 5-tier Rubric & Letter Grade */}
                   <td className="py-5 px-4 whitespace-nowrap">
                     <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-black font-mono border ${
+                        (job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')) === 'A' ? 'bg-emerald-950 text-emerald-400 border-emerald-700' :
+                        (job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')) === 'B' ? 'bg-blue-950 text-blue-400 border-blue-700' :
+                        (job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')) === 'C' ? 'bg-amber-950 text-amber-400 border-amber-700' :
+                        'bg-red-950 text-red-400 border-red-700'
+                      }`}>
+                        {job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')}
+                      </span>
                       <ScoreBadge score={job.matchScore || 0} />
                       <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-900/40">
                         ⭐ {job.rubricScores?.overallRubricRating || '4.0'}
@@ -214,6 +222,19 @@ export function JobTable({ jobs, onSelectJob, onDeleteJob, onDeleteMultipleJobs 
                   {/* Action Buttons: Inspect + Delete */}
                   <td className="py-5 px-6 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end space-x-2">
+                      {job.applicationLink && (
+                        <a
+                          href={job.applicationLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded-full bg-emerald-950/70 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-800/70 transition shadow-sm"
+                          title={`Open Direct Application Link: ${job.applicationLink}`}
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+
                       <button
                         type="button"
                         onClick={(e) => handleDeleteSingle(job.id, job.jobTitle, e)}

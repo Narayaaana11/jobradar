@@ -2,14 +2,20 @@ import { store } from './store';
 import { IJob, IProfile, ICareerWatchlistSite, ICareerSyncReport } from './types';
 import { fetchWebPageHtml, cleanHtmlToText, extractHtmlMetadata } from './webFetcher';
 import { extractJobDetails, IExtractedJD, extractValidApplicationLink } from './extractor';
-import { scoreJobAgainstProfile } from './scorer';
+import { scoreJobAgainstProfile, auditBlockGLegitimacy } from './scorer';
 import { analyzeAtsCompliance } from './atsMatcher';
 import { generateReferralContacts } from './referralGenerator';
 import { generateInterviewPrep } from './interviewPrep';
 import { generateCoverLetter } from './coverLetterGenerator';
 import { generateOutreachSuite } from './outreachAgent';
 import { generateInterviewMasterGuide } from './interviewMasterGuide';
+import { generateFollowupCadence } from './followupCadence';
+import { applicationAnswers } from './applicationAnswers';
+import { salaryNegotiation } from './salaryNegotiation';
 import { ragAugmentor } from './rag/ragAugmentor';
+import { scrapingOverseer } from './scrapingOverseer';
+import { atsAdapters } from './atsAdapters';
+import { playwrightScraper } from './playwrightScraper';
 
 export interface IDiscoveredJobListing {
   title: string;
@@ -17,10 +23,12 @@ export interface IDiscoveredJobListing {
   location?: string;
   department?: string;
   snippet?: string;
+  descriptionHtml?: string;
+  plainText?: string;
 }
 
 /**
- * Parses raw career page HTML to discover individual job postings, cards, and links.
+ * Parses raw career page HTML using the Scraping Overseer Agent to discover genuine job openings only.
  */
 export function discoverJobsFromCareerHtml(html: string, baseUrl: string): IDiscoveredJobListing[] {
   const discovered: IDiscoveredJobListing[] = [];
@@ -28,8 +36,7 @@ export function discoverJobsFromCareerHtml(html: string, baseUrl: string): IDisc
 
   if (!html) return discovered;
 
-  // 1. Look for anchor tags that point to job openings
-  // e.g. <a href="/jobs/12345" ...>Software Engineer</a>
+  // 1. Look for anchor tags that point to specific job openings
   const linkRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
 
@@ -44,6 +51,8 @@ export function discoverJobsFromCareerHtml(html: string, baseUrl: string): IDisc
     /gh_jid=/i,
     /lever\.co/i,
     /greenhouse\.io/i,
+    /ashbyhq\.com/i,
+    /workable\.com/i,
     /myworkdayjobs\.com/i,
     /smartrecruiters\.com/i,
   ];
@@ -64,46 +73,57 @@ export function discoverJobsFromCareerHtml(html: string, baseUrl: string): IDisc
 
     if (seenUrls.has(fullUrl)) continue;
 
-    // Check if the URL or anchor text matches job posting indicators
-    const isJobUrl = jobUrlPatterns.some((pattern) => pattern.test(fullUrl));
-    const isJobText = /(?:Software|Developer|Engineer|Analyst|Associate|Consultant|Intern|Full\s*Stack|Frontend|Backend|Quality|MERN|Java|Python|Support|QA)\b/i.test(rawAnchorText);
+    // Gate 1: URL Structure Check (Block generic non-job portal sub-paths & homepage hashes)
+    if (!scrapingOverseer.isValidJobRequisitionUrl(fullUrl, baseUrl)) {
+      continue;
+    }
 
-    if ((isJobUrl || isJobText) && rawAnchorText.length >= 3 && rawAnchorText.length <= 120) {
+    // Gate 2: Semantic Title Check (Block "Jobs", "Home", "Support", "Careers", "How we Hire", "I'm Interested")
+    const titleAudit = scrapingOverseer.isLegitimateJobTitle(rawAnchorText);
+    if (!titleAudit.valid) {
+      continue;
+    }
+
+    const isJobUrl = jobUrlPatterns.some((pattern) => pattern.test(fullUrl));
+
+    if (isJobUrl || titleAudit.valid) {
       seenUrls.add(fullUrl);
       discovered.push({
-        title: rawAnchorText,
+        title: titleAudit.cleaned,
         url: fullUrl,
         location: 'India / Remote',
       });
     }
   }
 
-  // 2. If no anchor tags matched directly, parse structured job cards or list items
+  // 2. Structured job cards check (if no direct anchor tags passed)
   if (discovered.length === 0) {
     const cleanText = cleanHtmlToText(html);
     const lines = cleanText.split('\n').map((l) => l.trim()).filter(Boolean);
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (/(?:Software\s*Engineer|Developer|Full\s*Stack|Frontend|Backend|Analyst|SDE|Associate)\b/i.test(line) && line.length < 80) {
+      const lineAudit = scrapingOverseer.isLegitimateJobTitle(line);
+
+      if (lineAudit.valid && line.length < 80) {
         discovered.push({
-          title: line,
+          title: lineAudit.cleaned,
           url: baseUrl,
           location: lines[i + 1] && lines[i + 1].length < 40 ? lines[i + 1] : 'India / Remote',
           snippet: lines.slice(i, i + 6).join('\n'),
         });
-        i += 4; // skip ahead
+        i += 4;
       }
     }
   }
 
-  return discovered.slice(0, 15); // Cap to top 15 most relevant openings per crawl
+  return discovered.slice(0, 20);
 }
 
 export class CareerPageCrawlerService {
   /**
-   * Crawls a single career site, discovers openings, scores them against candidate's master resume,
-   * and saves suitable jobs to the local store.
+   * Crawls a single career site using high-speed ATS Adapters (Greenhouse, Lever, Ashby, Workable)
+   * with Playwright headless rendering and Scraping Overseer validation.
    */
   public async crawlCareerSite(
     site: ICareerWatchlistSite,
@@ -113,32 +133,62 @@ export class CareerPageCrawlerService {
     store.setCareerSiteSyncStatus(site.id, 'syncing');
 
     try {
-      // 1. Fetch live HTML of the career portal
-      const html = await fetchWebPageHtml(site.careerUrl);
-      const meta = extractHtmlMetadata(html, site.careerUrl);
-      const discovered = discoverJobsFromCareerHtml(html, site.careerUrl);
+      let discovered: IDiscoveredJobListing[] = [];
+
+      // Step 1: Direct High-Speed ATS Adapter (Greenhouse / Lever / Ashby / Workable / SmartRecruiters)
+      const atsRes = await atsAdapters.fetchUniversalAtsJobs(site.careerUrl, site.companyName, site.atsProvider);
+      if (atsRes.success && atsRes.jobs.length > 0) {
+        discovered = atsRes.jobs.map((j) => ({
+          title: j.title,
+          url: j.url,
+          location: j.location || 'India / Remote',
+          department: j.department,
+          descriptionHtml: j.descriptionHtml,
+          plainText: j.plainText,
+        }));
+      }
+
+      // Step 2: Fallback to Headless Browser / Live HTML Scraping
+      if (discovered.length === 0) {
+        const scrapeRes = await playwrightScraper.scrapePortalHtml(site.careerUrl);
+        if (scrapeRes.success && scrapeRes.html) {
+          discovered = discoverJobsFromCareerHtml(scrapeRes.html, site.careerUrl);
+        }
+      }
+
+      // Step 3: AI Overseer Discovery Fallback
+      if (discovered.length === 0 && profile.apiKey) {
+        const html = await fetchWebPageHtml(site.careerUrl);
+        const pageText = cleanHtmlToText(html);
+        const aiOpenings = await scrapingOverseer.auditCareerPageWithAi(pageText, site.careerUrl, site.companyName, profile.apiKey);
+        if (aiOpenings && aiOpenings.length > 0) {
+          discovered = aiOpenings.map((op) => ({
+            title: op.jobTitle,
+            url: op.applicationLink || site.careerUrl,
+            location: op.location || 'India / Remote',
+            snippet: op.rawDescription,
+          }));
+        }
+      }
 
       const suitableJobs: IJob[] = [];
 
-      // 2. If individual jobs were discovered, process them
+      // 2. Audit each candidate opening with deep extraction
       if (discovered.length > 0) {
         for (const disc of discovered) {
           try {
-            // Build rich JD text for extraction
-            let rawJD = `*Company:* ${site.companyName}\n*Role:* ${disc.title}\n*Location:* ${disc.location || 'India / Remote'}\n*Application Link:* ${disc.url}\n\n`;
-            if (disc.snippet) {
-              rawJD += `${disc.snippet}\n\n`;
-            }
+            // Overseer Agent audits opening and performs deep-page extraction with AI
+            const extracted = await scrapingOverseer.auditAndDeepExtractJob(
+              disc.title,
+              disc.url,
+              site.companyName,
+              site.searchKeywords,
+              profile.apiKey
+            );
 
-            // If keywords were specified on the watchlist, include them
-            if (site.searchKeywords && site.searchKeywords.length > 0) {
-              rawJD += `*Key Focus Areas:* ${site.searchKeywords.join(', ')}\n`;
+            if (!extracted) {
+              continue; // Discard non-technical or boilerplate listings
             }
-
-            // Extract structured details
-            const extracted = extractJobDetails(rawJD, disc.url);
-            extracted.companyName = site.companyName;
-            extracted.applicationLink = disc.url;
 
             // Score against profile & LaTeX master resume
             const scoreResult = scoreJobAgainstProfile(extracted, profile);
@@ -167,11 +217,11 @@ export class CareerPageCrawlerService {
                 isRemote: extracted.isRemote,
                 ctcMentioned: extracted.ctcMentioned,
                 ctcRange: extracted.ctcRange,
-                applicationLink: disc.url || site.careerUrl,
+                applicationLink: extracted.applicationLink || disc.url || site.careerUrl,
                 applicationDeadline: extracted.applicationDeadline,
                 skillsRequired: extracted.skillsRequired,
                 experienceRequired: extracted.experienceRequired || 'Freshers / 2024-2026 MCA/B.Tech eligible',
-                rawDescription: rawJD,
+                rawDescription: extracted.rawDescription,
                 sources: [
                   {
                     platform: 'web',
@@ -187,6 +237,7 @@ export class CareerPageCrawlerService {
                 gapAnalysis: scoreResult.gapAnalysis,
                 fitBreakdown: scoreResult.fitBreakdown,
                 rubricScores: scoreResult.rubricScores,
+                structuredFitReport: scoreResult.structuredFitReport,
                 atsAnalysis: atsResult,
                 scoreFlag: scoreResult.scoreFlag,
                 skillMatched: scoreResult.skillMatched,
@@ -196,13 +247,17 @@ export class CareerPageCrawlerService {
                 referralContacts: generateReferralContacts(extracted, profile),
                 interviewPrep: generateInterviewPrep(extracted, profile),
                 coverLetterText: generateCoverLetter(extracted, profile),
-                resumeNotes: `Auto-discovered from ${site.companyName} Career Portal. ATS Match: ${scoreResult.matchScore}%`,
+                resumeNotes: `Verified by Overseer Agent from ${site.companyName} Career Portal. ATS Match: ${scoreResult.matchScore}%`,
+                blockGAudit: auditBlockGLegitimacy(extracted),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               };
 
               job.outreachSuite = generateOutreachSuite(job, profile);
               job.interviewMasterGuide = generateInterviewMasterGuide(job, profile);
+              job.followupCadence = generateFollowupCadence(job, profile);
+              job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
+              job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
 
               store.addOrUpdateJob(job);
               suitableJobs.push(job);
@@ -211,66 +266,9 @@ export class CareerPageCrawlerService {
             console.warn(`[CareerCrawler] Error parsing role ${disc.title} on ${site.companyName}:`, itemErr);
           }
         }
-      } else {
-        // Fallback: If no distinct job cards were found, ingest the overall career portal summary
-        const cleanText = cleanHtmlToText(html);
-        const compositeJD = `*Company:* ${site.companyName}\n*Role:* Software Engineering Hiring\n*Career Portal:* ${site.careerUrl}\n\n${cleanText.substring(0, 1500)}`;
-        const extracted = extractJobDetails(compositeJD, site.careerUrl);
-        extracted.companyName = site.companyName;
-        extracted.applicationLink = site.careerUrl;
-
-        const scoreResult = scoreJobAgainstProfile(extracted, profile);
-        if (scoreResult.matchScore >= 50) {
-          const jobId = `job-web-${site.id}-${Date.now()}`;
-          const job: IJob = {
-            id: jobId,
-            companyName: site.companyName,
-            companyPageUrl: site.careerUrl,
-            jobTitle: extracted.jobTitle,
-            location: extracted.location || 'India / Remote',
-            isRemote: extracted.isRemote,
-            ctcMentioned: false,
-            applicationLink: site.careerUrl,
-            skillsRequired: extracted.skillsRequired,
-            experienceRequired: 'Fresher / Early Career Eligible',
-            rawDescription: compositeJD,
-            sources: [{
-              platform: 'web',
-              channelName: `${site.companyName} Career Portal`,
-              messageId: `web-summary-${site.id}-${Date.now()}`,
-              url: site.careerUrl,
-              scrapedAt: new Date().toISOString(),
-            }],
-            dedupHash: extracted.dedupHash,
-            matchScore: scoreResult.matchScore,
-            matchConfidence: scoreResult.matchConfidence,
-            gapAnalysis: scoreResult.gapAnalysis,
-            fitBreakdown: scoreResult.fitBreakdown,
-            rubricScores: scoreResult.rubricScores,
-            atsAnalysis: analyzeAtsCompliance(extracted, profile),
-            scoreFlag: scoreResult.scoreFlag,
-            skillMatched: scoreResult.skillMatched,
-            stage: 'pending_approval',
-            approvalStatus: 'pending',
-            applicationStatus: 'not_applied',
-            referralContacts: generateReferralContacts(extracted, profile),
-            interviewPrep: generateInterviewPrep(extracted, profile),
-            coverLetterText: generateCoverLetter(extracted, profile),
-            resumeNotes: `Discovered from ${site.companyName} Careers Portal.`,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-
-          job.outreachSuite = generateOutreachSuite(job, profile);
-          job.interviewMasterGuide = generateInterviewMasterGuide(job, profile);
-
-          store.addOrUpdateJob(job);
-          suitableJobs.push(job);
-        }
       }
 
-      store.setCareerSiteSyncStatus(site.id, 'success', discovered.length);
-
+      store.setCareerSiteSyncStatus(site.id, suitableJobs.length > 0 ? 'success' : 'idle', suitableJobs.length);
       return {
         site,
         jobsFound: discovered.length,
@@ -278,7 +276,7 @@ export class CareerPageCrawlerService {
         jobs: suitableJobs,
       };
     } catch (err: any) {
-      console.error(`[CareerCrawler] Crawl failed for ${site.companyName} (${site.careerUrl}):`, err.message);
+      console.error(`[CareerCrawler] Failed to crawl ${site.companyName}:`, err);
       store.setCareerSiteSyncStatus(site.id, 'error', 0, err.message);
       return {
         site,
@@ -291,56 +289,62 @@ export class CareerPageCrawlerService {
   }
 
   /**
-   * Syncs all enabled career sites in the watchlist.
-   * Compares each discovered opening with the user's master resume and profile.
+   * Crawls all enabled sites in the career watchlist sequentially with live progress callbacks.
    */
   public async syncAllCareerWatchlist(
-    onProgress?: (statusMessage: string, currentIdx: number, totalSites: number) => void
+    onProgress?: (statusMsg: string, current: number, total: number) => void
   ): Promise<ICareerSyncReport> {
-    const startTime = Date.now();
-    const sites = store.getCareerWatchlist().filter((s) => s.enabled);
     const profile = store.getProfile();
     const masterResume = store.getMasterResume();
+    const sites = store.getCareerWatchlist().filter((s) => s.enabled);
 
-    let totalDiscovered = 0;
-    let totalAdded = 0;
-    const siteResults: ICareerSyncReport['siteResults'] = [];
+    const report: ICareerSyncReport = {
+      totalSitesCrawled: 0,
+      totalJobsDiscovered: 0,
+      suitableJobsAdded: 0,
+      durationMs: 0,
+      syncedAt: new Date().toISOString(),
+      siteResults: [],
+    };
+
+    const startTime = Date.now();
 
     for (let i = 0; i < sites.length; i++) {
       const site = sites[i];
       if (onProgress) {
-        onProgress(`Crawling & matching ${site.companyName} career portal (${i + 1}/${sites.length})...`, i + 1, sites.length);
+        onProgress(`[${i + 1}/${sites.length}] Crawling ${site.companyName} with Overseer Agent...`, i + 1, sites.length);
       }
 
-      const res = await this.crawlCareerSite(site, profile, masterResume);
-      totalDiscovered += res.jobsFound;
-      totalAdded += res.suitableAdded;
+      try {
+        const result = await this.crawlCareerSite(site, profile, masterResume);
+        report.totalSitesCrawled++;
+        report.totalJobsDiscovered += result.jobsFound;
+        report.suitableJobsAdded += result.suitableAdded;
+        report.siteResults.push({
+          siteId: site.id,
+          companyName: site.companyName,
+          status: result.error ? 'error' : 'success',
+          jobsFound: result.jobsFound,
+          suitableAdded: result.suitableAdded,
+          error: result.error,
+        });
+      } catch (err: any) {
+        report.siteResults.push({
+          siteId: site.id,
+          companyName: site.companyName,
+          status: 'error',
+          jobsFound: 0,
+          suitableAdded: 0,
+          error: err.message,
+        });
+      }
 
-      siteResults.push({
-        siteId: site.id,
-        companyName: site.companyName,
-        status: res.error ? 'error' : 'success',
-        jobsFound: res.jobsFound,
-        suitableAdded: res.suitableAdded,
-        error: res.error,
-      });
-
-      // Brief delay between requests to be polite to career portal servers
-      await new Promise((r) => setTimeout(r, 400));
+      // Polite delay between domains to respect rate limits
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
 
-    if (onProgress) {
-      onProgress(`Completed sync across ${sites.length} career portals! Discovered ${totalDiscovered} roles, added ${totalAdded} suitable matches.`, sites.length, sites.length);
-    }
-
-    return {
-      totalSitesCrawled: sites.length,
-      totalJobsDiscovered: totalDiscovered,
-      suitableJobsAdded: totalAdded,
-      durationMs: Date.now() - startTime,
-      syncedAt: new Date().toISOString(),
-      siteResults,
-    };
+    report.durationMs = Date.now() - startTime;
+    return report;
   }
 }
 

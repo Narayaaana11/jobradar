@@ -98,26 +98,33 @@ export function generateAtsResumeLatex(job: Partial<IJob | IExtractedJD>, profil
 \\section{Projects}
 \\begin{itemize}[leftmargin=0.15in, label={}]
     \\item
-    \\textbf{JobRadar -- Autonomous Multi-Agent Career Copilot} $|$ \\emph{React, TypeScript, Electron, AWS S3, OpenRouter LLM}
+    \\textbf{AUSVMS -- Aditya University Smart Vehicle Management System} $|$ \\emph{React.js, Node.js, Express.js, MongoDB, JWT, REST APIs}
     \\begin{itemize}[leftmargin=0.2in]
-        \\item Engineered an autonomous job aggregation and resume tailoring engine with 5-agent AI evaluation scoring candidate-JD fit with 90\\%+ precision.
-        \\item Integrated multi-channel WhatsApp and Telegram socket listeners for zero-latency real-time hiring alert capture.
-        \\item Designed automated AWS S3 cloud synchronization with zero-CORS Electron native bridge for persistent state storage.
+        \\item Engineered full-stack role-based access control system for university vehicle fleet management, handling 500+ daily requests.
+        \\item Architected RESTful API layer with JWT authentication, dynamic route authorization, and optimized MongoDB indexing for sub-100ms queries.
+        \\item Built responsive admin dashboard with real-time allocation tracking, request workflows, and audit logging.
     \\end{itemize}
 
     \\item
-    \\textbf{MERN Full-Stack E-Commerce \\& Analytics Platform} $|$ \\emph{MongoDB, Express.js, React.js, Node.js, Tailwind CSS}
+    \\textbf{Guard Hub -- Real-Time Security Alert \\& Monitoring Platform} $|$ \\emph{React.js, Node.js, Socket.io, MongoDB, Tailwind CSS}
     \\begin{itemize}[leftmargin=0.2in]
-        \\item Built scalable REST API handling authentication (JWT, bcrypt), product indexing, dynamic cart management, and order lifecycle.
-        \\item Architected responsive UI in React with Tailwind CSS, decreasing initial load time by 35\\% via code-splitting and asset optimization.
-        \\item Implemented secure payment gateway integration and role-based access control (RBAC) for administrative dashboard.
+        \\item Developed full-duplex real-time incident alert system using WebSockets (Socket.io) with sub-50ms event propagation and multi-room notification routing.
+        \\item Implemented secure JWT authentication, role-based dashboards, and persistent event storage in MongoDB.
+        \\item Designed responsive mobile-first UI with Tailwind CSS, supporting both desktop consoles and field operator mobile views.
     \\end{itemize}
 
     \\item
-    \\textbf{Real-Time Collaborative Code \\& Workspace Hub} $|$ \\emph{React.js, Node.js, Socket.io, Express, MongoDB}
+    \\textbf{Matrix Library -- TypeScript Math Computation Engine} $|$ \\emph{TypeScript, Node.js, OOP, Data Structures \\& Algorithms}
     \\begin{itemize}[leftmargin=0.2in]
-        \\item Developed full-duplex real-time room communication supporting syntax-highlighted code editor and synchronized state via WebSockets.
-        \\item Reduced message latency to under 50ms using optimized Socket.io channels and debounced persistence handlers.
+        \\item Designed and published a zero-dependency TypeScript library exposing linear algebra operations with O(n³) optimized algorithms.
+        \\item Applied strict OOP principles, generic type constraints, and comprehensive unit test coverage (95\\%+) across 40+ mathematical operations.
+    \\end{itemize}
+
+    \\item
+    \\textbf{JobRadar -- Autonomous Multi-Agent Career Intelligence Platform} $|$ \\emph{React, TypeScript, Electron, AWS S3, LLM APIs}
+    \\begin{itemize}[leftmargin=0.2in]
+        \\item Engineered autonomous desktop platform ingesting job postings from WhatsApp, Telegram, and 150+ ATS career portals with zero-LLM-token DOM scraping.
+        \\item Designed 12-agent AI evaluation pipeline scoring candidate-JD fit with A-F rubric grading and automated tailored resume generation.
     \\end{itemize}
 \\end{itemize}
 
@@ -322,26 +329,35 @@ export function buildAtsResumePdf(job: Partial<IJob | IExtractedJD>, profile: IP
 
   const projects = [
     {
-      title: 'JobRadar — Autonomous Multi-Agent Career & Job Agent',
-      tech: 'React, TypeScript, Electron, AWS S3, Tailwind CSS',
+      title: 'AUSVMS — Aditya University Smart Vehicle Management System',
+      tech: 'React.js, Node.js, Express.js, MongoDB, JWT, REST APIs',
       bullets: [
-        `Built an autonomous desktop platform tracking job postings across WhatsApp/Telegram with an AI evaluation council scoring candidate-JD fit with 90%+ accuracy.`,
-        'Designed ATS resume tailoring engine generating instant FAANG-standard PDFs and cloud backups with automated S3 persistence.',
+        'Engineered full-stack role-based access control system for university vehicle fleet management, handling 500+ daily requests with sub-100ms API latency.',
+        'Architected RESTful API layer with JWT authentication, dynamic route authorization, and optimized MongoDB indexing.',
+        'Built responsive admin dashboard with real-time allocation tracking, request workflows, and audit logging.',
       ],
     },
     {
-      title: 'MERN Full-Stack E-Commerce & Management Platform',
-      tech: 'MongoDB, Express.js, React.js, Node.js, Tailwind CSS',
+      title: 'Guard Hub — Real-Time Security Alert & Monitoring Platform',
+      tech: 'React.js, Node.js, Socket.io, MongoDB, Tailwind CSS',
       bullets: [
-        'Architected end-to-end e-commerce engine with real-time product search, filtering, cart management, and Razorpay test checkout.',
-        'Created a unified admin dashboard with real-time sales metrics, product CRUD operations, and order status lifecycle tracking.',
+        'Developed full-duplex real-time incident alert system using WebSockets (Socket.io) with sub-50ms event propagation and multi-room notification routing.',
+        'Implemented secure JWT authentication, role-based dashboards, and persistent event storage in MongoDB.',
       ],
     },
     {
-      title: 'Real-Time Collaborative Code & Chat Workspace',
-      tech: 'React.js, Node.js, Socket.io, Express, MongoDB',
+      title: 'Matrix Library — TypeScript Math Computation Engine',
+      tech: 'TypeScript, Node.js, OOP, Data Structures & Algorithms',
       bullets: [
-        'Developed real-time multi-room collaboration hub with WebSocket synchronization, sub-50ms message latency, and markdown parsing.',
+        'Designed and published a zero-dependency TypeScript library with linear algebra operations (matrix multiplication, transposition, determinants) using O(n³) optimized algorithms.',
+        'Applied strict OOP, generic type constraints, and 95%+ unit test coverage across 40+ mathematical operations.',
+      ],
+    },
+    {
+      title: 'JobRadar — Autonomous Multi-Agent Career Intelligence Platform',
+      tech: 'React, TypeScript, Electron, AWS S3, LLM APIs',
+      bullets: [
+        'Built autonomous desktop platform ingesting job postings from WhatsApp, Telegram, and 150+ ATS portals with zero-LLM-token DOM scraping and 12-agent AI evaluation pipeline.',
       ],
     },
   ];

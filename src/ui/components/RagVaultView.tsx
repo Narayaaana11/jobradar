@@ -1,86 +1,59 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Brain, Sparkles, Database, Search, FileText, Plus, Trash2, Edit3,
-  Check, Copy, RotateCcw, RefreshCw, Zap, BookOpen, Tag, Sliders,
-  MessageSquare, Send, Eye, Layers, Cpu, FileCode, CheckCircle2,
-  AlertCircle, ChevronDown, ChevronUp, ArrowRight, ShieldCheck
+  Brain, FileText, Plus, Trash2, Edit3, Check, RotateCcw, RefreshCw,
+  Tag, Layers, Cpu, CheckCircle2, AlertCircle, Eye, Upload, FileCode,
+  Sparkles, Search, File, ShieldCheck, X, BookOpen, Clock, ArrowRight
 } from 'lucide-react';
 import { knowledgeVault } from '../../app-core/rag/knowledgeStore';
-import { ragAugmentor } from '../../app-core/rag/ragAugmentor';
 import {
   IKnowledgeDocument,
   IDocumentChunk,
-  ISearchResult,
   KnowledgeCategory,
-  IRagChatMessage,
-  IRagCitation,
   IVaultStats,
 } from '../../app-core/rag/types';
 import { IProfile } from '../../app-core/types';
+import { parseUploadedDocument, IParsedDocumentResult } from '../../app-core/documentParser';
+import { llmClient } from '../../app-core/llmClient';
 
 interface RagVaultViewProps {
   profile: IProfile;
   onOpenSettings?: () => void;
 }
 
-const CATEGORY_COLORS: Record<KnowledgeCategory, { bg: string; text: string; border: string }> = {
-  resume: { bg: 'bg-blue-950/40', text: 'text-blue-400', border: 'border-blue-800/60' },
-  project: { bg: 'bg-emerald-950/40', text: 'text-emerald-400', border: 'border-emerald-800/60' },
-  experience: { bg: 'bg-purple-950/40', text: 'text-purple-400', border: 'border-purple-800/60' },
-  star_story: { bg: 'bg-amber-950/40', text: 'text-amber-400', border: 'border-amber-800/60' },
-  tech_note: { bg: 'bg-cyan-950/40', text: 'text-cyan-400', border: 'border-cyan-800/60' },
-  job_market: { bg: 'bg-rose-950/40', text: 'text-rose-400', border: 'border-rose-800/60' },
-  custom: { bg: 'bg-zinc-800/50', text: 'text-zinc-300', border: 'border-zinc-700' },
+const CATEGORY_META: Record<KnowledgeCategory, { label: string; bg: string; text: string; border: string }> = {
+  resume: { label: 'Resume', bg: 'bg-blue-950/50', text: 'text-blue-400', border: 'border-blue-800/60' },
+  project: { label: 'Project Case Study', bg: 'bg-emerald-950/50', text: 'text-emerald-400', border: 'border-emerald-800/60' },
+  experience: { label: 'Work Experience', bg: 'bg-purple-950/50', text: 'text-purple-400', border: 'border-purple-800/60' },
+  star_story: { label: 'STAR Story', bg: 'bg-amber-950/50', text: 'text-amber-400', border: 'border-amber-800/60' },
+  tech_note: { label: 'Tech & System Note', bg: 'bg-cyan-950/50', text: 'text-cyan-400', border: 'border-cyan-800/60' },
+  job_market: { label: 'Market Note', bg: 'bg-rose-950/50', text: 'text-rose-400', border: 'border-rose-800/60' },
+  custom: { label: 'Custom Document', bg: 'bg-zinc-800/50', text: 'text-zinc-300', border: 'border-zinc-700' },
 };
 
-const SUGGESTED_PROMPTS = [
-  '🎯 What are my strongest project highlights for a Senior React & Node.js role?',
-  '⚡ Find STAR stories matching: "Tell me about a high-stress debugging incident"',
-  '📝 Draft a 60-second elevator pitch highlighting AUSVMS and Guard Hub',
-  '🔍 How does my MongoDB aggregation experience address system scalability?',
-  '💡 Which system design patterns in my vault apply to WebSockets & real-time apps?',
-];
-
-export function RagVaultView({ profile, onOpenSettings }: RagVaultViewProps) {
-  const [activeTab, setActiveTab] = useState<'chat' | 'documents' | 'search_lab'>('chat');
+export function RagVaultView({ profile }: RagVaultViewProps) {
   const [stats, setStats] = useState<IVaultStats>(knowledgeVault.getStats());
   const [documents, setDocuments] = useState<IKnowledgeDocument[]>(knowledgeVault.getDocuments());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [docSearchQuery, setDocSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [bannerMsg, setBannerMsg] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
 
-  // ── Chat State ──
-  const [chatMessages, setChatMessages] = useState<IRagChatMessage[]>([
-    {
-      id: 'welcome-msg',
-      role: 'assistant',
-      content: `Hello **${profile.name.split(' ')[0] || 'Narayana'}**! I am your **JobRadar AI Career Copilot** powered by **Retrieval-Augmented Generation (RAG)**.\n\nI have indexed your **Master Resume**, **Project Deep Dives (AUSVMS, Guard Hub, Matrix Library, JobRadar)**, **STAR Stories Bank**, and **System Design Notes**.\n\nAsk me anything about tailoring your pitch, preparing for interviews, or querying your knowledge base!`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    },
-  ]);
-  const [inputQuery, setInputQuery] = useState('');
-  const [isQuerying, setIsQuerying] = useState(false);
-  const [expandedCitations, setExpandedCitations] = useState<Record<string, boolean>>({});
-  const chatBottomRef = useRef<HTMLDivElement>(null);
-
-  // ── Search Lab State ──
-  const [labQuery, setLabQuery] = useState('MongoDB aggregation pipeline performance optimization');
-  const [labTopK, setLabTopK] = useState(4);
-  const [labHybrid, setLabHybrid] = useState(true);
-  const [labResults, setLabResults] = useState<ISearchResult[]>([]);
-
-  // ── Modals / Forms ──
+  // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [viewingDoc, setViewingDoc] = useState<IKnowledgeDocument | null>(null);
   const [editingDoc, setEditingDoc] = useState<IKnowledgeDocument | null>(null);
   const [inspectingDocChunks, setInspectingDocChunks] = useState<{ doc: IKnowledgeDocument; chunks: IDocumentChunk[] } | null>(null);
-  const [bannerMsg, setBannerMsg] = useState('');
 
-  // Form State
+  // Manual Form State
   const [formTitle, setFormTitle] = useState('');
   const [formCategory, setFormCategory] = useState<KnowledgeCategory>('project');
   const [formTags, setFormTags] = useState('');
   const [formContent, setFormContent] = useState('');
 
-  // Subscribe to reactive knowledge vault updates
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const unsub = knowledgeVault.subscribe(() => {
       setStats(knowledgeVault.getStats());
@@ -89,84 +62,149 @@ export function RagVaultView({ profile, onOpenSettings }: RagVaultViewProps) {
     return unsub;
   }, []);
 
-  // Run initial Search Lab query
-  useEffect(() => {
-    if (labQuery.trim()) {
-      const res = knowledgeVault.searchHybrid(labQuery, { topK: labTopK, hybridSearch: labHybrid });
-      setLabResults(res);
-    }
-  }, [labQuery, labTopK, labHybrid, documents]);
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
 
-  // Scroll chat to bottom on new message
-  useEffect(() => {
-    if (activeTab === 'chat') {
-      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const handleAiSynthesizeFromVault = async () => {
+    if (documents.length === 0) {
+      setUploadError('Please upload at least one resume or project document before synthesizing.');
+      setTimeout(() => setUploadError(null), 4000);
+      return;
     }
-  }, [chatMessages, activeTab]);
+    const key = profile.apiKey;
+    if (!key) {
+      setUploadError('Please configure your OpenRouter API Key in Settings to run AI Knowledge Synthesis.');
+      setTimeout(() => setUploadError(null), 5000);
+      return;
+    }
+
+    setIsSynthesizing(true);
+    setUploadError(null);
+    try {
+      const combinedDocs = documents.map(d => `--- ${d.title} (${d.category}) ---\n${d.content}`).join('\n\n');
+      const res = await llmClient.synthesizeKnowledgeVaultWithAi(combinedDocs, profile, key);
+      if (res.success && res.data) {
+        let added = 0;
+        res.data.caseStudies.forEach((cs) => {
+          knowledgeVault.addDocument({
+            title: `STAR: ${cs.title}`,
+            category: 'star_story',
+            tags: [...cs.technologiesUsed, 'AI-Synthesized', cs.category],
+            content: `${cs.fullNarrative}\n\nProblem: ${cs.problem}\nSolution: ${cs.solution}\nMetrics: ${cs.metricsAchieved.join(', ')}\nTech: ${cs.technologiesUsed.join(', ')}`,
+            enabled: true,
+            source: 'AI Vault Synthesizer',
+          });
+          added++;
+        });
+        showBanner(`✓ AI synthesized ${added} STAR case study document(s) directly into your Knowledge Vault!`);
+      } else {
+        setUploadError(res.error || 'Failed to synthesize vault documents');
+      }
+    } catch (err: any) {
+      setUploadError(err.message);
+    } finally {
+      setIsSynthesizing(false);
+    }
+  };
 
   const showBanner = (msg: string) => {
     setBannerMsg(msg);
-    setTimeout(() => setBannerMsg(''), 4000);
+    setTimeout(() => setBannerMsg(''), 4500);
   };
 
-  // ── Chat Submission ──
-  const handleSendMessage = async (queryText?: string) => {
-    const textToSend = queryText || inputQuery;
-    if (!textToSend.trim() || isQuerying) return;
+  // --- Upload Handler ---
+  const handleFileUpload = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
+    setUploadError(null);
 
-    const userMsg: IRagChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: textToSend.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
+    let successCount = 0;
+    const errors: string[] = [];
 
-    setChatMessages((prev) => [...prev, userMsg]);
-    if (!queryText) setInputQuery('');
-    setIsQuerying(true);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const parsed: IParsedDocumentResult = await parseUploadedDocument(file);
+        knowledgeVault.addDocument({
+          title: parsed.title,
+          category: parsed.detectedCategory,
+          tags: parsed.suggestedTags,
+          content: parsed.content,
+          enabled: true,
+          source: file.name,
+        });
+        successCount++;
+      } catch (err: any) {
+        errors.push(`${file.name}: ${err.message}`);
+      }
+    }
 
-    try {
-      const response = await ragAugmentor.queryRagChat(
-        textToSend.trim(),
-        chatMessages,
-        profile.apiKey
-      );
+    setIsUploading(false);
 
-      const assistantMsg: IRagChatMessage = {
-        id: `asst-${Date.now()}`,
-        role: 'assistant',
-        content: response.content,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        citations: response.citations,
-        modelUsed: response.modelUsed,
-        queryTimeMs: response.queryTimeMs,
-      };
-
-      setChatMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: any) {
-      const errorMsg: IRagChatMessage = {
-        id: `err-${Date.now()}`,
-        role: 'assistant',
-        content: `⚠️ Failed to process RAG query: ${err.message}`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setChatMessages((prev) => [...prev, errorMsg]);
-    } finally {
-      setIsQuerying(false);
+    if (successCount > 0) {
+      showBanner(`✓ Successfully imported & indexed ${successCount} document(s) into Career Knowledge Vault!`);
+      if (isAddModalOpen) setIsAddModalOpen(false);
+    }
+    if (errors.length > 0) {
+      setUploadError(errors.join(' | '));
     }
   };
 
-  // ── Document Operations ──
-  const handleOpenAddModal = () => {
-    setEditingDoc(null);
-    setFormTitle('');
-    setFormCategory('project');
-    setFormTags('MERN, FullStack');
-    setFormContent('# Project Title\n\n## Overview\nDescribe the system...\n\n## Key Metrics\n- Metric 1...');
-    setIsAddModalOpen(true);
+  // --- Drag & Drop ---
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
   };
 
-  const handleOpenEditModal = (doc: IKnowledgeDocument) => {
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileUpload(e.dataTransfer.files);
+    }
+  };
+
+  // --- Manual Add / Edit ---
+  const handleSaveManualDoc = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formTitle.trim() || !formContent.trim()) return;
+
+    const tagsArr = formTags
+      .split(',')
+      .map((t) => t.trim().replace(/^#/, ''))
+      .filter((t) => t.length > 0);
+
+    if (editingDoc) {
+      knowledgeVault.updateDocument(editingDoc.id, {
+        title: formTitle.trim(),
+        category: formCategory,
+        tags: tagsArr,
+        content: formContent.trim(),
+      });
+      showBanner(`Updated "${formTitle}" in vector vault.`);
+      setEditingDoc(null);
+    } else {
+      knowledgeVault.addDocument({
+        title: formTitle.trim(),
+        category: formCategory,
+        tags: tagsArr,
+        content: formContent.trim(),
+        enabled: true,
+      });
+      showBanner(`Added and indexed "${formTitle}" into knowledge vault.`);
+    }
+
+    setIsAddModalOpen(false);
+    setFormTitle('');
+    setFormTags('');
+    setFormContent('');
+  };
+
+  const openEditModal = (doc: IKnowledgeDocument) => {
     setEditingDoc(doc);
     setFormTitle(doc.title);
     setFormCategory(doc.category);
@@ -175,742 +213,598 @@ export function RagVaultView({ profile, onOpenSettings }: RagVaultViewProps) {
     setIsAddModalOpen(true);
   };
 
-  const handleSaveDocument = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formTitle.trim() || !formContent.trim()) return;
-
-    const tagsArray = formTags.split(',').map((t) => t.trim()).filter(Boolean);
-
-    if (editingDoc) {
-      knowledgeVault.updateDocument(editingDoc.id, {
-        title: formTitle.trim(),
-        category: formCategory,
-        tags: tagsArray,
-        content: formContent.trim(),
-      });
-      showBanner(`Updated "${formTitle}" and re-indexed vector chunks!`);
-    } else {
-      knowledgeVault.addDocument({
-        title: formTitle.trim(),
-        category: formCategory,
-        tags: tagsArray,
-        content: formContent.trim(),
-        enabled: true,
-      });
-      showBanner(`Added "${formTitle}" to Knowledge Vault!`);
-    }
-
-    setIsAddModalOpen(false);
-  };
-
-  const handleDeleteDocument = (id: string, title: string) => {
-    if (confirm(`Are you sure you want to delete "${title}" from the Knowledge Vault?`)) {
-      knowledgeVault.deleteDocument(id);
-      showBanner(`Deleted "${title}" from Knowledge Vault.`);
-    }
-  };
-
-  const handleReindex = () => {
-    knowledgeVault.reindexAll();
-    showBanner(`Re-indexed all ${stats.totalDocuments} documents into 384-D vector store!`);
-  };
-
-  const handleResetSeed = () => {
-    if (confirm('Reset Knowledge Vault to default candidate seed documents? Any custom additions will be replaced.')) {
-      knowledgeVault.resetToSeed();
-      showBanner('Knowledge Vault reset to verified default master records!');
-    }
-  };
-
-  const handleInspectChunks = (doc: IKnowledgeDocument) => {
+  const openChunkInspector = (doc: IKnowledgeDocument) => {
     const allChunks = knowledgeVault.getChunks();
     const docChunks = allChunks.filter((c) => c.documentId === doc.id);
     setInspectingDocChunks({ doc, chunks: docChunks });
   };
 
-  // Filtered document list
-  const filteredDocs = documents.filter((doc) => {
+  const handleDelete = (doc: IKnowledgeDocument) => {
+    if (confirm(`Are you sure you want to remove "${doc.title}" and its vector chunks from the Knowledge Vault?`)) {
+      knowledgeVault.deleteDocument(doc.id);
+      showBanner(`Removed "${doc.title}" from Knowledge Vault.`);
+    }
+  };
+
+  const handleClearAll = () => {
+    if (confirm('Are you sure you want to clear all documents and vector chunks from the Knowledge Vault?')) {
+      knowledgeVault.clearAllDocuments();
+      showBanner('Knowledge Vault cleared.');
+    }
+  };
+
+  // --- Filtering & Search ---
+  const filteredDocuments = documents.filter((doc) => {
     if (selectedCategory !== 'all' && doc.category !== selectedCategory) {
       return false;
     }
-    if (docSearchQuery.trim()) {
-      const q = docSearchQuery.toLowerCase();
-      const match =
-        doc.title.toLowerCase().includes(q) ||
-        doc.tags.some((t) => t.toLowerCase().includes(q)) ||
-        doc.content.toLowerCase().includes(q);
-      if (!match) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const inTitle = doc.title.toLowerCase().includes(q);
+      const inContent = doc.content.toLowerCase().includes(q);
+      const inTags = doc.tags.some((t) => t.toLowerCase().includes(q));
+      return inTitle || inContent || inTags;
     }
     return true;
   });
 
   return (
-    <div className="space-y-6 animate-in fade-in-50 duration-200">
-      {/* ── 1. HEADER & METRIC CARDS ── */}
-      <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-6 md:p-8 shadow-2xl relative overflow-hidden">
-        {/* Subtle background glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
-        <div className="absolute bottom-0 left-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20" />
-
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center space-x-3">
-              <div className="p-3 bg-gradient-to-tr from-emerald-600 to-teal-500 rounded-2xl shadow-lg shadow-emerald-500/20 text-black">
-                <Brain className="w-6 h-6 stroke-[2.5]" />
-              </div>
-              <div>
-                <h2 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
-                  <span>Career Knowledge Vault & RAG</span>
-                  <span className="text-[10px] font-mono font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-emerald-950 border border-emerald-700/60 text-emerald-400">
-                    Offline Vector Engine
-                  </span>
-                </h2>
-                <p className="text-xs text-zinc-400 font-medium">
-                  Evidence-grounded vector retrieval combining 384-D dense embeddings with BM25 lexical rank fusion.
-                </p>
-              </div>
-            </div>
+    <div className="space-y-6">
+      {/* ── Header Area ── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center space-x-2.5">
+            <h2 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+              <Brain className="w-6 h-6 text-purple-400" /> Career Knowledge Vault & Grounding
+            </h2>
+            <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-950/60 border border-purple-800 text-purple-300">
+              OFFLINE VECTOR ENGINE (384-D)
+            </span>
           </div>
-
-          {/* Quick Actions */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={handleReindex}
-              className="flex items-center space-x-1.5 px-3.5 py-2 bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700 rounded-full text-xs font-bold text-zinc-200 transition shadow-sm"
-              title="Re-compute all vector embeddings and BM25 indexes"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Re-index Chunks</span>
-            </button>
-            <button
-              onClick={handleOpenAddModal}
-              className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black rounded-full text-xs font-black transition shadow-lg shadow-emerald-500/20"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[3]" />
-              <span>Add Document</span>
-            </button>
-            <button
-              onClick={handleResetSeed}
-              className="p-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full text-zinc-400 hover:text-zinc-200 transition"
-              title="Reset to Master Candidate Records"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <p className="text-sm text-zinc-400 font-medium mt-1">
+            Upload your PDF, DOCX, and text documents. All AI agents use this vault to ground tailored resumes, cover letters, and interview prep in your authentic achievements.
+          </p>
         </div>
 
-        {/* Metric Badges Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-zinc-800/80">
-          <div className="bg-[#18181b]/80 border border-zinc-800 p-3.5 rounded-2xl">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold mb-1">
-              <span>Knowledge Docs</span>
-              <BookOpen className="w-3.5 h-3.5 text-blue-400" />
-            </div>
-            <div className="text-xl font-black text-white">{stats.totalDocuments}</div>
-            <div className="text-[10px] text-zinc-500 mt-0.5">Master portfolio records</div>
-          </div>
-
-          <div className="bg-[#18181b]/80 border border-zinc-800 p-3.5 rounded-2xl">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold mb-1">
-              <span>Vector Chunks</span>
-              <Layers className="w-3.5 h-3.5 text-emerald-400" />
-            </div>
-            <div className="text-xl font-black text-white">{stats.totalChunks}</div>
-            <div className="text-[10px] text-zinc-500 mt-0.5">{stats.totalTokens.toLocaleString()} tokens indexed</div>
-          </div>
-
-          <div className="bg-[#18181b]/80 border border-zinc-800 p-3.5 rounded-2xl">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold mb-1">
-              <span>Embedding Dim</span>
-              <Cpu className="w-3.5 h-3.5 text-purple-400" />
-            </div>
-            <div className="text-xl font-black text-white">384-D</div>
-            <div className="text-[10px] text-zinc-500 mt-0.5">Normalized L2 Dense</div>
-          </div>
-
-          <div className="bg-[#18181b]/80 border border-zinc-800 p-3.5 rounded-2xl">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold mb-1">
-              <span>Hybrid Search</span>
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-            </div>
-            <div className="text-xl font-black text-emerald-400">RRF + BM25</div>
-            <div className="text-[10px] text-zinc-500 mt-0.5">Cosine + Lexical Fusion</div>
-          </div>
-        </div>
-
-        {bannerMsg && (
-          <div className="mt-4 p-3 bg-emerald-950/80 border border-emerald-700/80 rounded-2xl text-xs text-emerald-300 font-semibold flex items-center space-x-2 animate-in fade-in-50 duration-150">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-            <span>{bannerMsg}</span>
-          </div>
-        )}
-      </div>
-
-      {/* ── 2. SUB-TAB SELECTOR ── */}
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-        <div className="flex items-center space-x-2 bg-[#121215] p-1.5 rounded-full border border-zinc-800">
+        <div className="flex items-center space-x-2 shrink-0">
           <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex items-center space-x-2 px-5 py-2 rounded-full text-xs font-black transition ${
-              activeTab === 'chat'
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black shadow-md shadow-emerald-500/20'
-                : 'text-zinc-400 hover:text-white'
-            }`}
+            onClick={() => knowledgeVault.reindexAll()}
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 text-xs font-bold transition shadow"
+            title="Rebuild all vector chunks and BM25 index"
           >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>AI Career Copilot (Chat)</span>
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Re-index</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('documents')}
-            className={`flex items-center space-x-2 px-5 py-2 rounded-full text-xs font-black transition ${
-              activeTab === 'documents'
-                ? 'bg-white text-black shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Knowledge Vault ({documents.length})</span>
-          </button>
+          {documents.length > 0 && (
+            <button
+              onClick={handleAiSynthesizeFromVault}
+              disabled={isSynthesizing}
+              className="flex items-center space-x-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 via-pink-500 to-indigo-500 text-white font-extrabold text-xs hover:brightness-110 transition shadow-lg disabled:opacity-50"
+              title="Extract structured STAR case studies and metrics using OpenRouter AI"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${isSynthesizing ? 'animate-spin' : ''}`} />
+              <span>{isSynthesizing ? 'Synthesizing...' : '⚡ AI Synthesize STAR Stories'}</span>
+            </button>
+          )}
+
+          {documents.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-full bg-red-950/40 border border-red-900/60 text-red-300 hover:bg-red-900/60 text-xs font-bold transition"
+              title="Clear all documents from vault"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear Vault</span>
+            </button>
+          )}
 
           <button
-            onClick={() => setActiveTab('search_lab')}
-            className={`flex items-center space-x-2 px-5 py-2 rounded-full text-xs font-black transition ${
-              activeTab === 'search_lab'
-                ? 'bg-white text-black shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
+            onClick={() => {
+              setEditingDoc(null);
+              setFormTitle('');
+              setFormTags('');
+              setFormContent('');
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center space-x-1.5 px-5 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-extrabold text-xs hover:brightness-110 transition shadow-lg"
           >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Vector Search Lab</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Upload / Add Document</span>
           </button>
-        </div>
-
-        <div className="text-[11px] font-mono text-zinc-500 hidden sm:block">
-          Profile: <span className="text-zinc-300 font-bold">{profile.name}</span>
         </div>
       </div>
 
-      {/* ── 3. TAB 1: AI CAREER COPILOT (CHAT WITH CITATIONS) ── */}
-      {activeTab === 'chat' && (
-        <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-6 shadow-xl flex flex-col h-[650px] relative">
-          {/* Quick Suggested Prompts Bar */}
-          <div className="mb-4 pb-3 border-b border-zinc-800/80">
-            <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3 text-emerald-400" />
-              <span>Suggested RAG Queries:</span>
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-              {SUGGESTED_PROMPTS.map((promptText, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendMessage(promptText)}
-                  className="px-3 py-1.5 bg-[#18181b] hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 rounded-full text-[11px] text-zinc-300 whitespace-nowrap transition flex-shrink-0"
-                >
-                  {promptText}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Messages Stream */}
-          <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-            {chatMessages.map((msg) => {
-              const isUser = msg.role === 'user';
-              const isCitationsExpanded = expandedCitations[msg.id] ?? false;
-
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1.5`}
-                >
-                  <div className="flex items-center space-x-2 text-[10px] text-zinc-500 font-mono">
-                    <span className="font-bold text-zinc-400">
-                      {isUser ? 'You' : 'JobRadar Copilot'}
-                    </span>
-                    <span>•</span>
-                    <span>{msg.timestamp}</span>
-                    {msg.modelUsed && (
-                      <>
-                        <span>•</span>
-                        <span className="px-1.5 py-0.2 bg-zinc-800 text-zinc-300 rounded-full">
-                          {msg.modelUsed}
-                        </span>
-                      </>
-                    )}
-                    {typeof msg.queryTimeMs === 'number' && (
-                      <span>({msg.queryTimeMs}ms)</span>
-                    )}
-                  </div>
-
-                  <div
-                    className={`p-4 rounded-2xl max-w-2xl text-xs leading-relaxed ${
-                      isUser
-                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-black font-semibold shadow-md shadow-emerald-500/10 rounded-br-none'
-                        : 'bg-[#18181b] border border-zinc-800 text-zinc-200 rounded-bl-none shadow-lg'
-                    }`}
-                  >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
-
-                    {/* Citations Accordion (Assistant only) */}
-                    {!isUser && msg.citations && msg.citations.length > 0 && (
-                      <div className="mt-3.5 pt-3 border-t border-zinc-800">
-                        <button
-                          onClick={() =>
-                            setExpandedCitations((prev) => ({
-                              ...prev,
-                              [msg.id]: !isCitationsExpanded,
-                            }))
-                          }
-                          className="flex items-center justify-between w-full text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span>Retrieved Knowledge Evidence ({msg.citations.length} sources)</span>
-                          </span>
-                          {isCitationsExpanded ? (
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          ) : (
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-
-                        {isCitationsExpanded && (
-                          <div className="mt-2.5 space-y-2 animate-in fade-in-50 duration-150">
-                            {msg.citations.map((cite, cIdx) => (
-                              <div
-                                key={cIdx}
-                                className="p-2.5 bg-black/40 border border-zinc-800/80 rounded-xl text-[11px] space-y-1"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="font-bold text-white flex items-center gap-1.5">
-                                    <span className="text-zinc-500">#{cIdx + 1}</span>
-                                    <span>{cite.documentTitle}</span>
-                                  </span>
-                                  <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-800/60 text-emerald-300">
-                                    {Math.round(cite.similarityScore * 100)}% Match
-                                  </span>
-                                </div>
-                                <p className="text-zinc-400 italic line-clamp-2">
-                                  "{cite.snippet}"
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-            {isQuerying && (
-              <div className="flex items-center space-x-2 text-xs text-zinc-400 italic p-3 bg-[#18181b] border border-zinc-800 rounded-2xl w-fit">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                <span>Searching vector vault & synthesizing answer...</span>
-              </div>
-            )}
-            <div ref={chatBottomRef} />
-          </div>
-
-          {/* Chat Input Bar */}
-          <div className="mt-4 pt-3 border-t border-zinc-800">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendMessage();
-              }}
-              className="flex items-center space-x-2"
-            >
-              <input
-                type="text"
-                placeholder="Ask about your projects, STAR interview prep, or career strategy..."
-                value={inputQuery}
-                onChange={(e) => setInputQuery(e.target.value)}
-                disabled={isQuerying}
-                className="flex-1 px-4 py-3 bg-[#18181b] border border-zinc-800 focus:border-emerald-500 rounded-full text-xs text-white placeholder-zinc-500 focus:outline-none transition"
-              />
-              <button
-                type="submit"
-                disabled={!inputQuery.trim() || isQuerying}
-                className="p-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black rounded-full transition shadow-md shadow-emerald-500/20 font-bold"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-          </div>
+      {/* ── Status Banner ── */}
+      {bannerMsg && (
+        <div className="p-3.5 rounded-2xl bg-emerald-950/70 border border-emerald-800 text-emerald-300 text-xs font-mono flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{bannerMsg}</span>
         </div>
       )}
 
-      {/* ── 4. TAB 2: KNOWLEDGE VAULT & DOCUMENT MANAGER ── */}
-      {activeTab === 'documents' && (
-        <div className="space-y-4">
-          {/* Filter & Search Bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#121215] border border-[#27272a] p-4 rounded-2xl">
-            <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-              {(['all', 'resume', 'project', 'star_story', 'tech_note', 'experience'] as const).map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition capitalize ${
-                    selectedCategory === cat
-                      ? 'bg-white text-black shadow-sm'
-                      : 'bg-zinc-800/60 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  {cat === 'all' ? 'All Docs' : cat.replace('_', ' ')}
-                </button>
-              ))}
-            </div>
+      {/* ── Error Banner ── */}
+      {uploadError && (
+        <div className="p-3.5 rounded-2xl bg-red-950/70 border border-red-800 text-red-300 text-xs font-mono flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span>{uploadError}</span>
+          </div>
+          <button onClick={() => setUploadError(null)} className="text-zinc-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
-            <div className="relative w-full sm:w-72">
-              <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search title, tags, or content..."
-                value={docSearchQuery}
-                onChange={(e) => setDocSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 bg-[#18181b] border border-zinc-800 rounded-full text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
-              />
-            </div>
+      {/* ── Vault Telemetry Metrics ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] shadow-lg space-y-1">
+          <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+            <span>Knowledge Docs</span>
+            <FileText className="w-4 h-4 text-purple-400" />
+          </div>
+          <div className="text-3xl font-black text-white">{stats.totalDocuments}</div>
+          <p className="text-[11px] text-zinc-500 font-mono">Master portfolio records</p>
+        </div>
+
+        <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] shadow-lg space-y-1">
+          <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+            <span>Vector Chunks</span>
+            <Layers className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-3xl font-black text-emerald-400">{stats.totalChunks}</div>
+          <p className="text-[11px] text-zinc-500 font-mono">
+            {stats.totalTokens.toLocaleString()} tokens indexed
+          </p>
+        </div>
+
+        <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] shadow-lg space-y-1">
+          <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+            <span>Embedding Dim</span>
+            <Cpu className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="text-2xl font-black text-cyan-400">384-D</div>
+          <p className="text-[11px] text-zinc-500 font-mono">Normalized L2 Dense</p>
+        </div>
+
+        <div className="p-5 bg-[#121215] border border-[#27272a] rounded-[20px] shadow-lg space-y-1">
+          <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+            <span>AI Agent Grounding</span>
+            <ShieldCheck className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="text-sm font-extrabold text-amber-300 pt-1">Active Pipeline</div>
+          <p className="text-[11px] text-zinc-500 font-mono">ATS Resume • Prep • Letters</p>
+        </div>
+      </div>
+
+      {/* ── Drag & Drop Fast Upload Zone ── */}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+        className={`border-2 border-dashed rounded-[24px] p-6 md:p-8 text-center cursor-pointer transition-all duration-200 ${
+          isDragging
+            ? 'border-purple-400 bg-purple-950/20 scale-[1.01]'
+            : 'border-zinc-800 bg-[#121215]/60 hover:border-zinc-700 hover:bg-[#121215]'
+        }`}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.doc,.txt,.md,.tex"
+          className="hidden"
+          onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+        />
+        <div className="max-w-xl mx-auto space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-purple-950/60 border border-purple-800/80 text-purple-400 flex items-center justify-center mx-auto shadow-lg">
+            {isUploading ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6" />}
           </div>
 
-          {/* Document Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredDocs.map((doc) => {
-              const catStyle = CATEGORY_COLORS[doc.category] || CATEGORY_COLORS.custom;
-              const allChunks = knowledgeVault.getChunks();
-              const chunkCount = allChunks.filter((c) => c.documentId === doc.id).length;
+          <div>
+            <h3 className="text-base font-bold text-white">
+              {isUploading ? 'Extracting & Indexing Document Chunks...' : 'Drop your Resume, Project Docs, or Notes here'}
+            </h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Supports <strong className="text-zinc-200">PDF (.pdf)</strong>, <strong className="text-zinc-200">Word (.docx)</strong>, <strong className="text-zinc-200">Markdown (.md)</strong>, <strong className="text-zinc-200">LaTeX (.tex)</strong>, and Text (.txt).
+            </p>
+          </div>
 
-              return (
-                <div
-                  key={doc.id}
-                  className="bg-[#121215] border border-[#27272a] hover:border-zinc-700 p-5 rounded-2xl shadow-lg transition flex flex-col justify-between space-y-4 group"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <span
-                          className={`text-[10px] font-bold font-mono uppercase px-2.5 py-0.5 rounded-full border ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
-                        >
-                          {doc.category.replace('_', ' ')}
-                        </span>
-                        <h3 className="font-bold text-sm text-white group-hover:text-emerald-400 transition line-clamp-1 mt-1">
-                          {doc.title}
-                        </h3>
-                      </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-[#18181b] border border-zinc-800 text-zinc-300">
+              📄 Resumes & CVs
+            </span>
+            <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-[#18181b] border border-zinc-800 text-zinc-300">
+              🚀 Project Case Studies
+            </span>
+            <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-[#18181b] border border-zinc-800 text-zinc-300">
+              ⭐ STAR Interview Stories
+            </span>
+            <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-[#18181b] border border-zinc-800 text-zinc-300">
+              📐 System Architecture Notes
+            </span>
+          </div>
+        </div>
+      </div>
 
-                      <div className="flex items-center space-x-1 flex-shrink-0">
-                        <button
-                          onClick={() => handleInspectChunks(doc)}
-                          className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition"
-                          title="Inspect Chunks & Vector Embeddings"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleOpenEditModal(doc)}
-                          className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition"
-                          title="Edit Document"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteDocument(doc.id, doc.title)}
-                          className="p-1.5 bg-zinc-800/80 hover:bg-red-900/60 text-zinc-400 hover:text-red-300 rounded-lg text-xs font-semibold transition"
-                          title="Delete Document"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+      {/* ── Search & Category Filter Controls ── */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-[#121215] border border-[#27272a] p-3.5 rounded-2xl shadow-xl">
+        <div className="flex items-center space-x-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+          <button
+            onClick={() => setSelectedCategory('all')}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition whitespace-nowrap ${
+              selectedCategory === 'all' ? 'bg-white text-black shadow' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            All Docs ({documents.length})
+          </button>
+          {(['resume', 'project', 'experience', 'star_story', 'tech_note'] as KnowledgeCategory[]).map((cat) => {
+            const count = documents.filter((d) => d.category === cat).length;
+            const meta = CATEGORY_META[cat];
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition whitespace-nowrap ${
+                  selectedCategory === cat
+                    ? 'bg-purple-600 text-white shadow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                {meta.label} ({count})
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative w-full md:w-72">
+          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search title, tags, or content..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 bg-[#18181b] border border-[#27272a] rounded-full text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-400 font-medium"
+          />
+        </div>
+      </div>
+
+      {/* ── Documents Grid / Empty State ── */}
+      {filteredDocuments.length === 0 ? (
+        <div className="bg-[#121215] border border-[#27272a] rounded-[24px] p-12 text-center space-y-4 shadow-2xl">
+          <div className="w-16 h-16 rounded-3xl bg-zinc-900 border border-zinc-800 text-zinc-500 flex items-center justify-center mx-auto shadow-inner">
+            <BookOpen className="w-8 h-8 text-zinc-400" />
+          </div>
+
+          <div className="max-w-md mx-auto space-y-1.5">
+            <h3 className="text-lg font-bold text-white">
+              {searchQuery ? 'No matching documents found' : 'Your Career Knowledge Vault is Empty'}
+            </h3>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              {searchQuery
+                ? `No documents match "${searchQuery}". Try a different search term or category filter.`
+                : 'Upload your real Resume (PDF/DOCX), Project Case Studies, or STAR stories. The AI agents will automatically extract, chunk, and embed them to tailor your job applications.'}
+            </p>
+          </div>
+
+          {!searchQuery && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-6 py-2.5 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-extrabold text-xs hover:brightness-110 transition shadow-lg inline-flex items-center space-x-2"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload First Document (PDF / DOCX)</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filteredDocuments.map((doc) => {
+            const catMeta = CATEGORY_META[doc.category] || CATEGORY_META.custom;
+            const docChunks = knowledgeVault.getChunks().filter((c) => c.documentId === doc.id);
+
+            return (
+              <div
+                key={doc.id}
+                className="p-5 bg-[#121215] border border-[#27272a] rounded-[22px] shadow-lg hover:border-zinc-700 transition flex flex-col justify-between space-y-4"
+              >
+                <div className="space-y-2.5">
+                  {/* Top Badges & Actions */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`text-[10px] font-mono font-bold uppercase px-2.5 py-0.5 rounded-full border ${catMeta.bg} ${catMeta.text} ${catMeta.border}`}
+                    >
+                      {catMeta.label}
+                    </span>
+
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => setViewingDoc(doc)}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition"
+                        title="View full text content"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => openChunkInspector(doc)}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition"
+                        title="Inspect vector chunks"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => openEditModal(doc)}
+                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition"
+                        title="Edit document"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(doc)}
+                        className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-950/40 rounded-lg transition"
+                        title="Delete document"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
+                  </div>
 
-                    <p className="text-xs text-zinc-400 line-clamp-3 leading-relaxed">
-                      {doc.content.replace(/^#+\s+/gm, '').slice(0, 240)}...
+                  {/* Title & Preview */}
+                  <div>
+                    <h3 className="text-sm font-bold text-white hover:text-purple-300 transition cursor-pointer" onClick={() => setViewingDoc(doc)}>
+                      {doc.title}
+                    </h3>
+                    <p className="text-xs text-zinc-400 line-clamp-2 mt-1 font-mono leading-relaxed">
+                      {doc.content.replace(/[#*`_]/g, '')}
                     </p>
+                  </div>
 
-                    {/* Tag Badges */}
+                  {/* Tags */}
+                  {doc.tags && doc.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
-                      {doc.tags.map((t, idx) => (
+                      {doc.tags.slice(0, 6).map((t, idx) => (
                         <span
                           key={idx}
-                          className="text-[10px] font-mono px-2 py-0.5 bg-[#18181b] border border-zinc-800 rounded-md text-zinc-400"
+                          className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#18181b] border border-zinc-800 text-zinc-300"
                         >
                           #{t}
                         </span>
                       ))}
+                      {doc.tags.length > 6 && (
+                        <span className="text-[10px] font-mono text-zinc-500 self-center">
+                          +{doc.tags.length - 6} more
+                        </span>
+                      )}
                     </div>
+                  )}
+                </div>
+
+                {/* Footer Metadata */}
+                <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between text-[11px] font-mono text-zinc-500">
+                  <div className="flex items-center space-x-1.5 text-emerald-400 font-semibold">
+                    <Layers className="w-3 h-3" />
+                    <span>{docChunks.length} vector chunk{docChunks.length === 1 ? '' : 's'}</span>
                   </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-3 border-t border-zinc-800/80 font-mono">
-                    <span>{chunkCount} vector chunks</span>
-                    <span>Updated: {new Date(doc.updatedAt).toLocaleDateString()}</span>
-                  </div>
+                  <span>
+                    {doc.source ? `Source: ${doc.source}` : `Updated ${new Date(doc.updatedAt).toLocaleDateString()}`}
+                  </span>
                 </div>
-              );
-            })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Document Full View Modal ── */}
+      {viewingDoc && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in">
+            <div className="p-5 border-b border-[#27272a] flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-purple-400" /> {viewingDoc.title}
+                </h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                    {CATEGORY_META[viewingDoc.category]?.label || viewingDoc.category}
+                  </span>
+                  {viewingDoc.source && (
+                    <span className="text-[11px] font-mono text-zinc-400">Source: {viewingDoc.source}</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setViewingDoc(null)}
+                className="p-1.5 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              <pre className="text-xs text-zinc-200 font-mono whitespace-pre-wrap leading-relaxed bg-[#09090b] p-4 rounded-xl border border-zinc-800">
+                {viewingDoc.content}
+              </pre>
+            </div>
+
+            <div className="p-4 border-t border-[#27272a] bg-[#18181b]/50 flex justify-end">
+              <button
+                onClick={() => setViewingDoc(null)}
+                className="px-5 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── 5. TAB 3: SEMANTIC VECTOR SEARCH LAB ── */}
-      {activeTab === 'search_lab' && (
-        <div className="space-y-4">
-          <div className="bg-[#121215] border border-[#27272a] rounded-2xl p-6 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-purple-400" />
-              <span>Interactive Vector & BM25 Search Playground</span>
-            </h3>
-            <p className="text-xs text-zinc-400">
-              Type any query to test cosine similarity against the 384-dimensional candidate vector index in real time.
-            </p>
-
-            <div className="space-y-3">
-              <div className="relative">
-                <Search className="w-4 h-4 text-zinc-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Test a search query (e.g., 'Socket.io real-time alerts' or 'High stress debugging')..."
-                  value={labQuery}
-                  onChange={(e) => setLabQuery(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-[#18181b] border border-zinc-700 rounded-full text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
+      {/* ── Chunk Inspector Modal ── */}
+      {inspectingDocChunks && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in">
+            <div className="p-5 border-b border-[#27272a] flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-400" /> Vector Chunks: {inspectingDocChunks.doc.title}
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5 font-mono">
+                  {inspectingDocChunks.chunks.length} chunks indexed with 384-dimensional dense vectors
+                </p>
               </div>
-
-              <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-400 pt-1">
-                <div className="flex items-center space-x-2">
-                  <span>Top K Results:</span>
-                  <select
-                    value={labTopK}
-                    onChange={(e) => setLabTopK(Number(e.target.value))}
-                    className="px-3 py-1 bg-[#18181b] border border-zinc-700 rounded-lg text-white font-bold"
-                  >
-                    {[2, 3, 4, 5, 8, 10].map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={labHybrid}
-                    onChange={(e) => setLabHybrid(e.target.checked)}
-                    className="rounded bg-zinc-800 border-zinc-700 text-emerald-500 focus:ring-0"
-                  />
-                  <span>Enable Hybrid BM25 Lexical + Reciprocal Rank Fusion</span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Results List */}
-          <div className="space-y-3">
-            <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Retrieved Chunks ({labResults.length})</span>
-              <span className="font-mono font-normal text-zinc-500">Query: "{labQuery}"</span>
+              <button
+                onClick={() => setInspectingDocChunks(null)}
+                className="p-1.5 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {labResults.map((res) => {
-              const catStyle = CATEGORY_COLORS[res.chunk.category] || CATEGORY_COLORS.custom;
-
-              return (
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              {inspectingDocChunks.chunks.map((chunk, idx) => (
                 <div
-                  key={res.chunk.chunkId}
-                  className="bg-[#121215] border border-[#27272a] rounded-2xl p-5 shadow-md space-y-3"
+                  key={chunk.chunkId}
+                  className="p-4 bg-[#09090b] border border-zinc-800 rounded-xl space-y-2"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center space-x-2">
-                      <span className="w-6 h-6 rounded-full bg-zinc-800 text-zinc-300 font-bold text-xs flex items-center justify-center font-mono">
-                        #{res.rank}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold font-mono uppercase px-2 py-0.5 rounded-full border ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
-                      >
-                        {res.chunk.category.replace('_', ' ')}
-                      </span>
-                      <h4 className="font-bold text-sm text-white">{res.chunk.documentTitle}</h4>
-                    </div>
-
-                    <div className="flex items-center space-x-2 font-mono text-[11px]">
-                      <span className="px-2.5 py-1 bg-emerald-950/80 border border-emerald-700/60 text-emerald-400 rounded-full font-bold">
-                        Hybrid Score: {Math.round(res.similarityScore * 100)}%
-                      </span>
-                      <span className="text-zinc-500">
-                        (Dense: {Math.round(res.denseScore * 100)}% | BM25: {Math.round(res.bm25Score * 100)}%)
-                      </span>
-                    </div>
+                  <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
+                    <span className="text-emerald-400 font-bold">Chunk #{idx + 1} of {chunk.totalChunks}</span>
+                    <span>{chunk.tokenCount} tokens • 384-D Vector Ready</span>
                   </div>
-
-                  <div className="p-3.5 bg-[#18181b] border border-zinc-800/80 rounded-xl text-xs text-zinc-300 font-mono leading-relaxed whitespace-pre-wrap">
-                    {res.chunk.text}
-                  </div>
-
-                  {res.matchedKeywords.length > 0 && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
-                      <span className="font-bold text-zinc-500">Matched Terms:</span>
-                      {res.matchedKeywords.map((k, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 text-emerald-400 rounded font-mono text-[10px]"
-                        >
-                          {k}
+                  <p className="text-xs text-zinc-300 font-mono whitespace-pre-wrap leading-relaxed">
+                    {chunk.text}
+                  </p>
+                  {chunk.keywords && chunk.keywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {chunk.keywords.map((kw, i) => (
+                        <span key={i} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                          {kw}
                         </span>
                       ))}
                     </div>
                   )}
                 </div>
-              );
-            })}
+              ))}
+            </div>
+
+            <div className="p-4 border-t border-[#27272a] bg-[#18181b]/50 flex justify-end">
+              <button
+                onClick={() => setInspectingDocChunks(null)}
+                className="px-5 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── 6. ADD / EDIT DOCUMENT MODAL ── */}
+      {/* ── Add / Edit Document Modal ── */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#121215] border border-zinc-700 w-full max-w-2xl rounded-3xl p-6 md:p-8 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-              <h3 className="font-black text-lg text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-emerald-400" />
-                <span>{editingDoc ? 'Edit Knowledge Document' : 'Add New Knowledge Document'}</span>
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#121215] border border-[#27272a] rounded-[24px] w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in">
+            <div className="p-5 border-b border-[#27272a] flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <FileText className="w-4 h-4 text-purple-400" />
+                {editingDoc ? 'Edit Knowledge Document' : 'Upload or Write Document'}
               </h3>
               <button
                 onClick={() => setIsAddModalOpen(false)}
-                className="p-1 text-zinc-400 hover:text-white rounded-lg"
+                className="p-1.5 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveDocument} className="space-y-4">
+            <form onSubmit={handleSaveManualDoc} className="p-6 space-y-4 overflow-y-auto flex-1">
+              {!editingDoc && (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-4 border border-dashed border-purple-500/50 hover:border-purple-400 rounded-xl bg-purple-950/20 text-center cursor-pointer space-y-1 transition"
+                >
+                  <p className="text-xs font-bold text-purple-300">
+                    📂 Or select a file from your computer (PDF, DOCX, TXT, MD, LaTeX)
+                  </p>
+                  <p className="text-[11px] text-zinc-400">
+                    We will extract the text, auto-detect tags, and calculate vector embeddings automatically.
+                  </p>
+                </div>
+              )}
+
               <div>
-                <label className="block text-xs font-bold text-zinc-300 mb-1.5">Document Title</label>
+                <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">Document Title</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Project Case Study: AUSVMS Architecture"
+                  placeholder="e.g. Master Resume 2026, Project: AUSVMS Case Study, etc."
                   value={formTitle}
                   onChange={(e) => setFormTitle(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[#18181b] border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3.5 py-2.5 bg-[#18181b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-medium"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-zinc-300 mb-1.5">Category</label>
+                  <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">Category</label>
                   <select
                     value={formCategory}
                     onChange={(e) => setFormCategory(e.target.value as KnowledgeCategory)}
-                    className="w-full px-4 py-2.5 bg-[#18181b] border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 capitalize"
+                    className="w-full px-3.5 py-2.5 bg-[#18181b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-medium cursor-pointer"
                   >
+                    <option value="resume">Resume / CV</option>
                     <option value="project">Project Case Study</option>
-                    <option value="star_story">STAR Behavioral Story</option>
-                    <option value="resume">Resume Section</option>
-                    <option value="tech_note">System Design / Tech Note</option>
                     <option value="experience">Work Experience</option>
-                    <option value="custom">Custom Notes</option>
+                    <option value="star_story">STAR Interview Story</option>
+                    <option value="tech_note">Tech / System Note</option>
+                    <option value="custom">Custom Document</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-zinc-300 mb-1.5">Tags (Comma-separated)</label>
+                  <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">
+                    Tags (comma separated)
+                  </label>
                   <input
                     type="text"
-                    placeholder="MERN, Socket.io, MongoDB, RBAC"
+                    placeholder="React, Node.js, Socket.io, MongoDB"
                     value={formTags}
                     onChange={(e) => setFormTags(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-[#18181b] border border-zinc-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full px-3.5 py-2.5 bg-[#18181b] border border-[#27272a] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-300 mb-1.5">
-                  Content (Markdown format recommended)
+                <label className="block text-[11px] font-mono text-zinc-400 uppercase mb-1">
+                  Document Content (Markdown or Plain Text)
                 </label>
                 <textarea
-                  required
                   rows={10}
-                  placeholder="Describe technical implementation, metrics, problem statement, and solution..."
+                  required
+                  placeholder="Paste or write your detailed project architecture, STAR interview story, or technical notes..."
                   value={formContent}
                   onChange={(e) => setFormContent(e.target.value)}
-                  className="w-full p-4 bg-[#18181b] border border-zinc-700 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500 leading-relaxed"
+                  className="w-full p-4 bg-[#09090b] border border-[#27272a] rounded-xl text-xs text-zinc-200 font-mono leading-relaxed focus:outline-none focus:border-purple-500"
                 />
               </div>
 
-              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-zinc-800">
+              <div className="flex justify-end space-x-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-full text-xs font-bold transition"
+                  className="px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-full text-xs font-black transition shadow-lg shadow-emerald-500/20"
+                  className="px-6 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-extrabold text-xs hover:brightness-110 transition shadow-lg"
                 >
-                  {editingDoc ? 'Save Changes' : 'Index into Vector Vault'}
+                  {editingDoc ? 'Save Changes' : 'Index into Vault'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* ── 7. CHUNK INSPECTION MODAL ── */}
-      {inspectingDocChunks && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#121215] border border-zinc-700 w-full max-w-3xl rounded-3xl p-6 md:p-8 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-              <div>
-                <h3 className="font-black text-base text-white">
-                  Chunk Vector Breakdown: {inspectingDocChunks.doc.title}
-                </h3>
-                <p className="text-xs text-zinc-400">
-                  {inspectingDocChunks.chunks.length} semantically partitioned chunks with 384-D normalized vector embeddings.
-                </p>
-              </div>
-              <button
-                onClick={() => setInspectingDocChunks(null)}
-                className="p-1 text-zinc-400 hover:text-white rounded-lg"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {inspectingDocChunks.chunks.map((c, idx) => (
-                <div
-                  key={c.chunkId}
-                  className="p-4 bg-[#18181b] border border-zinc-800 rounded-2xl space-y-2"
-                >
-                  <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
-                    <span className="font-bold text-emerald-400">
-                      Chunk #{idx + 1} ({c.tokenCount} tokens)
-                    </span>
-                    <span>Vector: [{c.embedding.slice(0, 4).map((v) => v.toFixed(3)).join(', ')}... 384-D]</span>
-                  </div>
-                  <p className="text-xs text-zinc-300 font-mono whitespace-pre-wrap bg-black/40 p-3 rounded-xl border border-zinc-800">
-                    {c.text}
-                  </p>
-                  {c.keywords.length > 0 && (
-                    <div className="flex flex-wrap gap-1 text-[10px] font-mono text-zinc-500 pt-1">
-                      <span className="font-bold">Keywords:</span>
-                      {c.keywords.map((k, kIdx) => (
-                        <span key={kIdx} className="px-1.5 py-0.2 bg-zinc-800 text-zinc-300 rounded">
-                          {k}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       )}

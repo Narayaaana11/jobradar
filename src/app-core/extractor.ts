@@ -1,3 +1,5 @@
+import { normalizeUnicodeText } from './noiseFilter';
+
 export interface IExtractedJD {
   companyName: string;
   companyPageUrl?: string | null;
@@ -20,14 +22,16 @@ const KNOWN_COMPANIES = [
   'Infosys', 'TCS', 'Wipro', 'Cognizant', 'Accenture', 'HCLTech', 'NTT DATA', 'Deloitte', 'Capgemini',
   'Goldman Sachs', 'JPMorgan', 'Morgan Stanley', 'Walmart', 'Flipkart', 'Cisco', 'Adobe', 'Paytm',
   'PhonePe', 'Cred', 'Zoho', 'Jio', 'Tech Mahindra', 'Oracle', 'Salesforce', 'ServiceNow', 'Target',
-  'Siemens', 'SAP', 'Genpact', 'Concentrix', 'Teleperformance', 'WNS', 'EXL', 'Cognizant'
+  'Siemens', 'SAP', 'Genpact', 'Concentrix', 'Teleperformance', 'WNS', 'EXL', 'CDK Global', 'KLA',
+  'FedEx', 'HARMAN', 'Peroptyx', 'Xpentra', 'SuperKalam', 'Thermo Fisher', 'VIAVI', 'HPE', 'Labcorp',
+  'FRND', 'DarkRange', 'Amura', 'Capital Engineering', 'Nagarro'
 ];
 
 const KNOWN_TECH_SKILLS = [
   'React', 'Next.js', 'TypeScript', 'JavaScript', 'Node.js', 'Express', 'MongoDB', 'PostgreSQL',
   'SQL', 'Python', 'Java', 'C++', 'C#', 'HTML', 'CSS', 'Tailwind', 'REST APIs', 'GraphQL',
   'Git', 'Docker', 'AWS', 'Azure', 'Redux', 'Data Structures', 'Algorithms', 'Microservices',
-  'Full Stack', 'MERN', 'Spring Boot', 'Django', 'FastAPI', 'Linux', 'Unit Testing'
+  'Full Stack', 'MERN', 'Spring Boot', 'Django', 'FastAPI', 'Linux', 'Unit Testing', 'React Native'
 ];
 
 const KNOWN_NON_TECH_SKILLS = [
@@ -163,8 +167,9 @@ export function extractValidApplicationLink(text: string, defaultUrl?: string | 
  * High-precision heuristic & regex extractor for job postings across ALL industries.
  */
 export function extractJobDetails(rawText: string, sourceUrl?: string): IExtractedJD {
+  const normalizedRaw = normalizeUnicodeText(rawText || '');
   // Strip HTML tags and entities for clean parsing
-  const text = (rawText || '')
+  const text = normalizedRaw
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -195,23 +200,69 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
   let ctcRange: string | null = null;
   const skills: string[] = [];
 
-  // ── 1. Extract Company Name ──
-  const companyPatterns = [
-    /\*([A-Za-z0-9\s&.,-]+?)\s+(?:Recruitment|Hiring|Walkin|Walk.?in|Campus|Selection|Drive|Offcampus|Mega\s*Drive)\b/i,
-    /(?:Company|Organization|Employer):\s*[\*_]*([A-Za-z0-9\s&.,-]+?)[\*_]*\s*(?:\n|$)/i,
-    /(?:hiring|recruiting|opening)\s+at\s+([A-Za-z0-9\s&.,-]+)/i,
-    /^[\*_]+([A-Za-z0-9][A-Za-z0-9\s&.,'-]{1,35}?)[\*_]+/im,
-    /\b([A-Za-z0-9]{2,}(?:\s[A-Za-z0-9]{2,}){0,2})\s+is\s+hiring/i,
+  // ── 0. Check Explicit Position/Role Patterns (Highest Precedence) ──
+  const explicitTitlePatterns = [
+    /(?:Role|Job Role|Position|Designation|Job Profile|Profile|Job Title|Title|Opening For):\s*[\*_]*([^\n\*_]+)/i,
+    /\*Role:\*\s*([^\n\*_]+)/i,
+    /Hiring\s+for\s+(?:the\s+role\s+of\s+)?[\*_]*([^\n\*_]+)/i,
+    /Looking\s+for\s+[\*_]*([^\n\*_]+)/i,
   ];
 
-  for (const pattern of companyPatterns) {
+  for (const pattern of explicitTitlePatterns) {
     const m = text.match(pattern);
     if (m) {
-      const candidate = m[1].replace(/[*_🔥💼📅👉🧑‍💻🎓]/g, '').trim();
-      const genericWords = ['job', 'role', 'apply', 'recruitment', 'hiring', 'freshers', 'urgent', 'alert', 'top', 'mega', 'offcampus'];
-      if (candidate.length > 1 && candidate.length < 50 && !genericWords.some((g) => candidate.toLowerCase().startsWith(g))) {
-        companyName = candidate;
+      const candidate = m[1].replace(/[*_👉💼🔥📍💰🎓]/g, '').trim();
+      const cleanCandidate = candidate.split(/\s*[-–|•]\s*(?:Location|Salary|Experience|Batch)/i)[0].trim();
+      if (cleanCandidate.length > 2 && cleanCandidate.length < 75) {
+        jobTitle = cleanCandidate;
         break;
+      }
+    }
+  }
+
+  // ── 1. High-Priority Pattern Match: "*1. Company — Role*" or "*Company — Role*" ──
+  const listDashMatch = text.match(/(?:^|\n)\s*(?:\*\s*)?(?:\d+[\.\)]\s*)?([A-Za-z0-9\s&.,'-]{2,35}?)\s*[-—–|•]\s*([^\n\*_]+)/i);
+  if (listDashMatch) {
+    const candidateComp = listDashMatch[1].replace(/[*_🔥💼📅👉🧑‍💻🎓]/g, '').trim();
+    const candidateRole = listDashMatch[2].replace(/[*_🔥💼📅👉🧑‍💻🎓]/g, '').trim();
+    const genericWords = ['job', 'role', 'apply', 'recruitment', 'hiring', 'freshers', 'urgent', 'alert', 'top', 'mega', 'offcampus'];
+    if (candidateComp.length > 1 && !genericWords.some((g) => candidateComp.toLowerCase().startsWith(g))) {
+      companyName = candidateComp;
+    }
+    if (!jobTitle && candidateRole.length > 2 && candidateRole.length < 80) {
+      const cleanRole = candidateRole.split(/\s*[-–|•]\s*(?:Location|Salary|Experience|Batch)/i)[0].trim();
+      if (!['internship', 'hiring', 'recruitment', 'careers', 'drive', 'alert', 'openings'].includes(cleanRole.toLowerCase().replace(/[^a-z]/g, ''))) {
+        jobTitle = cleanRole;
+      }
+    }
+  }
+
+  // ── 2. Extract Company Name (if not resolved by list dash match) ──
+  if (!companyName) {
+    const companyPatterns = [
+      /(?:^|\n)\s*(?:[🚀🚨📌🔥⭐]\s*)?([A-Za-z0-9\s&.,'-]{2,35}?)\s+Hiring\s+(?:Freshers\s+for|for)\s+([^\n\*_]+)/i,
+      /\*([A-Za-z0-9\s&.,-]+?)\s+(?:Recruitment|Hiring|Walkin|Walk.?in|Campus|Selection|Drive|Offcampus|Mega\s*Drive)\b/i,
+      /(?:Company|Organization|Employer):\s*[\*_]*([A-Za-z0-9\s&.,-]+?)[\*_]*\s*(?:\n|$)/i,
+      /(?:hiring|recruiting|opening)\s+at\s+([A-Za-z0-9\s&.,-]+)/i,
+      /^[\*_]+([A-Za-z0-9][A-Za-z0-9\s&.,'-]{1,35}?)[\*_]+/im,
+      /\b([A-Za-z0-9]{2,}(?:\s[A-Za-z0-9]{2,}){0,2})\s+is\s+hiring/i,
+    ];
+
+    for (const pattern of companyPatterns) {
+      const m = text.match(pattern);
+      if (m) {
+        const candidate = m[1].replace(/[*_🔥💼📅👉🧑‍💻🎓]/g, '').trim();
+        const genericWords = ['job', 'role', 'apply', 'recruitment', 'hiring', 'freshers', 'urgent', 'alert', 'top', 'mega', 'offcampus'];
+        if (candidate.length > 1 && candidate.length < 50 && !genericWords.some((g) => candidate.toLowerCase().startsWith(g))) {
+          companyName = candidate;
+          if (m[2] && !jobTitle) {
+            const roleCandidate = m[2].replace(/[*_🔥💼📅👉🧑‍💻🎓]/g, '').trim();
+            if (roleCandidate.length > 2 && roleCandidate.length < 80) {
+              jobTitle = roleCandidate.split(/\s*[-–|•]\s*(?:Location|Salary|Experience|Batch)/i)[0].trim();
+            }
+          }
+          break;
+        }
       }
     }
   }
@@ -226,35 +277,29 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
     }
   }
 
-  if (!companyName) {
-    companyName = 'Hiring Company';
-  }
-
-  // ── 2. Extract Job Title / Role (Universal for Tech & Non-Tech) ──
-  const explicitTitlePatterns = [
-    /(?:Role|Job Role|Position|Designation|Job Profile|Profile|Job Title|Title|Opening For):\s*[\*_]*([^\n\*_]+)/i,
-    /\*Role:\*\s*([^\n\*_]+)/i,
-    /Hiring\s+for\s+(?:the\s+role\s+of\s+)?[\*_]*([^\n\*_]+)/i,
-    /Looking\s+for\s+[\*_]*([^\n\*_]+)/i,
-  ];
-
-  for (const pattern of explicitTitlePatterns) {
-    const m = text.match(pattern);
-    if (m) {
-      const candidate = m[1].replace(/[*_👉💼🔥📍💰🎓]/g, '').trim();
-      // Remove any trailing location or salary text in candidate string
-      const cleanCandidate = candidate.split(/\s*[-–|•]\s*(?:Location|Salary|Experience|Batch)/i)[0].trim();
-      if (cleanCandidate.length > 2 && cleanCandidate.length < 75) {
-        jobTitle = cleanCandidate;
-        break;
+  // URL fallback for company name
+  if (!companyName || companyName === 'Hiring Company') {
+    const urlMatch = text.match(/https?:\/\/(?:www\.)?[^\/\s]+\/([a-z0-9-]+)(?:-careers|-recruitment|-off-campus|-drive|-hiring|-internship|-jobs)/i);
+    if (urlMatch && urlMatch[1]) {
+      const rawSlug = urlMatch[1].replace(/[-_]+/g, ' ').trim();
+      if (rawSlug.length > 2 && rawSlug.length < 30) {
+        companyName = rawSlug.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
       }
     }
+  }
+
+  if (companyName) {
+    companyName = companyName.replace(/\s*(?:Careers|Jobs|Hiring Portal|Off Campus)\s*$/i, '').trim();
+  }
+
+  if (!companyName) {
+    companyName = 'Hiring Company';
   }
 
   // Regex pattern matching for diverse roles (Customer Support, Operations, QA, SDE, etc.)
   if (!jobTitle) {
     const broadRolePatterns = [
-      /\b(Customer\s*Service\s*(?:Associate|Representative|Executive|Specialist|Lead)?|Customer\s*Support\s*(?:Associate|Executive|Representative)?|Client\s*Support\s*Executive|Voice\s*Process\s*(?:Executive|Associate)?|Non-Voice\s*Process\s*Associate|Technical\s*Support\s*(?:Engineer|Executive|Associate)|Helpdesk\s*Analyst|BPO\s*Executive|Operations\s*(?:Executive|Associate|Analyst)|Business\s*Analyst|Data\s*Analyst|Quality\s*Analyst|Associate\s*Analyst|Software\s*Development\s*Engineer(?:\s*-\s*[I|II|III|1|2|3])?|Software\s*Engineer|Full\s*Stack\s*Developer|Frontend\s*Developer|Backend\s*Developer|MERN\s*Stack\s*Developer|Java\s*Developer|Python\s*Developer|Web\s*Developer|Associate\s*Software\s*Engineer|Graduate\s*Trainee|Graduate\s*Engineer\s*Trainee|Systems\s*Engineer|System\s*Engineer|QA\s*Engineer|Associate\s*Quality\s*Engineer)\b/i,
+      /\b(Customer\s*Service\s*(?:Associate|Representative|Executive|Specialist|Lead)?|Customer\s*Support\s*(?:Associate|Executive|Representative)?|Client\s*Support\s*Executive|Voice\s*Process\s*(?:Executive|Associate)?|Non-Voice\s*Process\s*Associate|Technical\s*Support\s*(?:Engineer|Executive|Associate)|Helpdesk\s*Analyst|BPO\s*Executive|Operations\s*(?:Executive|Associate|Analyst)|Business\s*Analyst|Data\s*Analyst|Quality\s*Analyst|Associate\s*Analyst|Software\s*Development\s*Engineer(?:\s*-\s*[I|II|III|1|2|3])?|Software\s*Engineer(?:,\s*Intern)?|Full\s*Stack\s*Developer|Frontend\s*Developer|Backend\s*Developer|MERN\s*Stack\s*Developer|Java\s*Developer|Python\s*Developer|Web\s*Developer|Associate\s*Software\s*Engineer|Graduate\s*Trainee|Graduate\s*Engineer\s*Trainee|Systems\s*Engineer|System\s*Engineer|QA\s*Engineer|Associate\s*Quality\s*Engineer|React\s*Native\s*Developer|Custom\s*Software\s*Engineering\s*Associate)\b/i,
     ];
 
     for (const pattern of broadRolePatterns) {
@@ -264,6 +309,27 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
         break;
       }
     }
+  }
+
+  if (jobTitle && jobTitle.includes('|')) {
+    const parts = jobTitle.split('|').map((p) => p.trim());
+    // Strip company name and common suffixes from parts
+    const sanitizedParts = parts.map((p) =>
+      p.replace(/\s*(?:Jobs\s*at|Careers\s*at|Hiring\s*at|at)\s+.*$/i, '')
+       .replace(/\s*(?:Jobs|Careers|Hiring Portal|Off Campus)\s*$/i, '')
+       .trim()
+    ).filter((p) => p.length > 2);
+
+    // Pick the most descriptive title (avoid pure marketing slogans like 'Hiring AI Talent')
+    const engineeringTitle = sanitizedParts.find((p) => !/^(?:hiring|we are hiring|apply now|careers|join us)/i.test(p));
+    jobTitle = engineeringTitle || sanitizedParts[0] || parts[0];
+  }
+
+  if (jobTitle) {
+    jobTitle = jobTitle
+      .replace(/\s*(?:Jobs\s*at|Careers\s*at|Hiring\s*at|at)\s+.*$/i, '')
+      .replace(/\s*(?:Jobs|Careers|Hiring Portal|Off Campus)\s*$/i, '')
+      .trim();
   }
 
   // Fallback title from company header if available

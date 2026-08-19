@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw, Radio, Brain, Globe } from 'lucide-react';
+import { LayoutGrid, Cpu, BarChart3, Settings, Plus, Sparkles, Cloud, RefreshCw, Brain, Globe } from 'lucide-react';
 import { RadarLogoBadge } from './RadarLogo';
 import { s3Cloud, S3SyncStatus } from '../../app-core/s3Client';
 
 interface NavbarProps {
-  currentTab: 'feed' | 'watcher' | 'careers' | 'queue' | 'analytics' | 'settings' | 'rag';
-  setCurrentTab: (tab: 'feed' | 'watcher' | 'careers' | 'queue' | 'analytics' | 'settings' | 'rag') => void;
+  currentTab: 'feed' | 'careers' | 'queue' | 'analytics' | 'settings' | 'rag';
+  setCurrentTab: (tab: 'feed' | 'careers' | 'queue' | 'analytics' | 'settings' | 'rag') => void;
   onOpenIngestModal: () => void;
 }
 
@@ -47,16 +47,6 @@ export function Navbar({ currentTab, setCurrentTab, onOpenIngestModal }: NavbarP
         >
           <LayoutGrid className="w-3.5 h-3.5" />
           <span>Job Feed</span>
-        </button>
-
-        <button
-          onClick={() => setCurrentTab('watcher')}
-          className={`flex items-center space-x-1.5 text-xs font-bold px-4 py-1.5 rounded-full transition ${
-            currentTab === 'watcher' ? 'bg-emerald-500 text-black shadow-md' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
-          }`}
-        >
-          <Radio className="w-3.5 h-3.5" />
-          <span>Social Radar</span>
         </button>
 
         <button

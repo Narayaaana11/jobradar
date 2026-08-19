@@ -1,49 +1,48 @@
 # JobRadar — Autonomous Career Agent & Job Hunt Platform
 
-> **A standalone Windows Desktop Application and Autonomous Career Agent Platform** engineered with zero external server dependencies, instant client-side ATS Resume generation, multi-criteria fit scoring, 10-contact referral drafting, and direct AWS S3 Cloud Storage synchronization.
+> **A 100% Standalone Windows Desktop GUI Application (`.exe`)** engineered with zero external server dependencies and **zero command-line usage required**. Operates entirely within a high-performance visual interface: Automated ATS Headless Scraping (*Greenhouse, Ashby, Lever, Workable*), WhatsApp & Telegram Multi-Job Chat Dumps Ingestion, instant client-side ATS Resume PDF compilation, multi-criteria fit scoring, 10-contact referral drafting, and direct AWS S3 Cloud Storage synchronization.
 
-![Windows Native](https://img.shields.io/badge/Platform-Windows%20Native%20%7C%20Web-0078D4?style=for-the-badge&logo=windows&logoColor=white)
+![Windows Native](https://img.shields.io/badge/Platform-Windows%20Native%20%7C%20Executable-0078D4?style=for-the-badge&logo=windows&logoColor=white)
 ![React 18](https://img.shields.io/badge/Frontend-React%2018%20%2B%20TypeScript%20%2B%20Tailwind-61DAFB?style=for-the-badge&logo=react&logoColor=black)
-![Electron](https://img.shields.io/badge/Desktop-Electron%2034-47848F?style=for-the-badge&logo=electron&logoColor=white)
+![Electron](https://img.shields.io/badge/Desktop-Electron%2034%20GUI-47848F?style=for-the-badge&logo=electron&logoColor=white)
+![Zero CLI](https://img.shields.io/badge/Zero%20CLI-100%25%20GUI%20Driven-success?style=for-the-badge)
 ![AWS S3](https://img.shields.io/badge/Cloud%20Storage-AWS%20S3%20Direct-FF9900?style=for-the-badge&logo=amazons3&logoColor=white)
-![ATS Resume](https://img.shields.io/badge/ATS%20Engine-FAANG%20%2F%20LaTeX%20Standard-success?style=for-the-badge)
 
 ---
 
-## 🌟 Key Features
+## 🌟 100% GUI-Driven Features (Zero CLI Needed)
 
-- 🖥️ **Zero-Backend Architecture:** Standalone Electron + React 18 + Vite + TypeScript desktop app. No separate backend port or database server required to run.
-- ⚡ **WhatsApp / Telegram Multi-Job Splitter & Extractor:** Intelligent heuristic engine that splits high-volume group chat dumps into clean individual job listings with company, title, location, salary, and requirements.
-- 🎯 **Multi-Criteria Fit Scorer & 5-Tier Rubric:** Calculates real-time 0–100% candidate suitability scores and Career-Ops rubric ratings (1.0 to 5.0).
-- 📄 **100% ATS-Compliant PDF Resume Compiler (`jsPDF`):** Compiles single-page, ATS-optimized resumes based on your master LaTeX template (`config/master_resume.tex`) with target keywords tailored to each company in `<100ms`.
-- 🤝 **10-Contact Referral Outreach Generator:** Automatically identifies potential employee referrers (Engineering Managers, Recruiters, Alumni) with corporate email guessing algorithms and 1-click outreach templates.
-- 🤖 **Tailored AI Interview Prep Engine:** Generates role-specific behavioral and technical Q&A tailored to your actual background and projects.
-- 📊 **5-Stage Kanban Pipeline:** Interactive drag-and-drop workflow (*Pending Gate* ➔ *Approved* ➔ *Applied* ➔ *Interviewing* ➔ *Offer / Rejected*).
-- ☁️ **AWS S3 Direct Cloud Sync:** Seamless background synchronization of all job postings, queue items, and compiled ATS PDF resumes to your Amazon S3 bucket.
-- 👥 **Multi-User Portable Setup Wizard:** Anyone can install the app on their computer, paste their `.env` file, and paste their raw LaTeX resume code with 1-click auto-extraction.
+Everything is interactive and accessible directly inside the standalone Windows Desktop `.exe`:
+
+- 🖥️ **100% Visual GUI Application (`.exe`):** No terminal commands, command prompt, or background servers needed. Just double-click the `.exe` and manage your entire job hunt.
+- 🌐 **1-Click ATS Career Portals Scanner:** Discover open requisitions across **Greenhouse**, **Ashby**, **Lever**, and **Workable** with direct visual scan buttons, ATS filter tabs, and real-time progress bars.
+- ⏱️ **Visual Background Polling Scheduler:** Toggle automated background scanning directly with a UI switch and interval dropdowns (**1h, 6h, 12h, 24h**) with auto-approval threshold sliders.
+- ⚡ **WhatsApp & Telegram Chat Ingest Modal:** Paste messy multi-job group chat dumps into the visual ingest modal to instantly extract and score all listings in parallel.
+- 🎯 **A–F Letter Grades & 1.0–5.0 Numerical Rubric:** Visually inspect 4-dimensional score cards (*Tech Stack, Seniority, Domain Synergy, Comp & Location*) with dealbreaker warnings.
+- 📄 **1-Click ATS Resume PDF & LaTeX Export:** Compiles pixel-perfect, single-column ATS resumes customized to each company with 1-click preview and instant disk download in `<100ms`.
+- 🤝 **Referral Outreach Suite:** Copy pre-written employee referral emails and open 1-click tailored LinkedIn search URLs for Recruiters, Engineering Managers, and Alumni.
+- 🤖 **Tailored AI Interview Prep & Salary Negotiation:** Interactive QA coach, STAR answers, CTC negotiation scripts, and remote pushback scripts.
+- 📊 **5-Stage Drag-and-Drop Kanban Board:** Visually manage your pipeline (*Pending Gate* ➔ *Approved* ➔ *Applied* ➔ *Interviewing* ➔ *Offer*).
+- ☁️ **AWS S3 Cloud Sync:** Seamless background synchronization of all job postings, queue items, and compiled ATS PDF resumes to your Amazon S3 bucket.
 
 ---
 
-## 🚀 Getting Started
+## 📦 Running & Building the Windows Executable (`.exe`)
 
-### Prerequisites
-- Node.js (v18 or higher)
-- npm or yarn
-
-### Installation
+### Quick Start (Development)
 ```bash
-# 1. Clone the repository
-git clone https://github.com/Narayaaana11/jobradar.git
-cd jobradar
-
-# 2. Install dependencies
 npm install
-
-# 3. Start the Windows Desktop App in Development Mode
 npm run app:dev
 ```
 
-*(Alternatively, run in the browser at `http://localhost:5173` via `npm run dev`)*
+### Building the Standalone `.exe`
+```bash
+npm run app:dist
+```
+
+The compiled binaries will be output to the `release/` directory:
+- `release/JobRadar Setup 1.0.0.exe` — Windows Setup Installer (Desktop shortcut & Start Menu entry)
+- `release/JobRadar 1.0.0.exe` — Portable standalone executable (no installation required, double-click to run anywhere)
 
 ---
 

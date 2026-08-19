@@ -11,17 +11,16 @@ import { QueueHealth } from './components/QueueHealth';
 import { AnalyticsView } from './components/AnalyticsView';
 import { SettingsView } from './components/SettingsView';
 import { OnboardingWizard } from './components/OnboardingWizard';
-import { RadarWatcherDashboard } from './components/RadarWatcherDashboard';
 import { RagVaultView } from './components/RagVaultView';
 import { CareerSitesView } from './components/CareerSitesView';
-import { Search, List, LayoutGrid, MessageSquare, RefreshCw, Sparkles, Filter } from 'lucide-react';
+import { Search, List, LayoutGrid, MessageSquare, RefreshCw, Sparkles, Filter, Trash2 } from 'lucide-react';
 
 export default function App() {
   const [jobs, setJobs] = useState<IJob[]>(store.getJobs());
   const [profile, setProfile] = useState<IProfile>(store.getProfile());
   const [stats, setStats] = useState<IStats>(store.getStats());
 
-  const [currentTab, setCurrentTab] = useState<'feed' | 'watcher' | 'careers' | 'rag' | 'queue' | 'analytics' | 'settings'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'careers' | 'rag' | 'queue' | 'analytics' | 'settings'>('feed');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [selectedJob, setSelectedJob] = useState<IJob | null>(null);
   const [isIngestModalOpen, setIsIngestModalOpen] = useState(false);
@@ -30,7 +29,7 @@ export default function App() {
   // Filters
   const [search, setSearch] = useState('');
   const [approvalFilter, setApprovalFilter] = useState('');
-  const [skillFilter, setSkillFilter] = useState<'matched' | 'all' | 'unmatched'>('matched');
+  const [skillFilter, setSkillFilter] = useState<'matched' | 'all' | 'unmatched'>('all');
 
   // Check first run on fresh installation
   useEffect(() => {
@@ -204,11 +203,27 @@ export default function App() {
                 {/* WhatsApp Bulk Ingest Pill */}
                 <button
                   onClick={() => setIsIngestModalOpen(true)}
-                  className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full text-xs font-extrabold transition shadow border border-zinc-700"
+                  className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black rounded-full text-xs font-black transition shadow-lg hover:scale-105"
                 >
-                  <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                  <MessageSquare className="w-3.5 h-3.5" />
                   <span>Ingest WhatsApp Dump</span>
                 </button>
+
+                {/* Clear All Jobs Button */}
+                {jobs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Are you sure you want to clear all ${jobs.length} jobs to re-ingest your WhatsApp dump fresh?`)) {
+                        handleDeleteMultipleJobs(jobs.map((j) => j.id));
+                      }
+                    }}
+                    className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-950/40 rounded-full border border-zinc-800 transition"
+                    title={`Clear all ${jobs.length} jobs from feed`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -232,23 +247,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ── 2. AUTONOMOUS RADAR WATCHER & LIVE FEED TAB ── */}
-        {currentTab === 'watcher' && (
-          <div className="animate-in fade-in-50 duration-200">
-            <RadarWatcherDashboard
-              profile={profile}
-              onOpenJob={(jobId) => {
-                const j = store.getJobById(jobId);
-                if (j) {
-                  setSelectedJob(j);
-                  setCurrentTab('feed');
-                }
-              }}
-            />
-          </div>
-        )}
-
-        {/* ── 3. TARGET CAREER SITES & MULTI-PORTAL CRAWLER TAB ── */}
+        {/* ── 2. TARGET CAREER SITES & MULTI-PORTAL CRAWLER TAB ── */}
         {currentTab === 'careers' && (
           <div className="animate-in fade-in-50 duration-200">
             <CareerSitesView

@@ -29,13 +29,35 @@ export interface IJobSource {
   scrapedAt: string;
 }
 
+export type RubricLetterGrade = 'A' | 'B' | 'C' | 'D' | 'F';
+export type FitRecommendation = 'APPLY' | 'BORDERLINE' | 'SKIP';
+
 export interface IRubricScores {
   overallRubricRating: number; // 1.0 - 5.0
+  letterGrade: RubricLetterGrade;
+  recommendation: FitRecommendation;
   skillsScore: number;
   techStackScore: number;
   experienceScore: number;
   cultureFitScore: number;
   rubricTier: 'Tier 1 - Strong Fit' | 'Tier 2 - Good Match' | 'Tier 3 - Borderline' | 'Tier 4 - Stretch' | 'Tier 5 - Low Fit';
+  technicalStackMatchScore?: number; // 1.0 - 5.0
+  seniorityExperienceScore?: number; // 1.0 - 5.0
+  domainRelevanceScore?: number; // 1.0 - 5.0
+  compensationLocationScore?: number; // 1.0 - 5.0
+}
+
+export interface IStructuredFitReport {
+  recommendation: FitRecommendation;
+  letterGrade: RubricLetterGrade;
+  numericalScore: number; // 1.0 - 5.0
+  matchPercentage: number; // 0 - 100%
+  pros: string[];
+  cons: string[];
+  missingSkills: string[];
+  dealbreakersFound: string[];
+  isDealbreaker: boolean;
+  executiveSummary: string;
 }
 
 export interface IAtsAnalysis {
@@ -137,8 +159,86 @@ export interface IJob {
   outreachSuite?: IColdOutreachSuite;
   interviewMasterGuide?: IInterviewMasterGuide;
   webIntelligence?: IWebScrapingIntelligence;
+
+  // Live Web-Scraped JD Content (from actual career portal URL)
+  liveScrapedContent?: string | null;
+  liveScrapedAt?: string | null;
+
+  // JobRadar Intelligence Suite Integrations
+  structuredFitReport?: IStructuredFitReport;
+  blockGAudit?: IBlockGAudit;
+  followupCadence?: IFollowupCadenceSuite;
+  applicationAnswers?: IApplicationAnswersSuite;
+  salaryNegotiation?: ISalaryNegotiationSuite;
+
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IBlockGAudit {
+  legitimacyScore: number; // 0 - 100
+  isGhostJobRisk: boolean;
+  isStaleRepost: boolean;
+  workAuthBlocker: boolean;
+  verdict: 'Verified Legitimate' | 'Low Risk' | 'High Risk Ghost Job' | 'Work-Auth Blocker';
+  signalsFound: string[];
+  recommendation: string;
+}
+
+export interface IFollowupScheduleItem {
+  id: string;
+  milestone: 'Day 3 Warm Ping' | 'Day 7 Recruiter Check-in' | 'Day 14 Subsequent Follow-up' | 'Post-Interview 24h Thank-You';
+  daysAfterApplication: number;
+  scheduledDate: string;
+  isOverdue: boolean;
+  completed: boolean;
+  targetPersona: string;
+  subject: string;
+  messageBody: string;
+}
+
+export interface IFollowupCadenceSuite {
+  appliedDate?: string | null;
+  items: IFollowupScheduleItem[];
+}
+
+export interface IApplicationQAItem {
+  id: string;
+  category: 'Motivation & Why Us' | 'Technical Challenge' | 'Salary & Notice Period' | 'Team & Culture';
+  question: string;
+  suggestedAnswer: string;
+  groundedEvidence: string[];
+}
+
+export interface IApplicationAnswersSuite {
+  generatedAt: string;
+  items: IApplicationQAItem[];
+}
+
+export interface ISalaryNegotiationSuite {
+  targetCtc: string;
+  marketBenchmark: string;
+  gapAnalysis: string;
+  counterOfferEmailScript: string;
+  remoteCompPushbackScript: string;
+  competingOfferLeverageScript: string;
+  keyTalkingPoints: string[];
+}
+
+export interface IReplyClassification {
+  intent: 'interview_invite' | 'assessment_request' | 'rejection' | 'offer' | 'more_info_needed' | 'unknown';
+  confidence: number;
+  extractedDetails?: {
+    interviewerName?: string;
+    interviewDate?: string;
+    assessmentPlatform?: string;
+    deadline?: string;
+    offeredCtc?: string;
+  };
+  suggestedNextAction: string;
+  recommendedAction?: string;
+  suggestedStageUpdate?: 'interview' | 'offer' | 'rejected' | 'applied';
+  draftedResponse: string;
 }
 
 export interface ICorporateEmailPattern {
@@ -267,70 +367,6 @@ export interface IAiCouncilVerdict {
   evaluatedAt: string;
 }
 
-export interface IChannelSource {
-  id: string;
-  platform: 'whatsapp' | 'telegram';
-  type: 'group' | 'channel';
-  name: string;
-  avatarUrl?: string;
-  memberCount?: number;
-  enabled: boolean;
-  lastActiveAt?: string;
-  totalCaptured: number;
-}
-
-export interface ICircuitBreakerState {
-  tripped: boolean;
-  reason: string;
-  platform: 'whatsapp' | 'telegram' | 'all';
-  trippedAt: string;
-}
-
-export interface IDomUpdateWarning {
-  consecutiveEmptyCount: number;
-  warning: string;
-  lastCheckedAt: string;
-}
-
-export interface IWatcherConfig {
-  whatsappConnected: boolean;
-  whatsappStatus: 'disconnected' | 'pairing' | 'connected';
-  whatsappPhone?: string;
-  whatsappPairingCode?: string;
-  telegramConnected: boolean;
-  telegramStatus: 'disconnected' | 'code_sent' | 'connected';
-  telegramPhone?: string;
-  telegramToken?: string;
-  clipboardWatcherEnabled: boolean;
-  minMatchScoreForToast: number;
-  monitoredChannels: IChannelSource[];
-
-  // Hardened Background Scanning & Detection Defense Config
-  periodicScanningEnabled: boolean;
-  minScanIntervalMinutes: number; // e.g. 8 mins
-  maxScanIntervalMinutes: number; // e.g. 20 mins
-  dailyScanCap: number; // e.g. 50 scans per 24h
-  idleSkipChancePct: number; // e.g. 20%
-  lastScanTimestamp?: number;
-  scansInLast24h?: number;
-  nextScheduledScanTime?: string;
-  circuitBreaker?: ICircuitBreakerState;
-  domUpdateWarnings?: Record<string, IDomUpdateWarning>;
-}
-
-export interface IRadarFeedItem {
-  id: string;
-  platform: 'whatsapp' | 'telegram' | 'clipboard';
-  channelName: string;
-  rawText: string;
-  status: 'noise_dropped' | 'duplicate_skipped' | 'extracted' | 'council_approved' | 'low_match';
-  extractedCompany?: string;
-  extractedRole?: string;
-  matchScore?: number;
-  jobId?: string;
-  timestamp: string;
-}
-
 export interface IRawQueueItem {
   id: string;
   platform: string;
@@ -362,7 +398,9 @@ export interface IProfile {
     description: string;
     highlights: string[];
   }[];
-  apiKey?: string;
+  apiKey?: string;          // OpenRouter API key(s), comma-separated for pooling
+  geminiApiKey?: string;    // Google Gemini API key (aistudio.google.com) — 1500 req/day free
+  groqApiKey?: string;      // Groq API key (console.groq.com) — 14400 req/day free
   telegramToken?: string;
 }
 
@@ -379,7 +417,32 @@ export interface IStats {
   highMatchCount: number;
 }
 
-export type CareerSiteCategory = 'Tier 1 Tech' | 'MNC / IT Services' | 'High-Growth Startup' | 'FinTech / E-Commerce' | 'Custom';
+export type CareerSiteCategory = 'Tier 1 Tech' | 'MNC / IT Services' | 'High-Growth Startup' | 'FinTech / E-Commerce' | 'AI / Machine Learning' | 'Custom';
+
+export type AtsPlatform = 'greenhouse' | 'lever' | 'ashby' | 'workable' | 'smartrecruiters' | 'workday' | 'generic';
+
+export interface IAtsJobRaw {
+  id: string;
+  title: string;
+  url: string;
+  location?: string;
+  department?: string;
+  descriptionHtml?: string;
+  plainText?: string;
+  postedAt?: string;
+  compensation?: string;
+  requisitionId?: string;
+  atsPlatform: AtsPlatform;
+}
+
+export interface IAtsAdapterResult {
+  success: boolean;
+  companyName: string;
+  provider: AtsPlatform;
+  totalJobs: number;
+  jobs: IAtsJobRaw[];
+  error?: string;
+}
 
 export interface ICareerWatchlistSite {
   id: string;
@@ -387,6 +450,11 @@ export interface ICareerWatchlistSite {
   careerUrl: string;
   category: CareerSiteCategory;
   enabled: boolean;
+  atsProvider?: AtsPlatform;
+  directApiEndpoint?: string;
+  pollingIntervalHours?: number; // 1, 6, 12, 24
+  autoApproveFitThreshold?: number; // e.g. 85 for auto-approval
+  tags?: string[];
   searchKeywords: string[];
   lastSyncedAt?: string | null;
   lastSyncStatus?: 'idle' | 'syncing' | 'success' | 'error';
@@ -410,4 +478,15 @@ export interface ICareerSyncReport {
     error?: string;
   }>;
 }
+
+export interface IWatchlistSchedulerStatus {
+  isRunning: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  pollingIntervalHours: number;
+  autoApproveThreshold: number;
+  totalRunsCount: number;
+  lastRunJobsAdded: number;
+}
+
 

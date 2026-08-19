@@ -5,10 +5,8 @@ import {
   ISearchResult,
   IRagPromptContext,
   IRagCitation,
-  IRagChatMessage,
   IRagQueryOptions,
 } from './types';
-import { llmClient } from '../llmClient';
 
 export class RagAugmentorService {
   /**
@@ -180,115 +178,37 @@ Write a 3-4 paragraph impactful cover letter incorporating specific metrics and 
   }
 
   /**
-   * Interactive RAG Chat Engine:
-   * Answers candidate questions grounded in the Career Knowledge Vault & Ingested Jobs.
+   * Builds an augmented prompt for Multi-Persona Cold Outreach Suite.
    */
-  public async queryRagChat(
-    userQuery: string,
-    chatHistory: IRagChatMessage[] = [],
-    apiKey?: string,
-    preferredModel?: string
-  ): Promise<{
-    content: string;
-    citations: IRagCitation[];
-    modelUsed: string;
-    queryTimeMs: number;
-  }> {
-    const startTime = Date.now();
+  public buildAugmentedOutreachPrompt(
+    job: Partial<IJob | IExtractedJD>,
+    profile: IProfile,
+    ragContext: IRagPromptContext
+  ): { prompt: string; systemPrompt: string } {
+    const systemPrompt = `You are an elite Tech Career Strategist and Executive Headhunter.
+Write hyper-personalized, authentic cold outreach messages (LinkedIn Connection notes, InMails, and Cold Emails) for 3 personas: Hiring Manager, Peer Senior Engineer, and Tech Recruiter.
+CRITICAL: Ground all talking points in the candidate's actual projects, metrics, and case studies retrieved from their knowledge base.`;
 
-    // 1. Hybrid search against Knowledge Vault
-    const searchResults = knowledgeVault.searchHybrid(userQuery, {
-      topK: 4,
-      minScore: 0.1,
-      hybridSearch: true,
-    });
+    const prompt = `Write high-converting cold outreach messages for:
+COMPANY: ${job.companyName}
+ROLE: ${job.jobTitle}
+LOCATION: ${job.location || 'India / Remote'}
+TECH STACK: ${(job.skillsRequired || []).join(', ')}
 
-    // 2. Build citations
-    const citations: IRagCitation[] = searchResults.map((r) => ({
-      documentId: r.chunk.documentId,
-      documentTitle: r.chunk.documentTitle,
-      category: r.chunk.category,
-      chunkIndex: r.chunk.chunkIndex,
-      similarityScore: r.similarityScore,
-      snippet: r.contextSnippet,
-      tags: r.chunk.tags,
-    }));
+CANDIDATE PROFILE:
+Name: ${profile.name}
+Title: ${profile.title}
+Education: ${profile.education}
+GitHub: ${profile.github} | LinkedIn: ${profile.linkedin} | Portfolio: ${profile.portfolio}
 
-    // 3. Format retrieved context
-    let retrievedContext = '';
-    searchResults.forEach((r, idx) => {
-      retrievedContext += `[Document #${idx + 1}: "${r.chunk.documentTitle}" (${r.chunk.category.toUpperCase()}) | Relevance: ${Math.round(r.similarityScore * 100)}%]\n`;
-      retrievedContext += `${r.chunk.text}\n\n`;
-    });
+RETRIEVED KNOWLEDGE VAULT EVIDENCE:
+${ragContext.formattedContext || 'No additional vault context.'}
 
-    // 4. If LLM is available and API key provided, call OpenRouter LLM
-    if (apiKey && apiKey.trim()) {
-      const systemPrompt = `You are JobRadar AI Copilot — an Autonomous Career Agent and Technical Mentor powered by Retrieval-Augmented Generation (RAG).
-You assist the candidate (Veera Venkata Naga Satyanarayana Thota / Narayana Thota, MCA 2026 graduate) by answering career questions, prepping for interviews, analyzing skills fit, drafting pitches, and strategizing job applications.
+Generate compelling, non-generic outreach pitches referencing candidate's real engineering accomplishments.`;
 
-GROUNDING RULES:
-1. Ground your answers in the RETRIEVED KNOWLEDGE VAULT SNIPPETS provided below.
-2. Cite specific projects (AUSVMS, Guard Hub, Matrix Library, JobRadar), technologies, and metrics from the retrieved snippets.
-3. Be clear, concise, actionable, and encouraging. Use clean Markdown with bullet points where appropriate.
-4. If asked something outside the knowledge base, answer based on best engineering practices while noting what is in the candidate's portfolio.`;
-
-      // Build context-rich prompt with chat history
-      let conversationStr = '';
-      const recentHistory = chatHistory.slice(-4);
-      recentHistory.forEach((msg) => {
-        if (msg.role !== 'system') {
-          conversationStr += `${msg.role.toUpperCase()}: ${msg.content}\n`;
-        }
-      });
-
-      const prompt = `RETRIEVED KNOWLEDGE VAULT CONTEXT:
-${retrievedContext || 'No direct matches found in knowledge vault.'}
-
-CONVERSATION HISTORY:
-${conversationStr}
-
-USER QUERY:
-${userQuery}
-
-Provide a comprehensive, grounded, and actionable response:`;
-
-      try {
-        const response = await llmClient.callLlm(prompt, systemPrompt, apiKey, preferredModel);
-        return {
-          content: response.text.trim(),
-          citations,
-          modelUsed: response.model,
-          queryTimeMs: Date.now() - startTime,
-        };
-      } catch (err: any) {
-        console.warn('Live LLM RAG chat failed, falling back to local synthesis:', err);
-      }
-    }
-
-    // 5. Offline Fallback Synthesis (when offline or no API key)
-    let offlineResponse = '';
-    if (searchResults.length > 0) {
-      offlineResponse = `### 🧠 Knowledge Vault Evidence Matches (${searchResults.length} sources retrieved)\n\n`;
-      offlineResponse += `Based on your Career Knowledge Vault, here is the relevant evidence addressing your query:\n\n`;
-
-      searchResults.forEach((r, idx) => {
-        offlineResponse += `#### ${idx + 1}. ${r.chunk.documentTitle} (${r.chunk.category.toUpperCase()})\n`;
-        offlineResponse += `*Relevance Score: ${Math.round(r.similarityScore * 100)}%*\n\n`;
-        offlineResponse += `> ${r.chunk.text.replace(/\n/g, '\n> ')}\n\n`;
-      });
-
-      offlineResponse += `\n💡 **Tip:** Add your free OpenRouter API key in **Settings** for synthesized AI conversational reasoning across these documents.`;
-    } else {
-      offlineResponse = `No direct matches found in your Career Knowledge Vault for *"${userQuery}"*.\n\nYou can add custom documents, case studies, or notes in the **Knowledge Vault** tab to expand your vector knowledge base!`;
-    }
-
-    return {
-      content: offlineResponse,
-      citations,
-      modelUsed: 'Local Hybrid Vector Search (Offline)',
-      queryTimeMs: Date.now() - startTime,
-    };
+    return { prompt, systemPrompt };
   }
 }
 
 export const ragAugmentor = new RagAugmentorService();
+

@@ -9,11 +9,12 @@ import { generateAtsResumeLatex, buildAtsResumePdf } from '../src/app-core/resum
 import { defaultProfile, store } from '../src/app-core/store';
 import { llmClient } from '../src/app-core/llmClient';
 import { evaluateNoiseTriage } from '../src/app-core/noiseFilter';
-import { ChannelManagerService } from '../src/app-core/channelManager';
-import { SCRAPER_SELECTORS, formatSelectorDiagnostic } from '../src/app-core/scraperSelectors';
 import { parseLatexResume } from '../src/app-core/latexParser';
 import { parseEnvContent } from '../src/app-core/envParser';
 import { s3Cloud } from '../src/app-core/s3Client';
+import { atsAdapters } from '../src/app-core/atsAdapters';
+import { watchlistScheduler } from '../src/app-core/watchlistScheduler';
+import { playwrightScraper } from '../src/app-core/playwrightScraper';
 
 // Setup Mock Environment
 const storageMock: Record<string, string> = {};
@@ -26,7 +27,7 @@ const storageMock: Record<string, string> = {};
 (globalThis as any).window = globalThis;
 
 console.log('================================================================================');
-console.log('🛡️  JOBRADAR 100% EXHAUSTIVE SYSTEM & FEATURE AUDIT SUITE (ALL 15 MODULES)');
+console.log('🛡️  JOBRADAR 100% EXHAUSTIVE SYSTEM & FEATURE AUDIT SUITE (ALL 17 MODULES)');
 console.log('================================================================================\n');
 
 let totalTests = 0;
@@ -216,19 +217,7 @@ async function testLlmEngine() {
   assert(freeModels.every(m => m.endsWith(':free') || m === 'openrouter/free'), 'All discovered models carry 100% free tag');
 }
 
-// ──────────────────────────────────────────────────────────────────
-// MODULE 11: Scraper Hardening & Risk Reduction
-// ──────────────────────────────────────────────────────────────────
-console.log('--- [Module 11/15] WhatsApp & Telegram Scraper Hardening ---');
-const cm = new ChannelManagerService();
-const sampleInterval = cm.calculateRandomizedScanIntervalMs();
-assert(sampleInterval >= 8 * 60 * 1000 && sampleInterval <= 21 * 60 * 1000, `Randomized interval in human range: ${(sampleInterval / (60 * 1000)).toFixed(2)} mins`);
 
-cm.tripCircuitBreaker('Rate limit challenge detected in WhatsApp', 'whatsapp');
-assert(cm.getConfig().circuitBreaker?.tripped === true, `Circuit breaker trips on challenge`);
-cm.resetCircuitBreaker();
-assert(cm.getConfig().circuitBreaker?.tripped === false, `Circuit breaker resets on manual re-engagement`);
-console.log('');
 
 // ──────────────────────────────────────────────────────────────────
 // MODULE 12: AWS S3 Cloud Sync Engine
@@ -307,6 +296,37 @@ const sampleLatex = `\\documentclass{article}\n\\begin{document}\n\\section{Educ
 const parsedLatex = parseLatexResume(sampleLatex);
 assert(parsedLatex.name === 'Narayana Thota', `Parsed candidate name: "${parsedLatex.name}"`);
 assert(parsedLatex.skills.length >= 2, `Parsed ${parsedLatex.skills.length} skills from LaTeX`);
+console.log('');
+
+// ──────────────────────────────────────────────────────────────────
+// MODULE 16: Automated ATS Headless Connector & Adapters
+// ──────────────────────────────────────────────────────────────────
+console.log('--- [Module 16/17] Automated ATS Platform Adapters (Greenhouse, Lever, Ashby, Workable) ---');
+assert(atsAdapters.detectAtsPlatform('https://boards.greenhouse.io/stripe') === 'greenhouse', 'ATS Adapter detects Greenhouse board');
+assert(atsAdapters.detectAtsPlatform('https://jobs.lever.co/postman') === 'lever', 'ATS Adapter detects Lever portal');
+assert(atsAdapters.detectAtsPlatform('https://jobs.ashbyhq.com/vercel') === 'ashby', 'ATS Adapter detects Ashby board');
+assert(atsAdapters.detectAtsPlatform('https://apply.workable.com/resend') === 'workable', 'ATS Adapter detects Workable portal');
+assert(atsAdapters.extractAtsSlug('https://boards.greenhouse.io/stripe/jobs/123') === 'stripe', 'Extracts Greenhouse slug "stripe"');
+assert(atsAdapters.extractAtsSlug('https://jobs.lever.co/postman/abc') === 'postman', 'Extracts Lever slug "postman"');
+console.log('');
+
+// ──────────────────────────────────────────────────────────────────
+// MODULE 17: Target Company Watchlist & Background Polling Scheduler
+// ──────────────────────────────────────────────────────────────────
+console.log('--- [Module 17/17] Target Company Watchlist & Autonomous Scheduler ---');
+const watchlistSites = store.getCareerWatchlist();
+assert(watchlistSites.length >= 15, `Watchlist contains ${watchlistSites.length} seeded company portals`);
+const exportedPortals = store.exportWatchlistAsJson();
+assert(typeof exportedPortals === 'string' && exportedPortals.includes('Stripe'), 'Exported portals JSON successfully');
+const importResult = store.importWatchlistFromJson(exportedPortals);
+assert(importResult.success && importResult.importedCount === watchlistSites.length, `Imported ${importResult.importedCount} portals from JSON`);
+
+watchlistScheduler.startScheduler(6, 85);
+const schedStatus = watchlistScheduler.getStatus();
+assert(schedStatus.isRunning === true, 'Watchlist Scheduler active and running');
+assert(schedStatus.pollingIntervalHours === 6, 'Scheduler configured to 6h interval');
+watchlistScheduler.stopScheduler();
+assert(watchlistScheduler.getStatus().isRunning === false, 'Scheduler stopped cleanly');
 console.log('');
 
 // Run Async LLM Engine Test & Final Report

@@ -1,5 +1,6 @@
 import { IJob, IRawQueueItem, IProfile, IStats, ICareerWatchlistSite } from './types';
 import { s3Cloud } from './s3Client';
+import { scrapingOverseer } from './scrapingOverseer';
 
 const JOBS_KEY = 'jobradar_jobs_v1';
 const QUEUE_KEY = 'jobradar_queue_v1';
@@ -8,13 +9,234 @@ const RESUME_KEY = 'jobradar_master_resume_v1';
 const CAREER_WATCHLIST_KEY = 'jobradar_career_watchlist_v1';
 
 export const DEFAULT_CAREER_WATCHLIST: ICareerWatchlistSite[] = [
+  // ── GREENHOUSE PORTALS ──
+  {
+    id: 'site-stripe',
+    companyName: 'Stripe',
+    careerUrl: 'https://boards.greenhouse.io/stripe',
+    category: 'Tier 1 Tech',
+    atsProvider: 'greenhouse',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 85,
+    tags: ['Tier 1', 'FinTech', 'API'],
+    searchKeywords: ['Software Engineer', 'Full Stack', 'Frontend', 'Backend', 'New Grad', 'Intern'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-openai',
+    companyName: 'OpenAI',
+    careerUrl: 'https://boards.greenhouse.io/openai',
+    category: 'AI / Machine Learning',
+    atsProvider: 'greenhouse',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 90,
+    tags: ['AI', 'Tier 1', 'High Impact'],
+    searchKeywords: ['Software Engineer', 'Full Stack', 'Web', 'Frontend', 'Platform'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-anthropic',
+    companyName: 'Anthropic',
+    careerUrl: 'https://boards.greenhouse.io/anthropic',
+    category: 'AI / Machine Learning',
+    atsProvider: 'greenhouse',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 90,
+    tags: ['AI', 'Research', 'Tier 1'],
+    searchKeywords: ['Software Engineer', 'Frontend', 'Full Stack', 'Product Engineer'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-databricks',
+    companyName: 'Databricks',
+    careerUrl: 'https://boards.greenhouse.io/databricks',
+    category: 'Tier 1 Tech',
+    atsProvider: 'greenhouse',
+    enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 85,
+    tags: ['Data', 'Cloud', 'Infrastructure'],
+    searchKeywords: ['Software Engineer', 'Full Stack', 'Frontend', 'University Grad'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-airbnb',
+    companyName: 'Airbnb',
+    careerUrl: 'https://boards.greenhouse.io/airbnb',
+    category: 'Tier 1 Tech',
+    atsProvider: 'greenhouse',
+    enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 85,
+    tags: ['Travel', 'Consumer', 'Tier 1'],
+    searchKeywords: ['Software Engineer', 'Frontend', 'Full Stack', 'Early Career'],
+    createdAt: new Date().toISOString(),
+  },
+
+  // ── ASHBY PORTALS ──
+  {
+    id: 'site-vercel',
+    companyName: 'Vercel',
+    careerUrl: 'https://jobs.ashbyhq.com/vercel',
+    category: 'Tier 1 Tech',
+    atsProvider: 'ashby',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 85,
+    tags: ['Frontend', 'Next.js', 'Cloud'],
+    searchKeywords: ['Software Engineer', 'Frontend Engineer', 'Full Stack', 'Design Engineer'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-linear',
+    companyName: 'Linear',
+    careerUrl: 'https://jobs.ashbyhq.com/linear',
+    category: 'High-Growth Startup',
+    atsProvider: 'ashby',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 88,
+    tags: ['Productivity', 'React', 'TypeScript'],
+    searchKeywords: ['Software Engineer', 'Full Stack Engineer', 'Frontend Engineer'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-supabase',
+    companyName: 'Supabase',
+    careerUrl: 'https://jobs.ashbyhq.com/supabase',
+    category: 'High-Growth Startup',
+    atsProvider: 'ashby',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 85,
+    tags: ['Open Source', 'Postgres', 'TypeScript'],
+    searchKeywords: ['Full Stack Developer', 'Frontend Developer', 'Software Engineer'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-ramp',
+    companyName: 'Ramp',
+    careerUrl: 'https://jobs.ashbyhq.com/ramp',
+    category: 'FinTech / E-Commerce',
+    atsProvider: 'ashby',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 85,
+    tags: ['FinTech', 'Unicorn', 'Python', 'React'],
+    searchKeywords: ['Software Engineer', 'Full Stack', 'Frontend', 'New Grad'],
+    createdAt: new Date().toISOString(),
+  },
+
+  // ── LEVER PORTALS ──
+  {
+    id: 'site-postman',
+    companyName: 'Postman',
+    careerUrl: 'https://jobs.lever.co/postman',
+    category: 'Tier 1 Tech',
+    atsProvider: 'lever',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 85,
+    tags: ['APIs', 'Developer Tools', 'India'],
+    searchKeywords: ['Software Engineer', 'Frontend Engineer', 'Fullstack Engineer', 'Node.js', 'React'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-figma',
+    companyName: 'Figma',
+    careerUrl: 'https://jobs.lever.co/figma',
+    category: 'Tier 1 Tech',
+    atsProvider: 'lever',
+    enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 88,
+    tags: ['Design', 'WebAssembly', 'TypeScript'],
+    searchKeywords: ['Software Engineer', 'Full Stack', 'Frontend', 'University Grad'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-notion',
+    companyName: 'Notion',
+    careerUrl: 'https://jobs.lever.co/notion',
+    category: 'High-Growth Startup',
+    atsProvider: 'lever',
+    enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 88,
+    tags: ['Productivity', 'React', 'Node'],
+    searchKeywords: ['Software Engineer', 'Full Stack', 'Frontend', 'Core Product'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-palantir',
+    companyName: 'Palantir',
+    careerUrl: 'https://jobs.lever.co/palantir',
+    category: 'Tier 1 Tech',
+    atsProvider: 'lever',
+    enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 85,
+    tags: ['Enterprise', 'Big Data', 'AI'],
+    searchKeywords: ['Forward Deployed Software Engineer', 'Software Engineer', 'Full Stack'],
+    createdAt: new Date().toISOString(),
+  },
+
+  // ── WORKABLE PORTALS ──
+  {
+    id: 'site-resend',
+    companyName: 'Resend',
+    careerUrl: 'https://apply.workable.com/resend',
+    category: 'High-Growth Startup',
+    atsProvider: 'workable',
+    enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 85,
+    tags: ['Email', 'Developer Tools', 'React'],
+    searchKeywords: ['Full Stack Engineer', 'Frontend Developer', 'Software Engineer'],
+    createdAt: new Date().toISOString(),
+  },
+
+  // ── INDIAN UNICORNS & HIGH-GROWTH TECH ──
+  {
+    id: 'site-swiggy',
+    companyName: 'Swiggy',
+    careerUrl: 'https://careers.swiggy.com/#/jobs?department=Engineering',
+    category: 'High-Growth Startup',
+    atsProvider: 'generic',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 80,
+    tags: ['India', 'FoodTech', 'MERN'],
+    searchKeywords: ['Software Engineer', 'Frontend', 'Fullstack', 'MERN', 'React', 'SDE-1'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'site-razorpay',
+    companyName: 'Razorpay',
+    careerUrl: 'https://razorpay.com/jobs/?dept=Engineering',
+    category: 'FinTech / E-Commerce',
+    atsProvider: 'generic',
+    enabled: true,
+    pollingIntervalHours: 6,
+    autoApproveFitThreshold: 82,
+    tags: ['FinTech', 'India', 'Payments'],
+    searchKeywords: ['Software Engineer', 'Frontend', 'Backend', 'Fullstack', 'React', 'SDE-1'],
+    createdAt: new Date().toISOString(),
+  },
   {
     id: 'site-amazon',
     companyName: 'Amazon',
     careerUrl: 'https://amazon.jobs/en/search?base_query=software+development+engineer&loc_query=India',
     category: 'Tier 1 Tech',
+    atsProvider: 'generic',
     enabled: true,
-    searchKeywords: ['Software Development Engineer', 'SDE', 'Full Stack', 'Frontend', 'Fresher', 'Graduate'],
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 85,
+    tags: ['FAANG', 'Cloud', 'AWS'],
+    searchKeywords: ['Software Development Engineer', 'SDE-1', 'Full Stack', 'Frontend', 'Fresher', 'Graduate'],
     createdAt: new Date().toISOString(),
   },
   {
@@ -22,7 +244,11 @@ export const DEFAULT_CAREER_WATCHLIST: ICareerWatchlistSite[] = [
     companyName: 'Google',
     careerUrl: 'https://careers.google.com/jobs/results/?distance=50&location=India&q=Software%20Engineer',
     category: 'Tier 1 Tech',
+    atsProvider: 'generic',
     enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 88,
+    tags: ['FAANG', 'Search', 'Cloud'],
     searchKeywords: ['Software Engineer', 'Web Developer', 'Full Stack', 'React', 'Early Career'],
     createdAt: new Date().toISOString(),
   },
@@ -31,17 +257,12 @@ export const DEFAULT_CAREER_WATCHLIST: ICareerWatchlistSite[] = [
     companyName: 'Microsoft',
     careerUrl: 'https://careers.microsoft.com/professionals/us/en/search-results?q=software%20engineer&lc=India',
     category: 'Tier 1 Tech',
+    atsProvider: 'generic',
     enabled: true,
+    pollingIntervalHours: 12,
+    autoApproveFitThreshold: 85,
+    tags: ['FAANG', 'Azure', 'TypeScript'],
     searchKeywords: ['Software Engineer', 'Full Stack', 'React', 'Node', 'Graduate'],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'site-swiggy',
-    companyName: 'Swiggy',
-    careerUrl: 'https://careers.swiggy.com/#/jobs?department=Engineering',
-    category: 'High-Growth Startup',
-    enabled: true,
-    searchKeywords: ['Software Engineer', 'Frontend', 'Fullstack', 'MERN', 'React'],
     createdAt: new Date().toISOString(),
   },
   {
@@ -49,35 +270,12 @@ export const DEFAULT_CAREER_WATCHLIST: ICareerWatchlistSite[] = [
     companyName: 'Deloitte',
     careerUrl: 'https://jobs2.deloitte.com/in/en/search-results?keywords=developer',
     category: 'MNC / IT Services',
+    atsProvider: 'generic',
     enabled: true,
+    pollingIntervalHours: 24,
+    autoApproveFitThreshold: 75,
+    tags: ['Consulting', 'Cloud', 'Enterprise'],
     searchKeywords: ['Associate Analyst', 'Developer', 'Full Stack', 'Cloud', 'Freshers'],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'site-razorpay',
-    companyName: 'Razorpay',
-    careerUrl: 'https://razorpay.com/jobs/?dept=Engineering',
-    category: 'FinTech / E-Commerce',
-    enabled: true,
-    searchKeywords: ['Software Engineer', 'Frontend', 'Backend', 'Fullstack', 'React'],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'site-flipkart',
-    companyName: 'Flipkart',
-    careerUrl: 'https://www.flipkartcareers.com/#!/joblist',
-    category: 'FinTech / E-Commerce',
-    enabled: true,
-    searchKeywords: ['Software Development Engineer', 'UI Engineer', 'Full Stack', 'Fresher'],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'site-zoho',
-    companyName: 'Zoho',
-    careerUrl: 'https://www.zoho.com/careers/jobdetails/?job_id=45789',
-    category: 'Tier 1 Tech',
-    enabled: true,
-    searchKeywords: ['Software Developer', 'Web Developer', 'Java', 'JavaScript', 'Fresher'],
     createdAt: new Date().toISOString(),
   },
 ];
@@ -248,6 +446,8 @@ Qualifications:
     },
     rubricScores: {
       overallRubricRating: 4.8,
+      letterGrade: 'A',
+      recommendation: 'APPLY',
       skillsScore: 4.9,
       techStackScore: 4.8,
       experienceScore: 4.7,
@@ -380,6 +580,8 @@ Responsibilities:
     },
     rubricScores: {
       overallRubricRating: 4.7,
+      letterGrade: 'A',
+      recommendation: 'APPLY',
       skillsScore: 4.8,
       techStackScore: 4.7,
       experienceScore: 4.6,
@@ -465,6 +667,8 @@ Requirements:
     },
     rubricScores: {
       overallRubricRating: 5.0,
+      letterGrade: 'A',
+      recommendation: 'APPLY',
       skillsScore: 5.0,
       techStackScore: 5.0,
       experienceScore: 5.0,
@@ -534,7 +738,9 @@ class AppStore {
         const storedResume = localStorage.getItem(RESUME_KEY);
         const storedWatchlist = localStorage.getItem(CAREER_WATCHLIST_KEY);
 
-        this.jobs = storedJobs ? JSON.parse(storedJobs) : initialSeedJobs;
+        const loadedJobs: IJob[] = storedJobs ? JSON.parse(storedJobs) : initialSeedJobs;
+        const { cleanJobs, removedCount } = scrapingOverseer.sanitizeJobsList(loadedJobs);
+        this.jobs = cleanJobs;
         this.queue = storedQueue ? JSON.parse(storedQueue) : [];
         this.profile = storedProfile ? { ...defaultProfile, ...JSON.parse(storedProfile) } : defaultProfile;
         if (!this.profile.apiKey) {
@@ -543,7 +749,7 @@ class AppStore {
         this.masterResume = storedResume || defaultMasterResume;
         this.careerWatchlist = storedWatchlist ? JSON.parse(storedWatchlist) : DEFAULT_CAREER_WATCHLIST;
 
-        if (!storedJobs) this.saveJobs();
+        if (!storedJobs || removedCount > 0) this.saveJobs();
         if (!storedProfile) this.saveProfile(this.profile);
         if (!storedResume) this.saveMasterResume(defaultMasterResume);
         if (!storedWatchlist) this.saveCareerWatchlist();
@@ -637,6 +843,15 @@ class AppStore {
   public deleteJob(id: string): void {
     this.jobs = this.jobs.filter((j) => j.id !== id);
     this.saveJobs();
+  }
+
+  public sanitizeAllJobs(): number {
+    const { cleanJobs, removedCount } = scrapingOverseer.sanitizeJobsList(this.jobs);
+    if (removedCount > 0) {
+      this.jobs = cleanJobs;
+      this.saveJobs();
+    }
+    return removedCount;
   }
 
   public updateJob(id: string, updates: Partial<IJob>): IJob | undefined {
@@ -803,6 +1018,55 @@ class AppStore {
       if (error !== undefined) site.lastError = error;
       this.saveCareerWatchlist();
     }
+  }
+
+  public exportWatchlistAsJson(): string {
+    return JSON.stringify(this.careerWatchlist, null, 2);
+  }
+
+  public importWatchlistFromJson(jsonString: string): { success: boolean; importedCount: number; error?: string } {
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (!Array.isArray(parsed)) {
+        return { success: false, importedCount: 0, error: 'Expected an array of watchlist sites' };
+      }
+
+      const validSites: ICareerWatchlistSite[] = [];
+      for (const item of parsed) {
+        if (item && item.companyName && item.careerUrl) {
+          validSites.push({
+            id: item.id || `site-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            companyName: item.companyName,
+            careerUrl: item.careerUrl,
+            category: item.category || 'Custom',
+            atsProvider: item.atsProvider || 'generic',
+            enabled: item.enabled !== false,
+            pollingIntervalHours: item.pollingIntervalHours || 6,
+            autoApproveFitThreshold: item.autoApproveFitThreshold || 85,
+            tags: item.tags || [],
+            searchKeywords: item.searchKeywords || ['Software Engineer', 'Full Stack', 'Developer'],
+            createdAt: item.createdAt || new Date().toISOString(),
+            lastSyncStatus: 'idle',
+            lastJobsFound: 0,
+          });
+        }
+      }
+
+      if (validSites.length === 0) {
+        return { success: false, importedCount: 0, error: 'No valid company entries found in file' };
+      }
+
+      this.careerWatchlist = validSites;
+      this.saveCareerWatchlist();
+      return { success: true, importedCount: validSites.length };
+    } catch (err: any) {
+      return { success: false, importedCount: 0, error: err.message || 'Invalid JSON format' };
+    }
+  }
+
+  public resetCareerWatchlist(): void {
+    this.careerWatchlist = DEFAULT_CAREER_WATCHLIST;
+    this.saveCareerWatchlist();
   }
 
   // --- Stats Calculation ---

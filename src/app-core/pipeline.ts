@@ -2,15 +2,19 @@ import { store } from './store';
 import { IJob, IJobSource } from './types';
 import { splitBulkChatText } from './bulkSplitter';
 import { extractJobDetails, IExtractedJD } from './extractor';
-import { scoreJobAgainstProfile } from './scorer';
+import { scoreJobAgainstProfile, auditBlockGLegitimacy } from './scorer';
 import { analyzeAtsCompliance } from './atsMatcher';
 import { generateReferralContacts } from './referralGenerator';
 import { generateInterviewPrep } from './interviewPrep';
 import { generateCoverLetter } from './coverLetterGenerator';
 import { generateOutreachSuite } from './outreachAgent';
 import { generateInterviewMasterGuide } from './interviewMasterGuide';
+import { generateFollowupCadence } from './followupCadence';
+import { applicationAnswers } from './applicationAnswers';
+import { salaryNegotiation } from './salaryNegotiation';
 import { llmClient } from './llmClient';
 import { isWebUrl, fetchAndExtractJobFromUrl } from './webFetcher';
+import { evaluateNoiseTriage } from './noiseFilter';
 
 export interface IngestionResult {
   totalExtracted: number;
@@ -120,6 +124,7 @@ export async function processIngestion(
         gapAnalysis: scoreResult.gapAnalysis,
         fitBreakdown: scoreResult.fitBreakdown,
         rubricScores: scoreResult.rubricScores,
+        structuredFitReport: scoreResult.structuredFitReport,
         atsAnalysis: atsResult,
         scoreFlag: scoreResult.scoreFlag,
         skillMatched: scoreResult.skillMatched,
@@ -130,12 +135,38 @@ export async function processIngestion(
         interviewPrep,
         coverLetterText: coverLetter,
         resumeNotes: `Tailored resume for ${extracted.companyName} (${extracted.jobTitle})`,
+        blockGAudit: auditBlockGLegitimacy(extracted),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       job.outreachSuite = generateOutreachSuite(job, profile);
       job.interviewMasterGuide = generateInterviewMasterGuide(job, profile);
+      job.followupCadence = generateFollowupCadence(job, profile);
+      job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
+      job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
+
+      if (useLlm && profile.apiKey) {
+        try {
+          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, profile.apiKey);
+          if (aiCadence.success && aiCadence.data) job.followupCadence = aiCadence.data;
+        } catch {}
+
+        try {
+          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, profile.apiKey);
+          if (aiBlockG.success && aiBlockG.data) job.blockGAudit = aiBlockG.data;
+        } catch {}
+
+        try {
+          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey);
+          if (aiAnswers) job.applicationAnswers = aiAnswers;
+        } catch {}
+
+        try {
+          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey);
+          if (aiSal) job.salaryNegotiation = aiSal;
+        } catch {}
+      }
 
       store.addOrUpdateJob(job);
       store.updateQueueItem(queueItem.id, { processed: true, jobId });
@@ -170,43 +201,52 @@ export async function processIngestion(
     });
     queueIds.push(queueItem.id);
 
+    // 2. Filter out promotional spam / educational courses
+    const triage = evaluateNoiseTriage(rawPost, channelName);
+    if (!triage.isJobPosting) {
+      store.updateQueueItem(queueItem.id, { processed: true, error: triage.reason });
+      continue;
+    }
+
     try {
-      // 2. Extract structured JD (LLM or Heuristic)
+      // 3. Extract structured JD (Deterministic first, optional LLM for small batches)
       let extracted = extractJobDetails(rawPost);
-      if (useLlm && profile.apiKey) {
+      const shouldCallLlm = useLlm && Boolean(profile.apiKey) && chunks.length <= 3;
+
+      if (shouldCallLlm && profile.apiKey) {
         const llmExtracted = await llmClient.extractJobWithLlm(rawPost, profile.apiKey);
         if (llmExtracted.success && llmExtracted.data) {
           extracted = llmExtracted.data;
         }
       }
 
-      // 3. Score against candidate profile (LLM or Heuristic)
+      // 4. Score against candidate profile (Deterministic first, optional LLM)
       let scoreResult = scoreJobAgainstProfile(extracted, profile);
-      if (useLlm && profile.apiKey) {
+      if (shouldCallLlm && profile.apiKey) {
         const llmScore = await llmClient.scoreJobWithLlm(extracted, profile, profile.apiKey);
         if (llmScore.success && llmScore.data) {
           scoreResult = llmScore.data;
         }
       }
 
-      // 4. ATS compliance analysis
+      // 5. ATS compliance analysis
       const atsResult = analyzeAtsCompliance(extracted, profile);
 
-      // 5. Generate employee referral personas & search queries
+      // 6. Generate employee referral personas & search queries
       const referrals = generateReferralContacts(extracted, profile);
 
-      // 6. Generate AI interview prep (LLM or Heuristic)
+      // 7. Generate AI interview prep (LLM or Heuristic)
       let interviewPrep = generateInterviewPrep(extracted, profile);
-      if (useLlm && profile.apiKey) {
+      if (shouldCallLlm && profile.apiKey) {
         const llmPrep = await llmClient.generateAiInterviewPrep(extracted, profile, profile.apiKey);
         if (llmPrep.success && llmPrep.data) {
           interviewPrep = llmPrep.data;
         }
       }
 
-      // 7. Generate tailored cover letter (LLM or Heuristic)
+      // 8. Generate tailored cover letter (LLM or Heuristic)
       let coverLetter = generateCoverLetter(extracted, profile);
-      if (useLlm && profile.apiKey) {
+      if (shouldCallLlm && profile.apiKey) {
         const llmLetter = await llmClient.generateAiCoverLetter(extracted, profile, profile.apiKey);
         if (llmLetter.success && llmLetter.data) {
           coverLetter = llmLetter.data;
@@ -246,6 +286,7 @@ export async function processIngestion(
         gapAnalysis: scoreResult.gapAnalysis,
         fitBreakdown: scoreResult.fitBreakdown,
         rubricScores: scoreResult.rubricScores,
+        structuredFitReport: scoreResult.structuredFitReport,
         atsAnalysis: atsResult,
         scoreFlag: scoreResult.scoreFlag,
         skillMatched: scoreResult.skillMatched,
@@ -258,12 +299,38 @@ export async function processIngestion(
         interviewPrep,
         coverLetterText: coverLetter,
         resumeNotes: `Tailored master resume for ${extracted.companyName} (${extracted.jobTitle}) — highlighted ${extracted.skillsRequired.slice(0, 4).join(', ')} and MCA 2026 credentials.`,
+        blockGAudit: auditBlockGLegitimacy(extracted),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       job.outreachSuite = generateOutreachSuite(job, profile);
       job.interviewMasterGuide = generateInterviewMasterGuide(job, profile);
+      job.followupCadence = generateFollowupCadence(job, profile);
+      job.applicationAnswers = applicationAnswers.generateAnswersDeterministic(job, profile);
+      job.salaryNegotiation = salaryNegotiation.generateNegotiationSuite(job, profile);
+
+      if (useLlm && profile.apiKey) {
+        try {
+          const aiCadence = await llmClient.generateAiFollowupCadence(job, profile, profile.apiKey);
+          if (aiCadence.success && aiCadence.data) job.followupCadence = aiCadence.data;
+        } catch {}
+
+        try {
+          const aiBlockG = await llmClient.auditBlockGLegitimacyWithAi(job, profile.apiKey);
+          if (aiBlockG.success && aiBlockG.data) job.blockGAudit = aiBlockG.data;
+        } catch {}
+
+        try {
+          const aiAnswers = await applicationAnswers.generateAnswersWithAi(job, profile, profile.apiKey);
+          if (aiAnswers) job.applicationAnswers = aiAnswers;
+        } catch {}
+
+        try {
+          const aiSal = await salaryNegotiation.generateNegotiationWithAi(job, profile, profile.apiKey);
+          if (aiSal) job.salaryNegotiation = aiSal;
+        } catch {}
+      }
 
       // Save to store
       store.addOrUpdateJob(job);
