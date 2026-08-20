@@ -359,8 +359,7 @@ export async function scoreJobAgainstProfileWithAi(
   if (aiRes.success && aiRes.data) {
     return aiRes.data;
   }
-  // Heuristic pre-filter fallback
-  return scoreJobAgainstProfile(job as IExtractedJD, profile);
+  throw new Error(aiRes.error || 'AI Scoring & Fit evaluation failed.');
 }
 
 /**
@@ -374,7 +373,7 @@ export async function auditBlockGLegitimacyWithAi(
   if (res.success && res.data) {
     return res.data;
   }
-  return auditBlockGLegitimacy(job);
+  throw new Error(res.error || 'AI Block G Legitimacy Audit failed.');
 }
 
 

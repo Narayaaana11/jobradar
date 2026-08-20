@@ -27,7 +27,7 @@ import { webScrapingAuditor } from '../../app-core/webScrapingAuditor';
 import { generateFollowupCadence, generateFollowupCadenceWithAi } from '../../app-core/followupCadence';
 import { applicationAnswers } from '../../app-core/applicationAnswers';
 import { salaryNegotiation } from '../../app-core/salaryNegotiation';
-import { auditBlockGLegitimacy, auditBlockGLegitimacyWithAi } from '../../app-core/scorer';
+import { auditBlockGLegitimacy, auditBlockGLegitimacyWithAi, scoreJobAgainstProfileWithAi } from '../../app-core/scorer';
 import {
   IColdOutreachSuite,
   IInterviewMasterGuide,
@@ -237,7 +237,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     }, 3000);
   };
 
-  // 1. AI Re-Scorer Agent (OpenRouter)
+  // 1. AI Re-Scorer Agent (Multi-Provider)
   const handleAiReScore = async () => {
     const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
     if (!key) {
@@ -247,29 +247,92 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
     }
 
     setIsLlmRunning(true);
-    setAiActionLabel('Evaluating Fit Score & 5-Tier Rubric with OpenRouter LLM...');
+    setAiActionLabel('Evaluating Fit Score & 5-Tier Rubric with AI...');
     setAiError(null);
     try {
-      const res = await llmClient.scoreJobWithLlm(job, profile, key);
-      if (res.success && res.data) {
-        const d = res.data;
-        const updates: Partial<IJob> = {
-          matchScore: d.matchScore,
-          matchConfidence: d.matchConfidence,
-          gapAnalysis: d.gapAnalysis,
-          fitBreakdown: d.fitBreakdown,
-          rubricScores: d.rubricScores,
-          scoreFlag: d.scoreFlag,
-          skillMatched: d.skillMatched,
-        };
-        store.updateJob(job.id, updates);
-        setAiModelUsed(res.modelUsed || 'OpenRouter Free Model');
-        setSaveSuccessMsg(`Fit score & rubric evaluated via ${res.modelUsed || 'OpenRouter'}!`);
-        setTimeout(() => setSaveSuccessMsg(''), 4000);
-      } else {
-        setAiError(res.error || 'Failed to score job with OpenRouter LLM');
-      }
+      const res = await scoreJobAgainstProfileWithAi(job, profile);
+      const d = res;
+      const newStatus: IJobGenerationStatusMap = {
+        ...(job.generationStatus || {}),
+        scoring: {
+          status: 'ai_generated',
+          modelUsed: llmClient.getLastModelUsed('scoring') || 'AI Reasoner',
+          provider: llmClient.getLastProviderUsed('scoring') || 'gateway',
+          generatedAt: new Date().toISOString(),
+        },
+      };
+      job.generationStatus = newStatus;
+      const updates: Partial<IJob> = {
+        matchScore: d.matchScore,
+        matchConfidence: d.matchConfidence,
+        gapAnalysis: d.gapAnalysis,
+        fitBreakdown: d.fitBreakdown,
+        rubricScores: d.rubricScores,
+        structuredFitReport: d.structuredFitReport,
+        scoreFlag: d.scoreFlag,
+        skillMatched: d.skillMatched,
+        generationStatus: newStatus,
+      };
+      store.updateJob(job.id, updates);
+      setAiModelUsed(llmClient.getLastModelUsed('scoring') || 'AI Model');
+      setSaveSuccessMsg(`Fit score & rubric evaluated via ${llmClient.getLastModelUsed('scoring') || 'AI Reasoner'}!`);
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
     } catch (err: any) {
+      const newStatus: IJobGenerationStatusMap = {
+        ...(job.generationStatus || {}),
+        scoring: {
+          status: 'failed',
+          error: err.message,
+        },
+      };
+      job.generationStatus = newStatus;
+      store.updateJob(job.id, { generationStatus: newStatus });
+      setAiError(err.message);
+    } finally {
+      setIsLlmRunning(false);
+      setAiActionLabel('');
+    }
+  };
+
+  // 1b. Block G Legitimacy AI Re-Audit Agent
+  const handleAiReAuditBlockG = async () => {
+    const key = profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "";
+    if (!key) {
+      setAiError('Please configure an AI API Key (OpenRouter, Groq, or Gemini) in Settings to run real LLM reasoning.');
+      setTimeout(() => setAiError(null), 5000);
+      return;
+    }
+
+    setIsLlmRunning(true);
+    setAiActionLabel('Auditing posting legitimacy and ghost job risk with AI...');
+    setAiError(null);
+    try {
+      const res = await auditBlockGLegitimacyWithAi(job, profile);
+      setBlockGData(res);
+      job.blockGAudit = res;
+      const newStatus: IJobGenerationStatusMap = {
+        ...(job.generationStatus || {}),
+        legitimacyAudit: {
+          status: 'ai_generated',
+          modelUsed: llmClient.getLastModelUsed('block_g_audit') || llmClient.getLastModelUsed('cheap_fast') || 'AI Model',
+          provider: llmClient.getLastProviderUsed('block_g_audit') || llmClient.getLastProviderUsed('cheap_fast') || 'gateway',
+          generatedAt: new Date().toISOString(),
+        },
+      };
+      job.generationStatus = newStatus;
+      store.updateJob(job.id, { blockGAudit: res, generationStatus: newStatus });
+      setSaveSuccessMsg('Block G Legitimacy Audit calibrated with AI reasoning!');
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+    } catch (err: any) {
+      const newStatus: IJobGenerationStatusMap = {
+        ...(job.generationStatus || {}),
+        legitimacyAudit: {
+          status: 'failed',
+          error: err.message,
+        },
+      };
+      job.generationStatus = newStatus;
+      store.updateJob(job.id, { generationStatus: newStatus });
       setAiError(err.message);
     } finally {
       setIsLlmRunning(false);
@@ -699,7 +762,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 <span>Apply on Portal</span>
               </a>
             )}
-            <ScoreBadge score={job.matchScore} />
+            <ScoreBadge score={job.matchScore} status={job.generationStatus?.scoring} />
             <StatusBadge type="approval" status={job.approvalStatus} />
 
             <div className="hidden sm:flex items-center space-x-1.5 pl-2 border-l border-zinc-800">
@@ -875,7 +938,8 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                   ) : (
                     <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block" />
                   )}
-                  {job.liveScrapedContent ? 'Live Scraped JD' : 'Original Job Description'}
+                  <span>{job.liveScrapedContent ? 'Live Scraped JD' : 'Original Job Description'}</span>
+                  <SectionStatusBadge status={job.generationStatus?.extraction} />
                 </span>
                 <div className="flex items-center gap-2">
                   {job.liveScrapedAt && (
@@ -1077,7 +1141,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
 
             {/* Tab Body View */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* â”€â”€ 1. OVERVIEW TAB: Deep AI Rubrics & Match Breakdown â”€â”€ */}
+              {/* ── 1. OVERVIEW TAB: Deep AI Rubrics & Match Breakdown ── */}
               {activeTab === 'overview' && (
                 <div className="space-y-5">
                   {/* AI Re-Score Banner */}
@@ -1088,6 +1152,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                           <span>AI Match & Rubric Scorer</span>
                         </h4>
+                        <SectionStatusBadge status={job.generationStatus?.scoring} />
                         {aiModelUsed && (
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800">
                             {aiModelUsed}
@@ -1095,7 +1160,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         )}
                       </div>
                       <p className="text-[11px] text-zinc-400">
-                        Run OpenRouter free model reasoning to evaluate candidate fit and compute 5-tier JobRadar fit rubric.
+                        Multi-provider AI model reasoning evaluates candidate fit, dealbreakers, and 5-tier JobRadar fit rubric.
                       </p>
                     </div>
 
@@ -1106,9 +1171,18 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                       className="px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-extrabold text-xs hover:brightness-110 transition shadow shrink-0 flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3 h-3 ${isLlmRunning ? 'animate-spin' : ''}`} />
-                      <span>{isLlmRunning ? 'Scoring...' : 'âš¡ AI Re-Score (OpenRouter)'}</span>
+                      <span>{isLlmRunning ? 'Scoring...' : '⚡ AI Re-Score'}</span>
                     </button>
                   </div>
+
+                  {job.generationStatus?.scoring?.status === 'failed' && (
+                    <SectionFailureBanner
+                      title="Fit Scoring & Rubric"
+                      error={job.generationStatus?.scoring?.error}
+                      onRetry={handleAiReScore}
+                      isRunning={isLlmRunning}
+                    />
+                  )}
 
                   {/* Career-Ops Structured Fit Dossier & A-F Grading */}
                   {(() => {
@@ -1200,7 +1274,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Tech Stack Match</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>â˜… {job.rubricScores?.technicalStackMatchScore || job.rubricScores?.skillsScore || 4.8}</span>
+                              <span>★ {job.rubricScores?.technicalStackMatchScore || job.rubricScores?.skillsScore || 4.8}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1208,7 +1282,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Seniority & YOE</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>â˜… {job.rubricScores?.seniorityExperienceScore || job.rubricScores?.experienceScore || 4.7}</span>
+                              <span>★ {job.rubricScores?.seniorityExperienceScore || job.rubricScores?.experienceScore || 4.7}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1216,7 +1290,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Domain Synergy</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>â˜… {job.rubricScores?.domainRelevanceScore || 4.6}</span>
+                              <span>★ {job.rubricScores?.domainRelevanceScore || 4.6}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1224,7 +1298,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div className="p-3 bg-[#18181b] border border-zinc-800 rounded-xl space-y-1">
                             <span className="text-[10px] font-mono text-zinc-400 uppercase">Comp & Location</span>
                             <div className="text-base font-black text-white font-mono flex items-center justify-between">
-                              <span>â˜… {job.rubricScores?.compensationLocationScore || job.rubricScores?.cultureFitScore || 4.9}</span>
+                              <span>★ {job.rubricScores?.compensationLocationScore || job.rubricScores?.cultureFitScore || 4.9}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">/ 5.0</span>
                             </div>
                           </div>
@@ -1248,7 +1322,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                               {report.pros.length > 0 ? (
                                 report.pros.map((p, i) => (
                                   <li key={i} className="flex items-start gap-1.5">
-                                    <span className="text-emerald-400 mt-0.5">â€¢</span>
+                                    <span className="text-emerald-400 mt-0.5">•</span>
                                     <span>{p}</span>
                                   </li>
                                 ))
@@ -1268,12 +1342,12 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                               {report.cons.length > 0 ? (
                                 report.cons.map((c, i) => (
                                   <li key={i} className="flex items-start gap-1.5">
-                                    <span className="text-amber-400 mt-0.5">â€¢</span>
+                                    <span className="text-amber-400 mt-0.5">•</span>
                                     <span>{c}</span>
                                   </li>
                                 ))
                               ) : (
-                                <li className="text-emerald-400/80 text-[11px]">âœ“ No critical skill gaps detected.</li>
+                                <li className="text-emerald-400/80 text-[11px]">✓ No critical skill gaps detected.</li>
                               )}
                             </ul>
                           </div>
@@ -1310,7 +1384,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                                     ? 'bg-amber-950/80 text-amber-300 border-amber-800'
                                     : 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
                                 }`}>
-                                  {isDomainMismatch ? 'âš ï¸ Domain Mismatch' : 'âœ“ Verified Candidate Fit'}
+                                  {isDomainMismatch ? '⚠️ Domain Mismatch' : '✓ Verified Candidate Fit'}
                                 </span>
                               </h4>
                               <p className="text-[11px] text-zinc-400">
@@ -1360,6 +1434,15 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                   })()}
 
                   {/* Block G: Posting Legitimacy & Ghost Job Audit Card */}
+                  {job.generationStatus?.legitimacyAudit?.status === 'failed' && (
+                    <SectionFailureBanner
+                      title="Block G Legitimacy Audit"
+                      error={job.generationStatus?.legitimacyAudit?.error}
+                      onRetry={handleAiReAuditBlockG}
+                      isRunning={isLlmRunning}
+                    />
+                  )}
+
                   {blockGData && (
                     <div className="p-5 rounded-[22px] border border-[#27272a] bg-[#121215] space-y-3 shadow-xl">
                       <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
@@ -1374,6 +1457,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                           <div>
                             <h4 className="text-xs font-black text-white flex items-center gap-2">
                               <span>Block G: Posting Legitimacy & Ghost Job Audit</span>
+                              <SectionStatusBadge status={job.generationStatus?.legitimacyAudit} />
                               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border font-bold ${
                                 blockGData.verdict === 'Verified Legitimate'
                                   ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
@@ -1393,23 +1477,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         <div className="flex items-center gap-3 shrink-0">
                           <button
                             type="button"
-                            onClick={async () => {
-                              setIsLlmRunning(true);
-                              setAiActionLabel('Auditing posting legitimacy and ghost job risk with AI...');
-                              try {
-                                const res = await auditBlockGLegitimacyWithAi(job, profile.apiKey || profile.groqApiKey || profile.geminiApiKey || "");
-                                setBlockGData(res);
-                                job.blockGAudit = res;
-                                store.updateJob(job.id, { blockGAudit: res });
-                                setSaveSuccessMsg('Block G Legitimacy Audit calibrated with AI reasoning!');
-                                setTimeout(() => setSaveSuccessMsg(''), 4000);
-                              } catch (err: any) {
-                                setAiError(err.message);
-                              } finally {
-                                setIsLlmRunning(false);
-                                setAiActionLabel('');
-                              }
-                            }}
+                            onClick={handleAiReAuditBlockG}
                             disabled={isLlmRunning}
                             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-bold transition disabled:opacity-50"
                           >
@@ -1445,7 +1513,7 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                 </div>
               )}
 
-              {/* â”€â”€ 2. AI COUNCIL CHAMBER TAB â”€â”€ */}
+              {/* ── 2. AI COUNCIL CHAMBER TAB ── */}
               {activeTab === 'council' && (
                 <div className="space-y-5">
                   <div className="p-5 bg-gradient-to-r from-purple-950/40 via-[#18181b] to-indigo-950/40 border border-purple-800/60 rounded-[24px] space-y-3 shadow-xl">

@@ -1,8 +1,8 @@
 import { store } from './store';
-import { IJob, IProfile, ICareerWatchlistSite, ICareerSyncReport } from './types';
+import { IJob, IProfile, ICareerWatchlistSite, ICareerSyncReport, IBlockGAudit, IJobGenerationStatusMap } from './types';
 import { fetchWebPageHtml, cleanHtmlToText, extractHtmlMetadata } from './webFetcher';
 import { extractJobDetails, extractJobDetailsWithAi, IExtractedJD, extractValidApplicationLink } from './extractor';
-import { scoreJobAgainstProfile, scoreJobAgainstProfileWithAi, auditBlockGLegitimacy, auditBlockGLegitimacyWithAi } from './scorer';
+import { scoreJobAgainstProfile, scoreJobAgainstProfileWithAi, auditBlockGLegitimacy, auditBlockGLegitimacyWithAi, IScoreResult } from './scorer';
 import { analyzeAtsCompliance } from './atsMatcher';
 import { atsOptimizer } from './atsOptimizer';
 import { generateDownstreamAssets } from './pipeline';
@@ -12,6 +12,7 @@ import { scrapingOverseer } from './scrapingOverseer';
 import { atsAdapters } from './atsAdapters';
 import { playwrightScraper } from './playwrightScraper';
 import { aiConcurrencyLimiter } from './concurrency';
+import { llmClient } from './llmClient';
 
 export interface IDiscoveredJobListing {
   title: string;
@@ -190,6 +191,7 @@ export class CareerPageCrawlerService {
             }
 
             // If LLM is active and we have rich description, refine extracted JD with AI
+            let extractionStatus: IJobGenerationStatusMap['extraction'] = useLlm ? undefined : { status: 'offline_template' };
             if (useLlm && (disc.descriptionHtml || disc.plainText || disc.snippet)) {
               try {
                 const refined = await aiConcurrencyLimiter.run(() =>
@@ -198,8 +200,17 @@ export class CareerPageCrawlerService {
                 if (refined && refined.jobTitle) {
                   extracted = { ...extracted, ...refined, applicationLink: extracted.applicationLink || disc.url };
                 }
-              } catch {
-                // Retain base extracted JD
+                extractionStatus = {
+                  status: 'ai_generated',
+                  modelUsed: llmClient.getLastModelUsed('extraction') || 'AI Model',
+                  provider: llmClient.getLastProviderUsed('extraction') || 'gateway',
+                  generatedAt: new Date().toISOString(),
+                };
+              } catch (extractErr: any) {
+                extractionStatus = {
+                  status: 'failed',
+                  error: extractErr.message || 'AI Extraction failed',
+                };
               }
             }
 
@@ -209,9 +220,28 @@ export class CareerPageCrawlerService {
             }
 
             // AI-Native / Rubric Fit Evaluation (concurrency limited)
-            const scoreResult = useLlm
-              ? await aiConcurrencyLimiter.run(() => scoreJobAgainstProfileWithAi(extracted!, profile))
-              : scoreJobAgainstProfile(extracted, profile);
+            let scoreResult: IScoreResult;
+            let scoringStatus: IJobGenerationStatusMap['scoring'];
+            if (useLlm) {
+              try {
+                scoreResult = await aiConcurrencyLimiter.run(() => scoreJobAgainstProfileWithAi(extracted!, profile));
+                scoringStatus = {
+                  status: 'ai_generated',
+                  modelUsed: llmClient.getLastModelUsed('scoring') || 'AI Model',
+                  provider: llmClient.getLastProviderUsed('scoring') || 'gateway',
+                  generatedAt: new Date().toISOString(),
+                };
+              } catch (scoreErr: any) {
+                scoreResult = scoreJobAgainstProfile(extracted, profile);
+                scoringStatus = {
+                  status: 'failed',
+                  error: scoreErr.message || 'AI Scoring failed',
+                };
+              }
+            } else {
+              scoreResult = scoreJobAgainstProfile(extracted, profile);
+              scoringStatus = { status: 'offline_template' };
+            }
 
             // ATS Resume Gap Analysis & Iterative Optimization Loop
             const atsOpt = await atsOptimizer.optimizeResumeForJob(extracted, profile);
@@ -232,12 +262,34 @@ export class CareerPageCrawlerService {
               const messageId = `web-crawl-${site.id}-${Date.now()}`;
 
               // Block G Legitimacy Audit with AI
-              const blockGAudit = useLlm
-                ? await aiConcurrencyLimiter.run(() => auditBlockGLegitimacyWithAi(extracted!, profile))
-                : auditBlockGLegitimacy(extracted);
+              let blockGAudit: IBlockGAudit;
+              let legitimacyStatus: IJobGenerationStatusMap['legitimacyAudit'];
+              if (useLlm) {
+                try {
+                  blockGAudit = await aiConcurrencyLimiter.run(() => auditBlockGLegitimacyWithAi(extracted!, profile));
+                  legitimacyStatus = {
+                    status: 'ai_generated',
+                    modelUsed: llmClient.getLastModelUsed('block_g_audit') || llmClient.getLastModelUsed('cheap_fast') || 'AI Model',
+                    provider: llmClient.getLastProviderUsed('block_g_audit') || llmClient.getLastProviderUsed('cheap_fast') || 'gateway',
+                    generatedAt: new Date().toISOString(),
+                  };
+                } catch (auditErr: any) {
+                  blockGAudit = auditBlockGLegitimacy(extracted);
+                  legitimacyStatus = {
+                    status: 'failed',
+                    error: auditErr.message || 'AI Legitimacy Audit failed',
+                  };
+                }
+              } else {
+                blockGAudit = auditBlockGLegitimacy(extracted);
+                legitimacyStatus = { status: 'offline_template' };
+              }
 
               // Downstream AI Assets Generation (Concurrency-limited & zero silent fallback)
               const downstream = await generateDownstreamAssets(extracted, profile, useLlm);
+              downstream.generationStatus.extraction = extractionStatus;
+              downstream.generationStatus.scoring = scoringStatus;
+              downstream.generationStatus.legitimacyAudit = legitimacyStatus;
 
               const job: IJob = {
                 id: jobId,

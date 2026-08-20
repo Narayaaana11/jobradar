@@ -202,7 +202,7 @@ export function JobTable({ jobs, onSelectJob, onDeleteJob, onDeleteMultipleJobs 
                       }`}>
                         {job.rubricScores?.letterGrade || (job.matchScore >= 88 ? 'A' : job.matchScore >= 74 ? 'B' : job.matchScore >= 60 ? 'C' : 'D')}
                       </span>
-                      <ScoreBadge score={job.matchScore || 0} />
+                      <ScoreBadge score={job.matchScore || 0} status={job.generationStatus?.scoring} />
                       <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-900/40">
                         ⭐ {job.rubricScores?.overallRubricRating || '4.0'}
                       </span>

@@ -278,36 +278,24 @@ export class ScrapingOverseerAgent {
       }
     }
 
-    // Local deterministic extraction fallback
+    // Local deterministic extraction fallback on real scraped text
     if (pageText && pageText.length > 250) {
       const extracted = extractJobDetails(pageText, candidateUrl);
       extracted.companyName = companyName;
       extracted.jobTitle = titleCheck.cleaned;
       extracted.applicationLink = candidateUrl;
 
-      if (extracted.skillsRequired.length > 0 || pageText.toLowerCase().includes('responsibilities') || pageText.toLowerCase().includes('requirements')) {
+      if (
+        extracted.skillsRequired.length > 0 ||
+        pageText.toLowerCase().includes('responsibilities') ||
+        pageText.toLowerCase().includes('requirements')
+      ) {
         return extracted;
       }
     }
 
-    // Synthesized high-quality JD with verified role semantics
-    let synthesizedJD = `*Company:* ${companyName}\n`;
-    synthesizedJD += `*Role:* ${titleCheck.cleaned}\n`;
-    synthesizedJD += `*Location:* India / Remote\n`;
-    synthesizedJD += `*Application Link:* ${candidateUrl}\n\n`;
-    synthesizedJD += `Official Engineering Opening at ${companyName}.\n`;
-    synthesizedJD += `We are hiring a ${titleCheck.cleaned} to join our engineering and product development teams.\n\n`;
-
-    if (fallbackKeywords.length > 0) {
-      synthesizedJD += `*Key Technical Requirements:* ${fallbackKeywords.join(', ')}\n`;
-    }
-
-    const fallbackExtracted = extractJobDetails(synthesizedJD, candidateUrl);
-    fallbackExtracted.companyName = companyName;
-    fallbackExtracted.jobTitle = titleCheck.cleaned;
-    fallbackExtracted.applicationLink = candidateUrl;
-
-    return fallbackExtracted;
+    // Never synthesize or fabricate fake JD text if neither AI nor deterministic extraction found real requirements
+    return null;
   }
 
   /**

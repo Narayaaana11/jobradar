@@ -143,7 +143,7 @@ export function KanbanBoard({ jobs, onSelectJob, onUpdateApproval, onUpdateAppli
                         </span>
                       </div>
                       <div className="flex items-center space-x-1.5">
-                        <ScoreBadge score={job.matchScore || 0} />
+                        <ScoreBadge score={job.matchScore || 0} status={job.generationStatus?.scoring} />
                         {job.applicationLink && (
                           <a
                             href={job.applicationLink}

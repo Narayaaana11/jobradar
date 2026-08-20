@@ -165,8 +165,54 @@ Compensation: $160,000 - $190,000 USD
   const logs = llmClient.getRecentExecutions();
   assert(Array.isArray(logs), 'Gateway captures structured telemetry logs');
 
-  // ── TEST 6: Career Watchlist Crawler AI Pipeline Verification ──
-  console.log('\n6. Testing Career Watchlist Crawler (Second Ingestion Pipeline):');
+  // ── TEST 6: Zero Silent Fallback & Honest Status Tracking ──
+  console.log('\n6. Testing Zero Silent Fallback in Scorer, Extractor, and Block G Audit:');
+  const { scoreJobAgainstProfileWithAi, auditBlockGLegitimacyWithAi } = await import('../src/app-core/scorer');
+  const { extractJobDetailsWithAi } = await import('../src/app-core/extractor');
+  const { scrapingOverseer } = await import('../src/app-core/scrapingOverseer');
+
+  // Empty profile (no API key configured, and offline) -> must throw error rather than silent fallback
+  const emptyProfile: IProfile = { ...testProfile, apiKey: '', groqApiKey: '', geminiApiKey: '', ollamaEndpoint: 'http://localhost:99999' };
+  
+  let scoreThrew = false;
+  try {
+    await scoreJobAgainstProfileWithAi(testJob, emptyProfile);
+  } catch (err: any) {
+    scoreThrew = true;
+    assert(err.message.length > 0, `scoreJobAgainstProfileWithAi throws on failure instead of silent fallback (${err.message})`);
+  }
+  assert(scoreThrew, 'scoreJobAgainstProfileWithAi throws when AI is unavailable');
+
+  let auditThrew = false;
+  try {
+    await auditBlockGLegitimacyWithAi(testJob, emptyProfile);
+  } catch (err: any) {
+    auditThrew = true;
+    assert(err.message.length > 0, `auditBlockGLegitimacyWithAi throws on failure instead of silent fallback (${err.message})`);
+  }
+  assert(auditThrew, 'auditBlockGLegitimacyWithAi throws when AI is unavailable');
+
+  let extractThrew = false;
+  try {
+    await extractJobDetailsWithAi('Some short text', emptyProfile);
+  } catch (err: any) {
+    extractThrew = true;
+    assert(err.message.length > 0, `extractJobDetailsWithAi throws on failure instead of silent fallback (${err.message})`);
+  }
+  assert(extractThrew, 'extractJobDetailsWithAi throws when AI is unavailable');
+
+  // ── TEST 7: Scraping Overseer Returns Null on Bogus/Boilerplate Content (No Fabricated JDs) ──
+  console.log('\n7. Testing Scraping Overseer Discards Bogus/Boilerplate Content (Zero Fabricated JDs):');
+  const emptyExtraction = await scrapingOverseer.auditAndDeepExtractJob(
+    'Random Non Job Link',
+    'https://example.com/privacy-policy',
+    'Example Corp',
+    ['Software Engineer']
+  );
+  assert(emptyExtraction === null, 'Scraping overseer returns null on boilerplate/privacy policy without fabricating JDs');
+
+  // ── TEST 8: Career Watchlist Crawler AI Pipeline Verification ──
+  console.log('\n8. Testing Career Watchlist Crawler (Second Ingestion Pipeline):');
   const { careerCrawler } = await import('../src/app-core/careerCrawler');
   const mockSite = {
     id: 'site-test-openai',
@@ -186,6 +232,33 @@ Compensation: $160,000 - $190,000 USD
     assert(typeof crawledJob.matchScore === 'number', `Scored career portal job (${crawledJob.matchScore}%)`);
     assert(crawledJob.blockGAudit !== undefined, 'Career crawler job includes Block G legitimacy audit');
     assert(crawledJob.companyName === 'OpenAI Test', 'Preserves target watchlist company metadata');
+  }
+
+  // ── TEST 9: Ingestion Pipeline with useLlm=true Records Generation Status honestly ──
+  console.log('\n9. Testing Ingestion Pipeline Per-Field Status Tracking Under AI Failures:');
+  const freshDump = `
+✨ Apex Security is actively hiring!
+Role: Senior Staff Security Architect
+Location: Austin, TX / Remote
+Skills: Cryptography, Rust, Go, Kubernetes, Zero Trust, Cloud Security
+Apply URL: https://careers.apexsecurity.io/jobs/sec-arch-99
+Compensation: $190,000 - $230,000 USD
+`;
+  const brokenAiResult = await runTargetAiPipeline(freshDump, 'Security Jobs Channel', 'telegram', true);
+  assert(brokenAiResult.jobs.length >= 1, `Ingestion pipeline processed ${brokenAiResult.jobs.length} unique job(s) with useLlm=true`);
+  if (brokenAiResult.jobs.length > 0) {
+    const job = brokenAiResult.jobs[0];
+    assert(job.generationStatus?.scoring !== undefined, 'Scoring generation status is tracked in feed card');
+    assert(job.generationStatus?.extraction !== undefined, 'Extraction generation status is tracked in feed card');
+    assert(job.generationStatus?.legitimacyAudit !== undefined, 'Legitimacy audit generation status is tracked in feed card');
+    assert(
+      job.generationStatus?.scoring?.status === 'failed' || job.generationStatus?.scoring?.status === 'ai_generated',
+      `Scoring status is honestly flagged as "${job.generationStatus?.scoring?.status}"`
+    );
+    assert(
+      job.generationStatus?.coverLetterText?.status === 'failed' || job.generationStatus?.coverLetterText?.status === 'ai_generated',
+      `Cover letter status is honestly flagged as "${job.generationStatus?.coverLetterText?.status}"`
+    );
   }
 
   console.log('\n================================================================');

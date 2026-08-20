@@ -196,6 +196,7 @@ export interface IJobGenerationStatusMap {
   followupCadence?: IFieldGenerationStatus;
   scoring?: IFieldGenerationStatus;
   extraction?: IFieldGenerationStatus;
+  legitimacyAudit?: IFieldGenerationStatus;
 }
 
 export interface IBlockGAudit {

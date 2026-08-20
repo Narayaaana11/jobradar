@@ -442,7 +442,7 @@ export function extractJobDetails(rawText: string, sourceUrl?: string): IExtract
 
 /**
  * Primary AI-Native Extractor.
- * Extracts structured metadata using the multi-provider LLM gateway, falling back to heuristic pre-pass.
+ * Extracts structured metadata using the multi-provider LLM gateway.
  */
 export async function extractJobDetailsWithAi(
   rawText: string,
@@ -453,7 +453,6 @@ export async function extractJobDetailsWithAi(
   if (aiRes.success && aiRes.data) {
     return aiRes.data;
   }
-  // Heuristic pre-pass fallback if all AI providers unavailable
-  return extractJobDetails(rawText);
+  throw new Error(aiRes.error || 'AI Structured Extraction failed.');
 }
 

@@ -2,7 +2,7 @@ import { store } from './store';
 import { IJob, IJobSource, IJobGenerationStatusMap, IReferralContact, IInterviewPrep, IInterviewMasterGuide, IColdOutreachSuite, IApplicationAnswersSuite, ISalaryNegotiationSuite } from './types';
 import { splitBulkChatText } from './bulkSplitter';
 import { extractJobDetails, extractJobDetailsWithAi, IExtractedJD } from './extractor';
-import { scoreJobAgainstProfile, scoreJobAgainstProfileWithAi, auditBlockGLegitimacy } from './scorer';
+import { scoreJobAgainstProfile, scoreJobAgainstProfileWithAi, auditBlockGLegitimacy, auditBlockGLegitimacyWithAi, IScoreResult } from './scorer';
 import { analyzeAtsCompliance } from './atsMatcher';
 import { generateReferralContacts, generateReferralContactsWithAi } from './referralGenerator';
 import { generateInterviewPrep, generateInterviewPrepWithAi } from './interviewPrep';
@@ -201,24 +201,34 @@ export async function processIngestion(
       const resolvedLink = await linkResolver.resolveLink(trimmedInput, '', { profile });
       const targetUrl = resolvedLink.canonicalUrl || trimmedInput;
 
-      onProgress?.({
-        currentJob: 1,
-        totalJobs: 1,
-        jobTitle: 'Extracting Job Details',
-        stage: 'Extracting structured JD with AI recruitment parser...',
-        inFlightAiCount: aiConcurrencyLimiter.activeJobs,
-      });
-
       // Step 5: JD Extraction (Live text + AI structured parser)
       let extracted: IExtractedJD;
-      if (resolvedLink.extractedText && resolvedLink.extractedText.length > 100) {
-        extracted = await extractJobDetailsWithAi(resolvedLink.extractedText, profile);
-        extracted.applicationLink = targetUrl;
-      } else {
+      let extractionStatus: IJobGenerationStatusMap['extraction'];
+      if (!useLlm) {
         extracted = await fetchAndExtractJobFromUrl(targetUrl);
-        if (useLlm) {
-          extracted = await extractJobDetailsWithAi(extracted.rawDescription, profile);
+        extractionStatus = { status: 'offline_template' };
+      } else {
+        try {
+          if (resolvedLink.extractedText && resolvedLink.extractedText.length > 100) {
+            extracted = await aiConcurrencyLimiter.run(() => extractJobDetailsWithAi(resolvedLink.extractedText!, profile));
+          } else {
+            const initial = await fetchAndExtractJobFromUrl(targetUrl);
+            extracted = await aiConcurrencyLimiter.run(() => extractJobDetailsWithAi(initial.rawDescription, profile));
+          }
           extracted.applicationLink = targetUrl;
+          extractionStatus = {
+            status: 'ai_generated',
+            modelUsed: llmClient.getLastModelUsed('extraction') || 'AI Model',
+            provider: llmClient.getLastProviderUsed('extraction') || 'gateway',
+            generatedAt: new Date().toISOString(),
+          };
+        } catch (extractErr: any) {
+          extracted = await fetchAndExtractJobFromUrl(targetUrl);
+          extracted.applicationLink = targetUrl;
+          extractionStatus = {
+            status: 'failed',
+            error: extractErr.message || 'AI Extraction failed',
+          };
         }
       }
 
@@ -231,14 +241,57 @@ export async function processIngestion(
       });
 
       // Step 6: AI Eligibility & Fit Evaluation
-      const scoreResult = useLlm
-        ? await scoreJobAgainstProfileWithAi(extracted, profile)
-        : scoreJobAgainstProfile(extracted, profile);
+      let scoreResult: IScoreResult;
+      let scoringStatus: IJobGenerationStatusMap['scoring'];
+      if (!useLlm) {
+        scoreResult = scoreJobAgainstProfile(extracted, profile);
+        scoringStatus = { status: 'offline_template' };
+      } else {
+        try {
+          scoreResult = await aiConcurrencyLimiter.run(() => scoreJobAgainstProfileWithAi(extracted, profile));
+          scoringStatus = {
+            status: 'ai_generated',
+            modelUsed: llmClient.getLastModelUsed('scoring') || 'AI Model',
+            provider: llmClient.getLastProviderUsed('scoring') || 'gateway',
+            generatedAt: new Date().toISOString(),
+          };
+        } catch (scoreErr: any) {
+          scoreResult = scoreJobAgainstProfile(extracted, profile);
+          scoringStatus = {
+            status: 'failed',
+            error: scoreErr.message || 'AI Scoring failed',
+          };
+        }
+      }
 
       // Step 7: ATS Resume Gap Analysis & Iterative Optimization Loop
       const atsOpt = await atsOptimizer.optimizeResumeForJob(extracted, profile);
       const atsAnalysis = analyzeAtsCompliance(extracted, profile);
       atsAnalysis.overallAtsScore = Math.max(atsAnalysis.overallAtsScore ?? 0, atsOpt.finalScore);
+
+      // Block G Legitimacy Audit
+      let blockGAudit: import('./types').IBlockGAudit;
+      let legitimacyStatus: IJobGenerationStatusMap['legitimacyAudit'];
+      if (!useLlm) {
+        blockGAudit = auditBlockGLegitimacy(extracted);
+        legitimacyStatus = { status: 'offline_template' };
+      } else {
+        try {
+          blockGAudit = await aiConcurrencyLimiter.run(() => auditBlockGLegitimacyWithAi(extracted, profile));
+          legitimacyStatus = {
+            status: 'ai_generated',
+            modelUsed: llmClient.getLastModelUsed('block_g_audit') || llmClient.getLastModelUsed('cheap_fast') || 'AI Model',
+            provider: llmClient.getLastProviderUsed('block_g_audit') || llmClient.getLastProviderUsed('cheap_fast') || 'gateway',
+            generatedAt: new Date().toISOString(),
+          };
+        } catch (auditErr: any) {
+          blockGAudit = auditBlockGLegitimacy(extracted);
+          legitimacyStatus = {
+            status: 'failed',
+            error: auditErr.message || 'AI Legitimacy Audit failed',
+          };
+        }
+      }
 
       onProgress?.({
         currentJob: 1,
@@ -250,6 +303,9 @@ export async function processIngestion(
 
       // Step 8: Downstream AI Asset Generators (Zero silent backfill)
       const downstream = await generateDownstreamAssets(extracted, profile, useLlm);
+      downstream.generationStatus.extraction = extractionStatus;
+      downstream.generationStatus.scoring = scoringStatus;
+      downstream.generationStatus.legitimacyAudit = legitimacyStatus;
 
       const jobId = `job-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
@@ -295,7 +351,7 @@ export async function processIngestion(
         interviewPrep: downstream.interviewPrep,
         coverLetterText: downstream.coverLetterText,
         resumeNotes: `Tailored resume for ${extracted.companyName} (${extracted.jobTitle})`,
-        blockGAudit: auditBlockGLegitimacy(extracted),
+        blockGAudit,
         outreachSuite: downstream.outreachSuite,
         interviewMasterGuide: downstream.interviewMasterGuide,
         followupCadence: generateFollowupCadence(extracted as IJob, profile),
@@ -338,7 +394,7 @@ export async function processIngestion(
   if (useLlm) {
     try {
       const segRes = await llmClient.segmentDumpWithAi(trimmedInput, profile);
-      if (segRes.success && segRes.data && segRes.data.postings.length > 0) {
+      if (segRes.success && segRes.data?.postings && segRes.data.postings.length > 0) {
         rawChunks = segRes.data.postings;
       } else {
         rawChunks = splitBulkChatText(trimmedInput);
@@ -350,22 +406,23 @@ export async function processIngestion(
     rawChunks = splitBulkChatText(trimmedInput);
   }
 
-  // Step 2: Noise Filtering & Triage
-  const validChunks = rawChunks.filter((chunk) => {
-    const triage = evaluateNoiseTriage(chunk);
-    return triage.isJobPosting;
-  });
+  const totalChunks = rawChunks.length;
 
-  const totalChunks = validChunks.length;
+  for (let i = 0; i < rawChunks.length; i++) {
+    const chunk = rawChunks[i];
 
-  for (let i = 0; i < totalChunks; i++) {
-    const chunk = validChunks[i];
+    // Step 2: Heuristic & AI Noise Filter Pre-Pass
+    const noiseCheck = evaluateNoiseTriage(chunk);
+    if (!noiseCheck.isJobPosting) {
+      continue;
+    }
+
     try {
       onProgress?.({
         currentJob: i + 1,
         totalJobs: totalChunks,
         jobTitle: `Job #${i + 1}`,
-        stage: 'Extracting structured details and resolving links...',
+        stage: 'Extracting job posting metadata...',
         inFlightAiCount: aiConcurrencyLimiter.activeJobs,
       });
 
@@ -387,12 +444,29 @@ export async function processIngestion(
 
       // Step 5: AI Structured Extraction
       let extracted: IExtractedJD;
+      let extractionStatus: IJobGenerationStatusMap['extraction'];
       if (useLlm) {
-        extracted = await extractJobDetailsWithAi(chunk, profile);
-        if (canonicalApplyLink) extracted.applicationLink = canonicalApplyLink;
+        try {
+          extracted = await aiConcurrencyLimiter.run(() => extractJobDetailsWithAi(chunk, profile));
+          if (canonicalApplyLink) extracted.applicationLink = canonicalApplyLink;
+          extractionStatus = {
+            status: 'ai_generated',
+            modelUsed: llmClient.getLastModelUsed('extraction') || 'AI Model',
+            provider: llmClient.getLastProviderUsed('extraction') || 'gateway',
+            generatedAt: new Date().toISOString(),
+          };
+        } catch (extractErr: any) {
+          extracted = rawExtracted;
+          if (canonicalApplyLink) extracted.applicationLink = canonicalApplyLink;
+          extractionStatus = {
+            status: 'failed',
+            error: extractErr.message || 'AI Extraction failed',
+          };
+        }
       } else {
         extracted = rawExtracted;
         if (canonicalApplyLink) extracted.applicationLink = canonicalApplyLink;
+        extractionStatus = { status: 'offline_template' };
       }
 
       // Deduplication Check
@@ -410,14 +484,57 @@ export async function processIngestion(
       });
 
       // Step 6: AI Eligibility & Fit Evaluation
-      const scoreResult = useLlm
-        ? await scoreJobAgainstProfileWithAi(extracted, profile)
-        : scoreJobAgainstProfile(extracted, profile);
+      let scoreResult: IScoreResult;
+      let scoringStatus: IJobGenerationStatusMap['scoring'];
+      if (useLlm) {
+        try {
+          scoreResult = await aiConcurrencyLimiter.run(() => scoreJobAgainstProfileWithAi(extracted, profile));
+          scoringStatus = {
+            status: 'ai_generated',
+            modelUsed: llmClient.getLastModelUsed('scoring') || 'AI Model',
+            provider: llmClient.getLastProviderUsed('scoring') || 'gateway',
+            generatedAt: new Date().toISOString(),
+          };
+        } catch (scoreErr: any) {
+          scoreResult = scoreJobAgainstProfile(extracted, profile);
+          scoringStatus = {
+            status: 'failed',
+            error: scoreErr.message || 'AI Scoring failed',
+          };
+        }
+      } else {
+        scoreResult = scoreJobAgainstProfile(extracted, profile);
+        scoringStatus = { status: 'offline_template' };
+      }
 
       // Step 7: ATS Resume Gap Analysis & Iterative Optimization Loop
       const atsOpt = await atsOptimizer.optimizeResumeForJob(extracted, profile);
       const atsAnalysis = analyzeAtsCompliance(extracted, profile);
       atsAnalysis.overallAtsScore = Math.max(atsAnalysis.overallAtsScore ?? 0, atsOpt.finalScore);
+
+      // Block G Legitimacy Audit
+      let blockGAudit: import('./types').IBlockGAudit;
+      let legitimacyStatus: IJobGenerationStatusMap['legitimacyAudit'];
+      if (!useLlm) {
+        blockGAudit = auditBlockGLegitimacy(extracted);
+        legitimacyStatus = { status: 'offline_template' };
+      } else {
+        try {
+          blockGAudit = await aiConcurrencyLimiter.run(() => auditBlockGLegitimacyWithAi(extracted, profile));
+          legitimacyStatus = {
+            status: 'ai_generated',
+            modelUsed: llmClient.getLastModelUsed('block_g_audit') || llmClient.getLastModelUsed('cheap_fast') || 'AI Model',
+            provider: llmClient.getLastProviderUsed('block_g_audit') || llmClient.getLastProviderUsed('cheap_fast') || 'gateway',
+            generatedAt: new Date().toISOString(),
+          };
+        } catch (auditErr: any) {
+          blockGAudit = auditBlockGLegitimacy(extracted);
+          legitimacyStatus = {
+            status: 'failed',
+            error: auditErr.message || 'AI Legitimacy Audit failed',
+          };
+        }
+      }
 
       onProgress?.({
         currentJob: i + 1,
@@ -429,6 +546,9 @@ export async function processIngestion(
 
       // Step 8: Downstream AI Asset Generators (Zero silent backfill)
       const downstream = await generateDownstreamAssets(extracted, profile, useLlm);
+      downstream.generationStatus.extraction = extractionStatus;
+      downstream.generationStatus.scoring = scoringStatus;
+      downstream.generationStatus.legitimacyAudit = legitimacyStatus;
 
       const jobId = `job-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
@@ -474,7 +594,7 @@ export async function processIngestion(
         interviewPrep: downstream.interviewPrep,
         coverLetterText: downstream.coverLetterText,
         resumeNotes: `Tailored resume for ${extracted.companyName} (${extracted.jobTitle})`,
-        blockGAudit: auditBlockGLegitimacy(extracted),
+        blockGAudit,
         outreachSuite: downstream.outreachSuite,
         interviewMasterGuide: downstream.interviewMasterGuide,
         followupCadence: generateFollowupCadence(extracted as IJob, profile),

@@ -87,6 +87,20 @@ export class LlmClientService {
     return [...this.recentExecutionLogs];
   }
 
+  public getLastModelUsed(taskType?: string): string | undefined {
+    const record = taskType
+      ? this.recentExecutionLogs.find((r) => r.taskType === taskType && r.success)
+      : this.recentExecutionLogs.find((r) => r.success);
+    return record?.modelUsed;
+  }
+
+  public getLastProviderUsed(taskType?: string): string | undefined {
+    const record = taskType
+      ? this.recentExecutionLogs.find((r) => r.taskType === taskType && r.success)
+      : this.recentExecutionLogs.find((r) => r.success);
+    return record?.provider;
+  }
+
   /**
    * Reads all configured provider keys and options from stored profile.
    */
