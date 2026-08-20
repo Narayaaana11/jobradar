@@ -1,4 +1,4 @@
-import { generateLocalEmbedding, cosineSimilarity, BM25Index, reciprocalRankFusion } from '../src/app-core/rag/embeddings';
+import { generateLocalEmbedding, cosineSimilarity, reciprocalRankFusion } from '../src/app-core/rag/embeddings';
 import { chunkDocument, extractKeywords } from '../src/app-core/rag/chunker';
 import { knowledgeVault } from '../src/app-core/rag/knowledgeStore';
 import { ragAugmentor } from '../src/app-core/rag/ragAugmentor';
@@ -47,11 +47,12 @@ Implemented role-based access control (RBAC) with Super Admin, Security Guard, a
 const chunks = chunkDocument({
   id: 'doc-1',
   title: 'AUSVMS Case Study',
-  category: 'project_case_study',
+  category: 'project',
   content: sampleDoc,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   tags: ['MERN', 'React', 'MongoDB'],
+  enabled: true,
 });
 console.log(`Generated ${chunks.length} chunks from document.`);
 if (chunks.length === 0) {
@@ -72,7 +73,7 @@ if (vaultStats.totalDocuments < 5) {
 }
 
 // Perform search for SDE
-const sdeResults = knowledgeVault.searchHybrid('Full Stack MERN developer React Node.js AUSVMS', 3);
+const sdeResults = knowledgeVault.searchHybrid('Full Stack MERN developer React Node.js AUSVMS', { topK: 3 });
 console.log('\nTop Results for SDE Query:');
 sdeResults.forEach((r, i) => {
   console.log(`  ${i + 1}. [${Math.round(r.similarityScore * 100)}%] ${r.chunk.documentTitle} (${r.chunk.category})`);
@@ -84,21 +85,24 @@ if (sdeResults.length === 0 || !sdeResults[0].chunk.documentTitle.includes('AUSV
 
 console.log('\n✅ TEST 3 PASSED: Knowledge Vault hybrid search functioning accurately!\n');
 
-console.log('=== TEST 4: RAG Career Copilot Chat Query ===');
+console.log('=== TEST 4: RAG Career Copilot Context Generation ===');
 
 const testChat = async () => {
-  const chatRes = await ragAugmentor.queryRagChat('What projects did Narayana build that showcase full stack architecture?');
+  const chatRes = ragAugmentor.getRagContextForJob({
+    jobTitle: 'Full Stack Developer',
+    rawDescription: 'Looking for full stack engineer experienced with AUSVMS or MERN stack.'
+  });
   console.log('AI Copilot Context Generated:');
-  console.log('  Retrieved Chunks:', chatRes.citations.length);
-  console.log('  Source Documents:', chatRes.citations.map(s => s.documentTitle).join(', '));
-  console.log('\nResponse Preview:');
-  console.log(chatRes.content.substring(0, 300) + '...\n');
+  console.log('  Retrieved Chunks:', chatRes.retrievedChunks.length);
+  console.log('  Source Documents:', chatRes.documentsReferenced.join(', '));
+  console.log('\nFormatted Context Preview:');
+  console.log(chatRes.formattedContext.substring(0, 300) + '...\n');
 
-  if (chatRes.citations.length === 0 || !chatRes.content.includes('AUSVMS')) {
-    throw new Error('FAIL: RAG Copilot failed to cite AUSVMS project in response.');
+  if (chatRes.retrievedChunks.length === 0 || !chatRes.formattedContext.includes('AUSVMS')) {
+    throw new Error('FAIL: RAG Copilot failed to cite AUSVMS project in context.');
   }
 
-  console.log('✅ TEST 4 PASSED: RAG Career Copilot query generated grounded response with citations!\n');
+  console.log('✅ TEST 4 PASSED: RAG Career Copilot context generation functioned accurately with citations!\n');
   console.log('🎉 ALL RAG & KNOWLEDGE VAULT TESTS PASSED PERFECTLY!\n');
 };
 

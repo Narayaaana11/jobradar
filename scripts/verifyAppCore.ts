@@ -62,7 +62,7 @@ for (let i = 0; i < chunks.length; i++) {
 
   // Agent 4: Resume-Matcher ATS Engine
   const ats = analyzeAtsCompliance(extracted, defaultProfile);
-  console.log(`    [Agent 4: Resume-Matcher ATS] Overall: ${ats.overallAtsScore}% | TF-IDF Cosine: ${ats.keywordDensityScore}% | Matched Hard Skills: [${ats.hardSkillsFound.join(', ')}] | Missing: [${ats.hardSkillsMissing.join(', ')}]`);
+  console.log(`    [Agent 4: Resume-Matcher ATS] Overall: ${ats.overallAtsScore}% | TF-IDF Cosine: ${ats.keywordDensityScore}% | Matched Hard Skills: [${(ats.hardSkillsFound || []).join(', ')}] | Missing: [${(ats.hardSkillsMissing || []).join(', ')}]`);
   if (typeof ats.overallAtsScore !== 'number' || ats.overallAtsScore < 50) throw new Error('Invalid ATS Score');
   if (!Array.isArray(ats.recommendations) || ats.recommendations.length === 0) throw new Error('Missing ATS recommendations list');
 
@@ -92,7 +92,7 @@ for (let i = 0; i < chunks.length; i++) {
       location: extracted.location,
       isRemote: false,
       ctcMentioned: true,
-      ctcRange: extracted.ctcRange,
+      ctcRange: extracted.ctcRange || '12 LPA',
       applicationLink: extracted.applicationLink,
       applicationDeadline: null,
       skillsRequired: extracted.skillsRequired,
@@ -101,7 +101,9 @@ for (let i = 0; i < chunks.length; i++) {
       sources: [],
       dedupHash: extracted.dedupHash,
       matchScore: score.matchScore,
-      matchConfidence: 'high',
+      matchConfidence: 0.95,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       gapAnalysis: score.gapAnalysis,
       fitBreakdown: score.fitBreakdown,
       rubricScores: score.rubricScores,
@@ -114,8 +116,6 @@ for (let i = 0; i < chunks.length; i++) {
       referralContacts: referrals,
       interviewPrep: prep,
       coverLetterText: letter,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     },
     defaultProfile
   );

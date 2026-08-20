@@ -43,7 +43,7 @@ async function testLiveScrapeAndPipeline() {
     const score = scoreJobAgainstProfile(extracted, profile);
     console.log(`⭐ Match Score: ${score.matchScore}% | Grade: ${score.rubricScores?.letterGrade} | Rec: ${score.structuredFitReport?.recommendation}`);
 
-    const ats = analyzeAtsCompliance(cleanText, profile.resumeText || '', profile.skills || []);
+    const ats = analyzeAtsCompliance(extracted as any, profile);
     console.log(`🎯 ATS Keyword Density: ${ats.keywordDensityScore}% | Matched Skills: [${(ats.hardSkillsFound || []).join(', ')}]`);
 
     const audit = auditBlockGLegitimacy(extracted);

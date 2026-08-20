@@ -29,7 +29,7 @@ async function runFullStripeWorkflow() {
   const profile: IProfile = store.getProfile();
   console.log(`👤 CANDIDATE PROFILE: ${profile.name}`);
   console.log(`🎓 Education: ${profile.education || 'Master of Computer Applications (MCA) — 2024–2026, Aditya University (CGPA: 7.70/10)'}`);
-  console.log(`💻 Technical Stack: ${(profile.primarySkills || profile.skills || []).join(', ')}\n`);
+  console.log(`💻 Technical Stack: ${(profile.primarySkills || []).join(', ')}\n`);
 
   // -------------------------------------------------------------
   // [STEP 1: AGENT 1 - Noise & Spam Triage Filter]
@@ -40,10 +40,9 @@ async function runFullStripeWorkflow() {
   const triage = evaluateNoiseTriage(rawInput);
   console.log('PROCESSING: Evaluating job indicators, course keywords, promotional spam...');
   console.log('OUTPUT:', {
-    isValidJob: triage.isValidJob,
+    isJobPosting: triage.isJobPosting,
     confidenceScore: `${triage.confidenceScore}%`,
     reason: triage.reason,
-    signals: triage.signals,
   });
   console.log('-------------------------------------------------------------\n');
 
@@ -79,9 +78,7 @@ async function runFullStripeWorkflow() {
   console.log(`  🎖️ Letter Grade: ${fitScoreResult.rubricScores?.letterGrade || fitScoreResult.structuredFitReport?.letterGrade}`);
   console.log(`  🚦 Recommendation: ${fitScoreResult.structuredFitReport?.recommendation || 'APPLY'}`);
   console.log(`  🌟 5.0 Scale Rating: ${fitScoreResult.rubricScores?.overallRubricRating || fitScoreResult.structuredFitReport?.numericalScore}/5.0`);
-  console.log(`  📌 Technical Stack Alignment: ${fitScoreResult.rubricScores?.technicalStackScore || 4.5}/5.0`);
-  console.log(`  📌 Seniority Alignment: ${fitScoreResult.rubricScores?.seniorityScore || 5.0}/5.0`);
-  console.log(`  📌 Location/Compensation Alignment: ${fitScoreResult.rubricScores?.compensationScore || 4.8}/5.0`);
+  console.log(`  📌 Technical Stack Alignment: ${fitScoreResult.rubricScores?.techStackScore || 4.5}/5.0`);
   console.log(`  💡 Summary: ${fitScoreResult.structuredFitReport?.executiveSummary || 'Strong match for candidate profile.'}`);
   console.log('-------------------------------------------------------------\n');
 
@@ -91,7 +88,7 @@ async function runFullStripeWorkflow() {
   console.log('-------------------------------------------------------------');
   console.log('🎯 [AGENT 4: ATS Resume Matcher & Keyword Gap Auditor]');
   console.log('INPUT: Extracted JD + Candidate Resume Text');
-  const atsResult = analyzeAtsCompliance(rawInput, profile.resumeText || '', profile.skills || []);
+  const atsResult = analyzeAtsCompliance(extracted as any, profile);
   console.log('PROCESSING: Running TF-IDF N-gram cosine similarity, skill taxonomy cross-referencing...');
   console.log('OUTPUT:');
   console.log(`  📈 ATS Keyword Match Score: ${atsResult.keywordDensityScore}%`);
@@ -132,7 +129,7 @@ async function runFullStripeWorkflow() {
   const latexResume = generateAtsResumeLatex(jobRecord, profile);
   const pdfBytes = await buildAtsResumePdf(jobRecord, profile);
   console.log('PROCESSING: Aligning project bullet points with Stripe engineering keywords, generating clean single-page LaTeX & PDF...');
-  console.log(`OUTPUT: LaTeX Code Generated (${latexResume.length} chars) | Single-Page PDF Compiled (${pdfBytes.length} bytes)`);
+  console.log(`OUTPUT: LaTeX Code Generated (${latexResume.length} chars) | PDF Compiled`);
   console.log(`PREVIEW (First 200 chars):\n${latexResume.slice(0, 200)}...\n`);
   console.log('-------------------------------------------------------------\n');
 

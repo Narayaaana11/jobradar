@@ -144,7 +144,8 @@ async function runOpenRouterSuite() {
       jobTitle: jobChoice.title,
       skillsRequired: [jobChoice.skill, 'TypeScript', 'Node.js', 'REST APIs'],
       rawDescription: `${jobChoice.company} is hiring ${jobChoice.title} with ${jobChoice.skill}.`,
-      dedupHash: `test-call-${i}`
+      dedupHash: `test-call-${i}`,
+      ctcMentioned: true
     };
 
     let featureName = '';

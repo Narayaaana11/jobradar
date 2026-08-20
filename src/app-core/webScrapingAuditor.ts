@@ -37,7 +37,7 @@ export class WebScrapingAuditorService {
 
     const verifiedTechStack = matchedTech.size > 0
       ? Array.from(matchedTech).slice(0, 8)
-      : (job.skillsRequired && job.skillsRequired.length > 0 ? job.skillsRequired : ['React.js', 'Node.js', 'TypeScript', 'MongoDB', 'AWS']);
+      : (job.skillsRequired && job.skillsRequired.length > 0 ? job.skillsRequired : []);
 
     const interviewQuestionsFromWeb = [
       `Explain the event loop and asynchronous concurrency model in Node.js. (Reported in ${job.companyName} technical rounds)`,

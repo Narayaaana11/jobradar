@@ -87,19 +87,18 @@ async function runS3AndPersistenceTests() {
   // TEST 13: DATA PERSISTENCE ACROSS RESTART / SERIALIZATION
   // -------------------------------------------------------------
   console.log('▶ [TEST 13] Data Persistence & Store State Round-Trip:');
-  const dummyJob: IJob = {
+  const dummyJob: any = {
     id: `job-audit-${Date.now()}`,
     companyName: 'Stripe Engineering',
     jobTitle: 'Full Stack Infrastructure Engineer',
     location: 'Bengaluru / Remote',
     skillsRequired: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'Docker'],
     matchScore: 94,
-    stage: 'discovered',
+    stage: 'approved',
     approvalStatus: 'approved',
     applicationStatus: 'not_applied',
     rawDescription: 'Stripe is hiring full stack infrastructure engineers...',
     dedupHash: 'stripe-infra-bengaluru',
-    tailoredLatex: '% LaTeX code...',
   };
 
   // Add job to store

@@ -147,7 +147,7 @@ export class LinkResolverAgent {
   /**
    * Detects embedded redirect parameters in URLs or meta refresh / window.location in HTML.
    */
-  private unwrapEmbeddedUrl(url: string, html: string): string | null {
+  public unwrapEmbeddedUrl(url: string, html: string): string | null {
     // 1. Query parameter search (e.g. ?url=https://..., ?redirect=..., ?target=...)
     try {
       const parsedUrl = new URL(url);

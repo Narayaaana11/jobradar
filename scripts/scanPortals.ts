@@ -179,17 +179,17 @@ Options:
   if (syncS3 && !dryRun) {
     console.log('\n☁️ Synchronizing pipeline state and new jobs to AWS S3...');
     try {
-      const s3Res = await s3Cloud.syncAllToS3(
+      const s3Success = await s3Cloud.syncAllToS3(
         store.getJobs(),
         store.getQueueItems(),
         store.getProfile(),
         store.getMasterResume(),
         store.getCareerWatchlist()
       );
-      if (s3Res.success) {
+      if (s3Success) {
         console.log('   ✅ AWS S3 Synchronized Successfully!');
       } else {
-        console.warn(`   ⚠️ S3 Sync Warning: ${s3Res.error}`);
+        console.warn('   ⚠️ S3 Sync Warning: Sync returned false (S3 not configured or skipped)');
       }
     } catch (s3Err: any) {
       console.warn(`   ⚠️ S3 Sync Failed: ${s3Err.message}`);

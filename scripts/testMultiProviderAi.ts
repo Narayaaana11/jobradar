@@ -7,11 +7,13 @@ async function testMultiProviderArchitecture() {
   console.log('1. Checking Provider Handlers:');
   console.log('✓ testGroqKey function available:', typeof llmClient.testGroqKey === 'function');
   console.log('✓ testGeminiKey function available:', typeof llmClient.testGeminiKey === 'function');
-  console.log('✓ callLlmMultiProvider function available:', typeof llmClient.callLlmMultiProvider === 'function');
+  console.log('✓ testGroqKey function available:', typeof llmClient.testGroqKey === 'function');
+  console.log('✓ testGeminiKey function available:', typeof llmClient.testGeminiKey === 'function');
+  console.log('✓ callLlm function available:', typeof llmClient.callLlm === 'function');
 
   // Test 2: Verify fallback cascade error format when no keys are provided
   try {
-    await llmClient.callLlmMultiProvider('test', 'test', '', '', '');
+    await llmClient.callLlm('test', 'test', '', undefined, '', '');
     console.error('❌ Expected error on empty keys');
   } catch (err: any) {
     console.log('✓ Empty key check correctly rejects with:', err.message);

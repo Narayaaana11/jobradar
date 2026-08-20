@@ -10,12 +10,10 @@ async function verifyScheduler() {
     id: 'test-scheduler-site-01',
     companyName: 'Anthropic',
     careerUrl: 'https://boards.greenhouse.io/anthropic',
-    atsPlatform: 'greenhouse',
+    category: 'AI / Machine Learning',
     enabled: true,
-    targetDepartments: ['Engineering'],
-    syncStatus: 'idle',
-    lastSyncTime: null,
-    jobsCount: 0,
+    searchKeywords: ['Software', 'Engineer'],
+    createdAt: new Date().toISOString(),
   };
   store.addCareerSite(testSite);
 
@@ -37,7 +35,7 @@ async function verifyScheduler() {
   console.log('Poll Report Summary:', {
     totalJobsDiscovered: report.totalJobsDiscovered,
     suitableJobsAdded: report.suitableJobsAdded,
-    timestamp: report.timestamp,
+    totalSitesCrawled: report.totalSitesCrawled,
   });
 
   // 4. Verify scheduler metrics updated

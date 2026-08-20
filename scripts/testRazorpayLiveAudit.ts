@@ -51,7 +51,7 @@ async function testRazorpayAiBuilders() {
   console.log('✓ Real Candidate Project (JobRadar) in Resume:', hasJobRadar);
 
   console.log('\n--- Step 4: Outreach & Referral Engine ---');
-  console.log('✓ Outreach Personas Count:', job.referralContacts?.length || job.outreachSuite?.personas?.length);
+  console.log('✓ Outreach Personas Count:', job.referralContacts?.length || job.outreachSuite?.cadenceSequence?.length || 0);
   if (job.referralContacts?.[0]) {
     console.log('  Top Persona:', job.referralContacts[0].personaTitle, '(', job.referralContacts[0].targetRole, ')');
     console.log('  LinkedIn Search URL:', job.referralContacts[0].linkedinSearchUrl);

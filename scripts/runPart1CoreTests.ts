@@ -20,14 +20,10 @@ const candidateProfile: IProfile = {
   portfolio: 'https://www.narayanathota.me',
   location: 'Bhimavaram, Andhra Pradesh',
   title: 'Full Stack Developer | React.js, Node.js, Express, MongoDB',
-  targetRoles: ['Full Stack Developer', 'Software Engineer', 'Frontend Developer', 'Backend Developer'],
   primarySkills: ['JavaScript', 'TypeScript', 'React.js', 'Node.js', 'Express.js', 'MongoDB', 'SQL', 'Git', 'REST APIs', 'Python', 'Tailwind CSS', 'Redux'],
   specializations: ['MERN Stack', 'RESTful API Architecture', 'Cloud Backups (AWS S3)'],
-  preferredLocations: ['Hyderabad', 'Bengaluru', 'Remote', 'India'],
-  expectedGraduation: '2026',
   education: 'Master of Computer Applications (MCA) — Aditya University (2024–2026)',
   experience: 'Full Stack Development Intern @ Technical Hub Pvt. Ltd. (May 2024 – Nov 2024)',
-  autoApplyThreshold: 80,
   projects: [
     {
       title: 'AUSVMS — Autonomous Visitor Management System',
@@ -275,9 +271,9 @@ Role entails building high throughput web services and scalable React frontends.
   console.log(`    ATS Format Score:  ${atsMatchRes.atsFormatScore}%`);
   console.log(`    Bullet Impact:     ${atsMatchRes.bulletImpactScore}%`);
   console.log(`    Action Verb Score: ${atsMatchRes.actionVerbScore}%`);
-  console.log(`    Hard Skills Found: [${atsMatchRes.hardSkillsFound.join(', ')}]`);
-  console.log(`    Hard Skills Miss:  [${atsMatchRes.hardSkillsMissing.join(', ')}]`);
-  console.log(`    Key Recs:          "${atsMatchRes.recommendations[0]}"\n`);
+  console.log(`    Hard Skills Found: [${(atsMatchRes.hardSkillsFound || []).join(', ')}]`);
+  console.log(`    Hard Skills Miss:  [${(atsMatchRes.hardSkillsMissing || []).join(', ')}]`);
+  console.log(`    Key Recs:          "${atsMatchRes.recommendations?.[0] || 'Optimized'}"\n`);
 
   // -------------------------------------------------------------
   // TEST 8: RESUME PDF & LATEX GENERATION

@@ -12,9 +12,9 @@ const candidateProfile: IProfile = {
   experience: 'Full-lifecycle software engineering and high-throughput distributed systems',
   linkedin: 'https://www.linkedin.com/in/narayaaana/',
   github: 'https://github.com/Narayaaana11',
+  portfolio: 'https://github.com/Narayaaana11',
   primarySkills: ['TypeScript', 'Node.js', 'Go', 'Kubernetes', 'AWS', 'Distributed Systems'],
-  secondarySkills: ['Docker', 'Kafka', 'Redis', 'GraphQL', 'PostgreSQL', 'Microservices'],
-  specializations: ['High-Throughput Ingestion', 'Event-Driven Architecture', 'Cloud Infrastructure'],
+  specializations: ['High-Throughput Ingestion', 'Event-Driven Architecture', 'Cloud Infrastructure', 'Docker', 'Kafka', 'Redis', 'GraphQL', 'PostgreSQL', 'Microservices'],
   projects: [
     {
       title: 'JobRadar Autonomous Engine',
@@ -76,14 +76,14 @@ console.log('Target Job:', jobPosting.companyName, '-', jobPosting.jobTitle);
 console.log('Candidate:', candidateProfile.name);
 console.log('Before Optimization ATS Score:', beforeAts.overallAtsScore + '%');
 console.log('  - Keyword Density Score:', beforeAts.keywordDensityScore + '%');
-console.log('  - Skills Match Score:', beforeAts.skillsMatchScore + '%');
+console.log('  - Bullet Impact Score:', beforeAts.bulletImpactScore + '%');
 console.log('  - Action Verb Score:', beforeAts.actionVerbScore + '%');
 console.log('  - Hard Skills Found:', JSON.stringify(beforeAts.hardSkillsFound));
 console.log('  - Hard Skills Missing:', JSON.stringify(beforeAts.hardSkillsMissing));
 console.log('');
 console.log('After Optimization ATS Score:', afterAts.overallAtsScore + '%');
 console.log('  - Keyword Density Score:', afterAts.keywordDensityScore + '%');
-console.log('  - Skills Match Score:', afterAts.skillsMatchScore + '%');
+console.log('  - Bullet Impact Score:', afterAts.bulletImpactScore + '%');
 console.log('  - Action Verb Score:', afterAts.actionVerbScore + '%');
 console.log('  - Hard Skills Found:', JSON.stringify(afterAts.hardSkillsFound));
 console.log('  - Hard Skills Missing:', JSON.stringify(afterAts.hardSkillsMissing));

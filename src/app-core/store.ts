@@ -351,8 +351,14 @@ class AppStore {
         this.jobs = cleanJobs;
         this.queue = storedQueue ? JSON.parse(storedQueue) : [];
         this.profile = storedProfile ? { ...defaultProfile, ...JSON.parse(storedProfile) } : defaultProfile;
-        if (!this.profile.apiKey) {
+        if (!this.profile.apiKey && defaultProfile.apiKey) {
           this.profile.apiKey = defaultProfile.apiKey;
+        }
+        if (!this.profile.groqApiKey && defaultProfile.groqApiKey) {
+          this.profile.groqApiKey = defaultProfile.groqApiKey;
+        }
+        if (!this.profile.geminiApiKey && defaultProfile.geminiApiKey) {
+          this.profile.geminiApiKey = defaultProfile.geminiApiKey;
         }
         this.masterResume = storedResume || defaultMasterResume;
         this.careerWatchlist = storedWatchlist ? JSON.parse(storedWatchlist) : DEFAULT_CAREER_WATCHLIST;

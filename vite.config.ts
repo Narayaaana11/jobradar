@@ -1,4 +1,4 @@
-import { defineConfig, Plugin } from 'vite';
+import { defineConfig, loadEnv, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -121,20 +121,28 @@ function s3DevProxyPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), s3DevProxyPlugin()],
-  base: './',
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  return {
+    define: {
+      'process.env.GROQ_API_KEY': JSON.stringify(env.GROQ_API_KEY || process.env.GROQ_API_KEY || ''),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || ''),
+      'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || ''),
     },
-  },
-  server: {
-    port: 5173,
-    strictPort: true,
-  },
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-  },
+    plugins: [react(), s3DevProxyPlugin()],
+    base: './',
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
+    },
+    server: {
+      port: 5173,
+      strictPort: true,
+    },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+    },
+  };
 });
