@@ -1965,34 +1965,44 @@ export function JobDrawer({ job, profile, onClose, onUpdateApproval, onUpdateApp
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {masterGuideData.skillGapCramSheet.crashCourseModules.map((mod, i) => (
-                          <div key={i} className="p-4 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2.5 shadow">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
-                                {mod.skill}
-                              </span>
-                              <span className="text-[10px] font-mono text-zinc-500">Module #{i + 1}</span>
+                      {masterGuideData.skillGapCramSheet.crashCourseModules.length === 0 ? (
+                        <div className="p-6 bg-[#121215] border border-emerald-800/40 rounded-[20px] text-center space-y-2">
+                          <div className="text-2xl">🎯</div>
+                          <h5 className="text-sm font-bold text-emerald-400">No Skill Gaps Identified</h5>
+                          <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                            The candidate profile directly matches all detected core technical requirements for this role.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {masterGuideData.skillGapCramSheet.crashCourseModules.map((mod, i) => (
+                            <div key={i} className="p-4 bg-[#121215] border border-[#27272a] rounded-[20px] space-y-2.5 shadow">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                                  {mod.skill}
+                                </span>
+                                <span className="text-[10px] font-mono text-zinc-500">Module #{i + 1}</span>
+                              </div>
+
+                              <p className="text-xs font-bold text-white leading-relaxed">
+                                {mod.oneLinerConcept}
+                              </p>
+
+                              <pre className="p-2.5 bg-[#09090b] border border-zinc-800 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto">
+                                {mod.essentialCodeSnippet}
+                              </pre>
+
+                              <div className="p-2.5 bg-red-950/30 border border-red-800/40 rounded-lg text-[11px] text-red-300 font-mono">
+                                ⚠️ <strong>Pitfall:</strong> {mod.commonInterviewPitfall}
+                              </div>
+
+                              <div className="p-2.5 bg-emerald-950/30 border border-emerald-800/40 rounded-lg text-[11px] text-emerald-300 font-mono">
+                                💡 <strong>Say this:</strong> {mod.winningTalkingPoint}
+                              </div>
                             </div>
-
-                            <p className="text-xs font-bold text-white leading-relaxed">
-                              {mod.oneLinerConcept}
-                            </p>
-
-                            <pre className="p-2.5 bg-[#09090b] border border-zinc-800 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto">
-                              {mod.essentialCodeSnippet}
-                            </pre>
-
-                            <div className="p-2.5 bg-red-950/30 border border-red-800/40 rounded-lg text-[11px] text-red-300 font-mono">
-                              âš ï¸ <strong>Pitfall:</strong> {mod.commonInterviewPitfall}
-                            </div>
-
-                            <div className="p-2.5 bg-emerald-950/30 border border-emerald-800/40 rounded-lg text-[11px] text-emerald-300 font-mono">
-                              ðŸ’¡ <strong>Say this:</strong> {mod.winningTalkingPoint}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -97,9 +97,8 @@ export function generateInterviewMasterGuide(job: IJob, profile: IProfile): IInt
     candidateProjectMapping: `Connect your verified background building ${candidateProjectRef} to illustrate real-world proficiency with schema design, state management, and transactional integrity.`,
   };
 
-  // 3. Skill Gap Cram Sheet
-  const fallbackMissing = missingSkills.length > 0 ? missingSkills : skills.slice(0, 3);
-  const crashCourseModules = fallbackMissing.map((skill) => ({
+  // 3. Skill Gap Cram Sheet (Honest empty state when zero skill gaps exist)
+  const crashCourseModules = missingSkills.map((skill) => ({
     skill,
     oneLinerConcept: `${skill} is a core requirement for high-scale ${role} responsibilities at ${company}.`,
     essentialCodeSnippet: `// Key architectural pattern in ${skill}\nexport const use${skill.replace(/[^a-zA-Z]/g, '')} = () => ({ status: 'ready' });`,
@@ -108,7 +107,7 @@ export function generateInterviewMasterGuide(job: IJob, profile: IProfile): IInt
   }));
 
   const skillGapCramSheet: ISkillGapCramSheet = {
-    missingSkills: fallbackMissing,
+    missingSkills,
     crashCourseModules,
   };
 

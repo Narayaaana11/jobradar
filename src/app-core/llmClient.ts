@@ -613,11 +613,13 @@ export class LlmClientService {
     }
 
     const GEMINI_MODELS = [
+      // Verified live 2026-08-20. Only gemini-3.6-flash responds successfully.
+      'gemini-3.6-flash',
+      'gemini-flash-latest',
+      'gemini-3.7-flash',
+      // Legacy models below are deprecated/removed by Google — kept as last-resort fallbacks
       'gemini-2.5-flash',
       'gemini-2.5-flash-lite',
-      'gemini-3.6-flash',
-      'gemini-3.7-flash',
-      'gemini-flash-latest',
     ];
 
     const modelsToTry = preferredModel
